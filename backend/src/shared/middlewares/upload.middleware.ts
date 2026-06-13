@@ -18,3 +18,24 @@ export const uploadXlsx = multer({
     else cb(badRequest('Arquivo deve ser uma planilha .xlsx'));
   },
 }).single('file');
+
+const DOC_MIMES = [
+  'application/pdf',
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+];
+
+/** Upload de documento (PDF ou imagem) para extração por IA, até 20 MB. */
+export const uploadDocument = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ok =
+      DOC_MIMES.includes(file.mimetype) ||
+      /\.(pdf|jpe?g|png|webp|gif)$/i.test(file.originalname);
+    if (ok) cb(null, true);
+    else cb(badRequest('Arquivo deve ser PDF ou imagem (jpg, png, webp)'));
+  },
+}).single('file');

@@ -86,4 +86,22 @@ export const quotationsController = {
       res.status(204).send();
     } catch (err) { next(err); }
   },
+
+  // ---- extração por IA (PDF/imagem) ----
+
+  async extract(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      if (!req.file) throw badRequest('Envie o documento (PDF ou imagem) no campo "file"');
+      const supplierId = Number(req.body.supplier_id);
+      if (!Number.isInteger(supplierId) || supplierId <= 0) {
+        throw badRequest('Informe o supplier_id do fornecedor do documento');
+      }
+      const mediaType = req.file.mimetype;
+      const source = mediaType === 'application/pdf' ? 'pdf' : 'image';
+      const result = await quotationsService.extractAndAdd(
+        parseId(req.params.id), supplierId, req.file.buffer, mediaType, source
+      );
+      res.status(201).json(result);
+    } catch (err) { next(err); }
+  },
 };

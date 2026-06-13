@@ -6,6 +6,7 @@ import {
   AddQuotationItemDto,
   UpdateQuotationItemDto,
 } from './quotations.dto';
+import { extractionService, ExtractedPriceRow } from './extraction.service';
 
 export interface Quotation {
   id: number;
@@ -216,6 +217,61 @@ export const quotationsService = {
       );
       return updated.rows[0];
     });
+  },
+
+  /**
+   * Extrai preços de um PDF/imagem (via Claude) e lança como itens da cotação,
+   * todos do fornecedor informado, marcados como extracted_by_ai e não revisados.
+   */
+  async extractAndAdd(
+    quotationId: number,
+    supplierId: number,
+    buffer: Buffer,
+    mediaType: string,
+    source: 'pdf' | 'image'
+  ): Promise<{ extracted: number; added: number; rows: ExtractedPriceRow[]; items: QuotationItemRow[] }> {
+    const q = await this.getById(quotationId);
+    if (q.status === 'closed') throw badRequest('Cotação fechada não aceita novos preços');
+
+    const supplier = await queryOne<{ id: number }>(
+      'SELECT id FROM suppliers WHERE id = $1', [supplierId]
+    );
+    if (!supplier) throw badRequest('Fornecedor informado não existe');
+
+    const rows = await extractionService.extractFromDocument(buffer, mediaType);
+
+    const addedIds = await withTransaction(async (client) => {
+      const ids: number[] = [];
+      for (const row of rows) {
+        // find-or-create do item sob o fornecedor (mesmo padrão do Import)
+        const existing = await client.query<{ id: number }>(
+          'SELECT id FROM items WHERE supplier_id = $1 AND lower(name) = lower($2) LIMIT 1',
+          [supplierId, row.name]
+        );
+        let itemId: number;
+        if (existing.rows[0]) {
+          itemId = existing.rows[0].id;
+        } else {
+          const created = await client.query<{ id: number }>(
+            'INSERT INTO items (supplier_id, name, unit, base_price) VALUES ($1, $2, $3, $4) RETURNING id',
+            [supplierId, row.name, row.unit, row.price]
+          );
+          itemId = created.rows[0].id;
+        }
+
+        const qi = await client.query<{ id: number }>(
+          `INSERT INTO quotation_items
+             (quotation_id, item_id, supplier_id, price, quantity, notes, source, extracted_by_ai, reviewed)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, true, false) RETURNING id`,
+          [quotationId, itemId, supplierId, row.price, row.quantity, row.notes, source]
+        );
+        ids.push(qi.rows[0].id);
+      }
+      return ids;
+    });
+
+    const items = await Promise.all(addedIds.map((id) => this.getItemRow(id)));
+    return { extracted: rows.length, added: addedIds.length, rows, items };
   },
 
   // ---- helpers ----
