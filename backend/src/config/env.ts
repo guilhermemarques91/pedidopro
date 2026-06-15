@@ -32,6 +32,11 @@ const envSchema = z.object({
   CORS_ORIGINS: z
     .string()
     .default('http://localhost:5173,http://127.0.0.1:5173,https://pedidos.guimarques.dev.br'),
+
+  // Sincronização automática do WhatsApp (caixa de entrada de preços).
+  INBOX_SYNC_CRON: z.string().default('0 7 * * *'),   // diária às 07:00
+  INBOX_SYNC_DAYS: z.coerce.number().int().positive().default(2), // janela de busca (dias)
+  INBOX_SYNC_ENABLED: z.coerce.boolean().default(true),
 });
 
 const parsed = envSchema.safeParse(process.env);

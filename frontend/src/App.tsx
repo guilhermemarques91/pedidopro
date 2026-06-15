@@ -3,6 +3,7 @@ import { useAuth } from './store/auth.store';
 import { Layout } from './components/Layout';
 import { Login } from './pages/Login';
 import { Dashboard } from './pages/Dashboard';
+import { Inbox } from './pages/Inbox';
 import { Categories } from './pages/Categories';
 import { Suppliers } from './pages/Suppliers';
 import { Items } from './pages/Items';
@@ -31,6 +32,7 @@ export default function App() {
         }
       >
         <Route index element={<Dashboard />} />
+        <Route path="inbox" element={<Inbox />} />
         <Route path="categories" element={<Categories />} />
         <Route path="suppliers" element={<Suppliers />} />
         <Route path="items" element={<Items />} />

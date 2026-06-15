@@ -1,12 +1,15 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import {
   LayoutDashboard, Tags, Truck, Package, FileSpreadsheet,
-  ClipboardList, ShoppingCart, LogOut,
+  ClipboardList, ShoppingCart, LogOut, Inbox,
 } from 'lucide-react';
 import { useAuth } from '../store/auth.store';
+import { inboxApi } from '../services/resources';
 
 const nav = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
+  { to: '/inbox', label: 'Caixa de entrada', icon: Inbox },
   { to: '/categories', label: 'Categorias', icon: Tags },
   { to: '/suppliers', label: 'Fornecedores', icon: Truck },
   { to: '/items', label: 'Itens', icon: Package },
@@ -18,6 +21,12 @@ const nav = [
 export function Layout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  // Contagem de pendentes na caixa de entrada (atualiza a cada 60s).
+  const { data: inboxCount } = useQuery({
+    queryKey: ['inbox-count'],
+    queryFn: inboxApi.count,
+    refetchInterval: 60_000,
+  });
 
   function handleLogout() {
     logout();
@@ -44,7 +53,10 @@ export function Layout() {
               }
             >
               <Icon size={18} />
-              {label}
+              <span className="flex-1">{label}</span>
+              {to === '/inbox' && inboxCount ? (
+                <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-xs font-semibold text-white">{inboxCount}</span>
+              ) : null}
             </NavLink>
           ))}
         </nav>

@@ -18,6 +18,31 @@ export interface OrderMessageData {
   created_at?: Date | string;
 }
 
+/** Registro de mensagem cru retornado pela Evolution (campos relevantes). */
+export interface EvolutionMessage {
+  key?: { id?: string; fromMe?: boolean; remoteJid?: string };
+  message?: {
+    conversation?: string;
+    extendedTextMessage?: { text?: string };
+    imageMessage?: { caption?: string };
+    documentMessage?: { caption?: string };
+  };
+  messageTimestamp?: number | string;
+  pushName?: string;
+}
+
+/** Extrai o texto de um registro de mensagem da Evolution (vários formatos). */
+export function messageText(m: EvolutionMessage): string {
+  const msg = m.message ?? {};
+  return (
+    msg.conversation ??
+    msg.extendedTextMessage?.text ??
+    msg.imageMessage?.caption ??
+    msg.documentMessage?.caption ??
+    ''
+  ).trim();
+}
+
 const client: AxiosInstance = axios.create({
   baseURL: env.EVOLUTION_API_URL,
   headers: { apikey: env.EVOLUTION_API_KEY },
@@ -71,6 +96,26 @@ export const whatsappService = {
       '',
       'Confirmar recebimento respondendo esta mensagem.',
     ].join('\n');
+  },
+
+  /**
+   * Busca mensagens de um chat (remoteJid) na Evolution.
+   * POST {EVOLUTION_API_URL}/chat/findMessages/{instance}
+   * Retorna os registros crus (key, message, messageTimestamp...).
+   */
+  async fetchMessages(remoteJid: string): Promise<EvolutionMessage[]> {
+    try {
+      const { data } = await client.post(
+        `/chat/findMessages/${env.EVOLUTION_INSTANCE}`,
+        { where: { key: { remoteJid } } }
+      );
+      const records = data?.messages?.records ?? data?.records ?? data;
+      return Array.isArray(records) ? records : [];
+    } catch (err) {
+      const detail = axios.isAxiosError(err) ? err.response?.data ?? err.message : String(err);
+      logger.error(`Falha ao buscar mensagens de ${remoteJid}:`, detail);
+      return [];
+    }
   },
 
   /**

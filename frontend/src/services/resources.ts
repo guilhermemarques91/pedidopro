@@ -96,3 +96,28 @@ export const ordersApi = {
   receive: (id: number) => api.post(`/orders/${id}/receive`).then((r) => r.data),
   cancel: (id: number) => api.post(`/orders/${id}/cancel`).then((r) => r.data),
 };
+
+// ---- Inbox (fila de revisão de preços do WhatsApp) ----
+export interface InboxRow {
+  id: number;
+  supplier_id: number;
+  supplier_name: string;
+  message_key: string;
+  raw_message: string | null;
+  item_name: string;
+  unit: string;
+  price: string | null;
+  quantity: string | null;
+  notes: string | null;
+  received_at: string | null;
+}
+export const inboxApi = {
+  list: () => api.get<InboxRow[]>('/inbox').then((r) => r.data),
+  count: () => api.get<{ count: number }>('/inbox/count').then((r) => r.data.count),
+  sync: () => api.post<{ suppliers: number; messagesScanned: number; candidates: number; itemsAdded: number }>('/inbox/sync').then((r) => r.data),
+  update: (id: number, body: Partial<Pick<InboxRow, 'item_name' | 'unit'>> & { price?: number | null; quantity?: number | null; notes?: string | null }) =>
+    api.put<InboxRow>(`/inbox/${id}`, body).then((r) => r.data),
+  approve: (ids: number[], quotationId: number) =>
+    api.post<{ approved: number; added: number }>('/inbox/approve', { ids, quotation_id: quotationId }).then((r) => r.data),
+  discard: (ids: number[]) => api.post<{ discarded: number }>('/inbox/discard', { ids }).then((r) => r.data),
+};

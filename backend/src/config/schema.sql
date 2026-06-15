@@ -148,3 +148,26 @@ CREATE TABLE imports (
   created_by    INT NOT NULL REFERENCES users(id),
   created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Fila de revisão de preços extraídos automaticamente do WhatsApp por IA.
+-- Cada linha = um item extraído de uma mensagem, aguardando aprovação.
+CREATE TABLE IF NOT EXISTS inbox_prices (
+  id           SERIAL PRIMARY KEY,
+  supplier_id  INT NOT NULL REFERENCES suppliers(id),
+  message_key  VARCHAR(128) NOT NULL,        -- id da mensagem na Evolution (dedup)
+  raw_message  TEXT,                          -- texto original da mensagem (contexto)
+  item_name    VARCHAR(200) NOT NULL,
+  unit         VARCHAR(30) NOT NULL DEFAULT 'un',
+  price        NUMERIC(12,2),
+  quantity     NUMERIC(10,3),
+  notes        TEXT,
+  status       VARCHAR(20) NOT NULL DEFAULT 'pending'
+                 CHECK (status IN ('pending', 'approved', 'discarded')),
+  received_at  TIMESTAMPTZ,                   -- timestamp da mensagem
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  reviewed_at  TIMESTAMPTZ,
+  reviewed_by  INT REFERENCES users(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_inbox_status ON inbox_prices(status, supplier_id);
+CREATE INDEX IF NOT EXISTS idx_inbox_msgkey ON inbox_prices(message_key);
