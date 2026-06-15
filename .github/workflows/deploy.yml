@@ -1,13 +1,21 @@
-name: Deploy para HostGator
+name: Deploy frontend para HostGator
+
+# Backend (Node + PostgreSQL) NÃO roda na HostGator (hospedagem compartilhada
+# Apache/PHP/MySQL) — ele fica no PC local exposto via Cloudflare tunnel em
+# pedidopro-api.guimarques.dev.br. Aqui publicamos apenas o build estático do
+# frontend React no document root do subdomínio pedidos.guimarques.dev.br.
 
 on:
   push:
     branches: [main]
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch: {}
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -17,32 +25,22 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: |
-            backend/package-lock.json
-            frontend/package-lock.json
+          cache-dependency-path: frontend/package-lock.json
 
-      - name: Build backend
-        working-directory: backend
-        run: |
-          npm ci
-          npm run build
-
-      - name: Build frontend
+      - name: Build frontend (apontando para a API pública)
         working-directory: frontend
+        env:
+          VITE_API_URL: https://pedidopro-api.guimarques.dev.br
         run: |
           npm ci
           npm run build
 
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1
+      - name: Deploy via FTP
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          host: ${{ secrets.HOSTGATOR_HOST }}
-          username: ${{ secrets.HOSTGATOR_USER }}
-          key: ${{ secrets.HOSTGATOR_SSH_KEY }}
-          port: ${{ secrets.HOSTGATOR_PORT }}
-          script: |
-            cd ~/pedidopro
-            git pull origin main
-            cd backend && npm ci --omit=dev && cd ..
-            cp -r frontend/dist ~/public_html/pedidopro/
-            pm2 restart pedidopro || pm2 start ecosystem.config.js
+          server:     ${{ secrets.FTP_SERVER }}
+          username:   ${{ secrets.FTP_USERNAME }}
+          password:   ${{ secrets.FTP_PASSWORD }}
+          server-dir: ${{ secrets.FTP_SERVER_DIR }}
+          local-dir:  ./frontend/dist/
+          dangerous-clean-slate: false

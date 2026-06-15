@@ -1,0 +1,30 @@
+# PedidoPro — frontend estático (SPA React) servido pelo Apache/LiteSpeed da HostGator.
+
+<IfModule mod_headers.c>
+    # Não cachear HTML/JSON do app — usuário recebe sempre a versão mais recente
+    # após cada deploy, sem precisar de Ctrl+F5. Os assets com hash no nome
+    # (index-XXXX.js/css) podem ser cacheados normalmente pelo navegador.
+    <FilesMatch "\.(html?|json)$">
+        Header set Cache-Control "no-cache, no-store, must-revalidate"
+        Header set Pragma "no-cache"
+        Header set Expires "0"
+    </FilesMatch>
+</IfModule>
+
+# Desliga o cache do LiteSpeed (HostGator) para o HTML do app.
+<IfModule LiteSpeed>
+    CacheDisable public /
+    RewriteEngine On
+    RewriteRule \.html?$ - [E=Cache-Control:no-cache]
+</IfModule>
+
+# SPA: qualquer rota que não seja um arquivo/diretório real cai no index.html,
+# para o React Router resolver no cliente (ex.: /orders/5 ao recarregar a página).
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /
+    RewriteRule ^index\.html$ - [L]
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule . /index.html [L]
+</IfModule>

@@ -17,6 +17,12 @@ const envSchema = z.object({
   EVOLUTION_INSTANCE: z.string().default('pedidopro'),
 
   ANTHROPIC_API_KEY: z.string({ required_error: 'ANTHROPIC_API_KEY é obrigatório' }).min(1),
+
+  // Origens liberadas no CORS (lista separada por vírgula). Default cobre o
+  // frontend de produção e o dev local.
+  CORS_ORIGINS: z
+    .string()
+    .default('http://localhost:5173,http://127.0.0.1:5173,https://pedidos.guimarques.dev.br'),
 });
 
 const parsed = envSchema.safeParse(process.env);

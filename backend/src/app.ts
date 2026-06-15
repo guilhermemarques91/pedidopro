@@ -11,11 +11,22 @@ import quotationsRoutes from './modules/quotations/quotations.routes';
 import ordersRoutes from './modules/orders/orders.routes';
 import whatsappRoutes from './modules/whatsapp/whatsapp.routes';
 import { notFoundHandler, errorHandler } from './shared/middlewares/error.middleware';
+import { env } from './config/env';
 
 const app = express();
 
+const allowedOrigins = env.CORS_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean);
+
 app.use(helmet());
-app.use(cors());
+app.use(
+  cors({
+    origin(origin, cb) {
+      // Permite requisições sem Origin (curl, apps mobile) e as da allowlist.
+      if (!origin || allowedOrigins.includes(origin)) cb(null, true);
+      else cb(new Error('Origem não permitida pelo CORS'));
+    },
+  })
+);
 app.use(compression());
 app.use(express.json());
 
