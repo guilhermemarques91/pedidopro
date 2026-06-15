@@ -14,6 +14,7 @@ export function Items() {
   const canWrite = useAuth((s) => s.hasRole('admin', 'buyer'));
   const isAdmin = useAuth((s) => s.hasRole('admin'));
   const [filter, setFilter] = useState<string>('');
+  const [search, setSearch] = useState('');
   const [editing, setEditing] = useState<Item | null>(null);
   const [open, setOpen] = useState(false);
 
@@ -28,6 +29,9 @@ export function Items() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['items'] }),
   });
 
+  const q = search.trim().toLowerCase();
+  const filtered = (data ?? []).filter((i) => !q || i.name.toLowerCase().includes(q));
+
   return (
     <div>
       <PageHeader
@@ -36,8 +40,14 @@ export function Items() {
         action={canWrite && <Button onClick={() => { setEditing(null); setOpen(true); }}><Plus size={16} /> Novo item</Button>}
       />
 
-      <div className="mb-4 max-w-xs">
-        <Select value={filter} onChange={(e) => setFilter(e.target.value)}>
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row">
+        <Input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Buscar item pelo nome…"
+          className="sm:max-w-sm"
+        />
+        <Select value={filter} onChange={(e) => setFilter(e.target.value)} className="sm:max-w-xs">
           <option value="">Todos os fornecedores</option>
           {suppliers?.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
         </Select>
@@ -46,7 +56,7 @@ export function Items() {
       {isLoading && <Spinner />}
       {error && <ErrorBox message={apiError(error)} />}
 
-      {data && (data.length === 0 ? (
+      {data && (filtered.length === 0 ? (
         <EmptyState message="Nenhum item encontrado." />
       ) : (
         <Card className="p-0">
@@ -61,7 +71,7 @@ export function Items() {
               </tr>
             </thead>
             <tbody>
-              {data.map((it) => (
+              {filtered.map((it) => (
                 <tr key={it.id} className="border-b border-slate-100 last:border-0">
                   <td className="px-5 py-3 font-medium text-slate-800">{it.name}</td>
                   <td className="px-5 py-3 text-slate-600">{it.supplier_name}</td>

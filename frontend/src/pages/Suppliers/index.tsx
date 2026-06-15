@@ -14,12 +14,21 @@ export function Suppliers() {
   const isAdmin = useAuth((s) => s.hasRole('admin'));
   const [editing, setEditing] = useState<Supplier | null>(null);
   const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('');
 
   const { data, isLoading, error } = useQuery({ queryKey: ['suppliers'], queryFn: suppliersApi.list });
+  const { data: categories } = useQuery({ queryKey: ['categories'], queryFn: categoriesApi.list });
   const remove = useMutation({
     mutationFn: suppliersApi.remove,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['suppliers'] }),
   });
+
+  const q = search.trim().toLowerCase();
+  const filtered = (data ?? []).filter((s) =>
+    (!q || s.name.toLowerCase().includes(q)) &&
+    (!categoryFilter || s.category_id === Number(categoryFilter))
+  );
 
   return (
     <div>
@@ -29,11 +38,24 @@ export function Suppliers() {
         action={canWrite && <Button onClick={() => { setEditing(null); setOpen(true); }}><Plus size={16} /> Novo fornecedor</Button>}
       />
 
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row">
+        <Input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Buscar fornecedor pelo nome…"
+          className="sm:max-w-sm"
+        />
+        <Select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="sm:max-w-xs">
+          <option value="">Todas as categorias</option>
+          {categories?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </Select>
+      </div>
+
       {isLoading && <Spinner />}
       {error && <ErrorBox message={apiError(error)} />}
 
-      {data && (data.length === 0 ? (
-        <EmptyState message="Nenhum fornecedor cadastrado. Importe uma planilha ou cadastre manualmente." />
+      {data && (filtered.length === 0 ? (
+        <EmptyState message="Nenhum fornecedor encontrado." />
       ) : (
         <Card className="p-0">
           <table className="w-full text-sm">
@@ -47,7 +69,7 @@ export function Suppliers() {
               </tr>
             </thead>
             <tbody>
-              {data.map((s) => (
+              {filtered.map((s) => (
                 <tr key={s.id} className="border-b border-slate-100 last:border-0">
                   <td className="px-5 py-3 font-medium text-slate-800">{s.name}</td>
                   <td className="px-5 py-3 text-slate-600">{s.category_name ?? '—'}</td>

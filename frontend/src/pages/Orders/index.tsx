@@ -117,7 +117,7 @@ function OrderForm({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <Modal title="Novo pedido" onClose={onClose}>
+    <Modal title="Novo pedido" onClose={onClose} size="xl">
       <form onSubmit={submit} className="space-y-4">
         {error && <ErrorBox message={error} />}
         <Field label="Fornecedor">
@@ -129,16 +129,22 @@ function OrderForm({ onClose }: { onClose: () => void }) {
 
         <div>
           <span className="mb-1 block text-sm font-medium text-slate-700">Itens</span>
-          <div className="space-y-2">
+          <div className="grid grid-cols-12 gap-2 px-1 text-xs text-slate-400">
+            <span className="col-span-6">Item</span>
+            <span className="col-span-2">Qtd</span>
+            <span className="col-span-3">Preço un.</span>
+            <span className="col-span-1" />
+          </div>
+          <div className="mt-1 space-y-2">
             {lines.map((l, i) => (
-              <div key={i} className="flex gap-2">
-                <Select value={l.item_id} onChange={(e) => pickItem(i, e.target.value)} disabled={!supplierId} className="flex-1">
+              <div key={i} className="grid grid-cols-12 items-center gap-2">
+                <Select value={l.item_id} onChange={(e) => pickItem(i, e.target.value)} disabled={!supplierId} className="col-span-6">
                   <option value="">— item —</option>
                   {items?.map((it) => <option key={it.id} value={it.id}>{it.name}</option>)}
                 </Select>
-                <Input value={l.quantity} onChange={(e) => setLine(i, { quantity: e.target.value })} placeholder="Qtd" className="w-20" />
-                <Input value={l.unit_price} onChange={(e) => setLine(i, { unit_price: e.target.value })} placeholder="Preço" className="w-24" />
-                <button type="button" onClick={() => setLines((ls) => ls.filter((_, idx) => idx !== i))} className="text-slate-400 hover:text-red-600"><Trash2 size={16} /></button>
+                <Input value={l.quantity} onChange={(e) => setLine(i, { quantity: e.target.value })} placeholder="Qtd" className="col-span-2" />
+                <Input value={l.unit_price} onChange={(e) => setLine(i, { unit_price: e.target.value })} placeholder="Preço" className="col-span-3" />
+                <button type="button" onClick={() => setLines((ls) => ls.filter((_, idx) => idx !== i))} className="col-span-1 flex justify-center text-slate-400 hover:text-red-600"><Trash2 size={16} /></button>
               </div>
             ))}
           </div>

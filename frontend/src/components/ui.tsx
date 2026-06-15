@@ -89,11 +89,14 @@ export function Badge({ status }: { status: string }) {
   );
 }
 
-export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+export function Modal({
+  title, onClose, children, size = 'lg',
+}: { title: string; onClose: () => void; children: ReactNode; size?: 'lg' | 'xl' }) {
+  const maxW = size === 'xl' ? 'max-w-2xl' : 'max-w-lg';
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div
-        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl bg-white p-6 shadow-xl"
+        className={`max-h-[90vh] w-full ${maxW} overflow-y-auto rounded-xl bg-white p-6 shadow-xl`}
         onClick={(e) => e.stopPropagation()}
       >
         <h2 className="mb-4 text-lg font-semibold text-slate-800">{title}</h2>

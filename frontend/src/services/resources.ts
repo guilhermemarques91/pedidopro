@@ -82,6 +82,13 @@ export const ordersApi = {
   get: (id: number) => api.get<OrderDetail>(`/orders/${id}`).then((r) => r.data),
   create: (body: CreateOrderBody) => api.post<OrderDetail>('/orders', body).then((r) => r.data),
   remove: (id: number) => api.delete(`/orders/${id}`).then((r) => r.data),
+  update: (id: number, body: { notes?: string }) => api.patch<OrderDetail>(`/orders/${id}`, body).then((r) => r.data),
+  addItem: (id: number, body: { item_id: number; quantity: number; unit_price: number }) =>
+    api.post<OrderDetail>(`/orders/${id}/items`, body).then((r) => r.data),
+  updateItem: (id: number, itemRowId: number, body: { quantity?: number; unit_price?: number }) =>
+    api.put<OrderDetail>(`/orders/${id}/items/${itemRowId}`, body).then((r) => r.data),
+  removeItem: (id: number, itemRowId: number) =>
+    api.delete<OrderDetail>(`/orders/${id}/items/${itemRowId}`).then((r) => r.data),
   submit: (id: number) => api.post(`/orders/${id}/submit`).then((r) => r.data),
   approve: (id: number, comment?: string) => api.post(`/orders/${id}/approve`, { comment }).then((r) => r.data),
   reject: (id: number, comment?: string) => api.post(`/orders/${id}/reject`, { comment }).then((r) => r.data),
