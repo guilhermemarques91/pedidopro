@@ -31,6 +31,11 @@ export const updateQuotationItemSchema = z.object({
   message: 'Informe ao menos um campo para atualizar',
 });
 
+export const extractTextSchema = z.object({
+  supplier_id: z.number().int().positive('supplier_id obrigatório'),
+  text: z.string().min(3, 'Cole o texto do orçamento'),
+});
+
 export type CreateQuotationDto = z.infer<typeof createQuotationSchema>;
 export type UpdateQuotationDto = z.infer<typeof updateQuotationSchema>;
 export type AddQuotationItemDto = z.infer<typeof addQuotationItemSchema>;

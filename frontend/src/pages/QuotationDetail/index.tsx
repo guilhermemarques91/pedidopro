@@ -169,36 +169,78 @@ function AddPriceForm({ qid, onClose }: { qid: number; onClose: () => void }) {
 
 function ExtractForm({ qid, onClose }: { qid: number; onClose: () => void }) {
   const { data: suppliers } = useQuery({ queryKey: ['suppliers'], queryFn: suppliersApi.list });
+  const [mode, setMode] = useState<'text' | 'file'>('text');
   const [supplierId, setSupplierId] = useState('');
+  const [text, setText] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState('');
 
   const extract = useMutation({
-    mutationFn: () => quotationsApi.extract(qid, Number(supplierId), file!),
+    mutationFn: () =>
+      mode === 'text'
+        ? quotationsApi.extractText(qid, Number(supplierId), text)
+        : quotationsApi.extract(qid, Number(supplierId), file!),
     onSuccess: onClose,
     onError: (e) => setError(apiError(e)),
   });
 
   function submit(e: FormEvent) {
     e.preventDefault(); setError('');
-    if (!supplierId || !file) { setError('Selecione fornecedor e arquivo'); return; }
+    if (!supplierId) { setError('Selecione o fornecedor'); return; }
+    if (mode === 'text' && text.trim().length < 3) { setError('Cole o texto do orçamento'); return; }
+    if (mode === 'file' && !file) { setError('Selecione o arquivo'); return; }
     extract.mutate();
   }
+
+  const tab = (m: 'text' | 'file', label: string) => (
+    <button
+      type="button"
+      onClick={() => { setMode(m); setError(''); }}
+      className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium transition ${
+        mode === m ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+      }`}
+    >
+      {label}
+    </button>
+  );
 
   return (
     <Modal title="Extrair preços por IA" onClose={onClose}>
       <form onSubmit={submit} className="space-y-4">
         {error && <ErrorBox message={error} />}
-        <p className="text-sm text-slate-500">Envie um PDF ou imagem do orçamento. A IA extrai os itens e preços do fornecedor selecionado.</p>
-        <Field label="Fornecedor do documento">
+
+        <div className="flex gap-2">
+          {tab('text', '💬 Colar texto')}
+          {tab('file', '📄 PDF / imagem')}
+        </div>
+
+        <Field label="Fornecedor">
           <Select value={supplierId} onChange={(e) => setSupplierId(e.target.value)} required>
             <option value="">— selecione —</option>
             {suppliers?.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </Select>
         </Field>
-        <Field label="Documento (PDF ou imagem)">
-          <input type="file" accept=".pdf,image/*" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="text-sm" />
-        </Field>
+
+        {mode === 'text' ? (
+          <Field label="Mensagem / orçamento">
+            <textarea
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              rows={7}
+              placeholder={'Cole aqui a mensagem do WhatsApp, ex.:\nFrango congelado 12,90 o kg\nPicanha 69,90/kg\nEmbalagem 500ml cx c/100 - 0,85'}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+            />
+          </Field>
+        ) : (
+          <Field label="Documento (PDF ou imagem)">
+            <input type="file" accept=".pdf,image/*" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="text-sm" />
+          </Field>
+        )}
+
+        <p className="text-xs text-slate-400">
+          A IA local (Ollama) extrai os itens e preços para o fornecedor selecionado. Itens entram marcados para revisão.
+        </p>
+
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button>
           <Button type="submit" disabled={extract.isPending}>{extract.isPending ? 'Extraindo...' : 'Extrair'}</Button>

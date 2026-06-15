@@ -65,6 +65,8 @@ export const quotationsApi = {
     const fd = new FormData(); fd.append('file', file); fd.append('supplier_id', String(supplierId));
     return api.post(`/quotations/${id}/extract`, fd).then((r) => r.data);
   },
+  extractText: (id: number, supplierId: number, text: string) =>
+    api.post(`/quotations/${id}/extract-text`, { supplier_id: supplierId, text }).then((r) => r.data),
 };
 
 // ---- Orders ----

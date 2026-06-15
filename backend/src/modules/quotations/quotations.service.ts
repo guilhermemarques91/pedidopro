@@ -6,7 +6,7 @@ import {
   AddQuotationItemDto,
   UpdateQuotationItemDto,
 } from './quotations.dto';
-import { extractionService, ExtractedPriceRow } from './extraction.service';
+import { extractFromText, extractFromDocument, ExtractedPriceRow } from './extraction';
 
 export interface Quotation {
   id: number;
@@ -32,6 +32,13 @@ export interface QuotationItemRow {
   item_name: string;
   unit: string;
   supplier_name: string;
+}
+
+export interface ExtractionResult {
+  extracted: number;
+  added: number;
+  rows: ExtractedPriceRow[];
+  items: QuotationItemRow[];
 }
 
 export const quotationsService = {
@@ -220,26 +227,41 @@ export const quotationsService = {
   },
 
   /**
-   * Extrai preços de um PDF/imagem (via Claude) e lança como itens da cotação,
+   * Extrai preços de um PDF/imagem (via IA) e lança como itens da cotação,
    * todos do fornecedor informado, marcados como extracted_by_ai e não revisados.
    */
   async extractAndAdd(
-    quotationId: number,
-    supplierId: number,
-    buffer: Buffer,
-    mediaType: string,
-    source: 'pdf' | 'image'
-  ): Promise<{ extracted: number; added: number; rows: ExtractedPriceRow[]; items: QuotationItemRow[] }> {
+    quotationId: number, supplierId: number, buffer: Buffer, mediaType: string, source: 'pdf' | 'image'
+  ): Promise<ExtractionResult> {
+    await this.assertExtractable(quotationId, supplierId);
+    const rows = await extractFromDocument(buffer, mediaType);
+    return this.addExtractedRows(quotationId, supplierId, rows, source);
+  },
+
+  /**
+   * Extrai preços de um texto puro (ex.: mensagem de WhatsApp colada) e lança
+   * como itens da cotação. Caminho principal: rápido em CPU, sem visão.
+   */
+  async extractAndAddFromText(
+    quotationId: number, supplierId: number, text: string
+  ): Promise<ExtractionResult> {
+    await this.assertExtractable(quotationId, supplierId);
+    const rows = await extractFromText(text);
+    return this.addExtractedRows(quotationId, supplierId, rows, 'whatsapp');
+  },
+
+  /** Valida que a cotação aceita lançamentos e que o fornecedor existe. */
+  async assertExtractable(quotationId: number, supplierId: number): Promise<void> {
     const q = await this.getById(quotationId);
     if (q.status === 'closed') throw badRequest('Cotação fechada não aceita novos preços');
-
-    const supplier = await queryOne<{ id: number }>(
-      'SELECT id FROM suppliers WHERE id = $1', [supplierId]
-    );
+    const supplier = await queryOne<{ id: number }>('SELECT id FROM suppliers WHERE id = $1', [supplierId]);
     if (!supplier) throw badRequest('Fornecedor informado não existe');
+  },
 
-    const rows = await extractionService.extractFromDocument(buffer, mediaType);
-
+  /** Grava as linhas extraídas: find-or-create do item + insert em quotation_items. */
+  async addExtractedRows(
+    quotationId: number, supplierId: number, rows: ExtractedPriceRow[], source: string
+  ): Promise<ExtractionResult> {
     const addedIds = await withTransaction(async (client) => {
       const ids: number[] = [];
       for (const row of rows) {

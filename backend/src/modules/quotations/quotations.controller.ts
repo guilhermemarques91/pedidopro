@@ -6,6 +6,7 @@ import {
   updateQuotationSchema,
   addQuotationItemSchema,
   updateQuotationItemSchema,
+  extractTextSchema,
 } from './quotations.dto';
 import { quotationsService } from './quotations.service';
 
@@ -100,6 +101,16 @@ export const quotationsController = {
       const source = mediaType === 'application/pdf' ? 'pdf' : 'image';
       const result = await quotationsService.extractAndAdd(
         parseId(req.params.id), supplierId, req.file.buffer, mediaType, source
+      );
+      res.status(201).json(result);
+    } catch (err) { next(err); }
+  },
+
+  async extractText(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const { supplier_id, text } = extractTextSchema.parse(req.body);
+      const result = await quotationsService.extractAndAddFromText(
+        parseId(req.params.id), supplier_id, text
       );
       res.status(201).json(result);
     } catch (err) { next(err); }

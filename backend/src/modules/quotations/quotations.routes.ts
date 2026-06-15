@@ -20,7 +20,10 @@ router.patch('/:id', writers, quotationsController.update);
 router.delete('/:id', writers, quotationsController.remove);
 router.post('/:id/close', writers, quotationsController.close);
 
-// Extração de preços por IA (upload de PDF/imagem → Claude)
+// Extração de preços por IA — texto (caminho principal: msg de WhatsApp)
+router.post('/:id/extract-text', writers, quotationsController.extractText);
+
+// Extração de preços por IA — upload de PDF/imagem
 router.post('/:id/extract', writers, uploadDocument, quotationsController.extract);
 
 // Itens (entrada de preços)

@@ -16,7 +16,16 @@ const envSchema = z.object({
   EVOLUTION_API_KEY: z.string({ required_error: 'EVOLUTION_API_KEY é obrigatório' }).min(1),
   EVOLUTION_INSTANCE: z.string().default('pedidopro'),
 
-  ANTHROPIC_API_KEY: z.string({ required_error: 'ANTHROPIC_API_KEY é obrigatório' }).min(1),
+  // Provedor de IA para extração de preços. Default: Ollama local (sem custo).
+  AI_PROVIDER: z.enum(['ollama', 'anthropic']).default('ollama'),
+
+  // Ollama (IA local). 127.0.0.1 por causa do Topaz (sequestra localhost).
+  OLLAMA_URL: z.string().url().default('http://127.0.0.1:11434'),
+  OLLAMA_MODEL: z.string().default('qwen2.5:3b'),          // texto (caminho principal)
+  OLLAMA_VISION_MODEL: z.string().optional(),              // visão (opcional, p/ fotos)
+
+  // Claude API — opcional; só obrigatório quando AI_PROVIDER=anthropic.
+  ANTHROPIC_API_KEY: z.string().optional(),
 
   // Origens liberadas no CORS (lista separada por vírgula). Default cobre o
   // frontend de produção e o dev local.
