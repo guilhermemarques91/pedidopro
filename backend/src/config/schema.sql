@@ -36,9 +36,20 @@ CREATE TABLE suppliers (
 
 CREATE INDEX idx_suppliers_category ON suppliers(category_id);
 
+-- Produtos canônicos: agrupam itens equivalentes de fornecedores diferentes
+-- (ex.: "Acém" e "Acém completo" → mesmo produto), para comparar preços.
+CREATE TABLE products (
+  id          SERIAL PRIMARY KEY,
+  name        VARCHAR(200) NOT NULL,
+  category_id INT REFERENCES categories(id),
+  active      BOOLEAN NOT NULL DEFAULT true,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE items (
   id            SERIAL PRIMARY KEY,
   supplier_id   INT NOT NULL REFERENCES suppliers(id),
+  product_id    INT REFERENCES products(id) ON DELETE SET NULL,
   name          VARCHAR(200) NOT NULL,
   unit          VARCHAR(30) NOT NULL,
   package_size  NUMERIC(10,3),
@@ -49,6 +60,7 @@ CREATE TABLE items (
 );
 
 CREATE INDEX idx_items_supplier ON items(supplier_id);
+CREATE INDEX idx_items_product ON items(product_id);
 
 CREATE TABLE quotations (
   id          SERIAL PRIMARY KEY,

@@ -38,10 +38,22 @@ export interface Supplier {
   created_at: string;
 }
 
+export interface Product {
+  id: number;
+  name: string;
+  category_id: number | null;
+  category_name?: string | null;
+  item_count?: string;
+  active: boolean;
+  created_at: string;
+}
+
 export interface Item {
   id: number;
   supplier_id: number;
   supplier_name?: string;
+  product_id: number | null;
+  product_name?: string | null;
   name: string;
   unit: string;
   package_size: string | null;

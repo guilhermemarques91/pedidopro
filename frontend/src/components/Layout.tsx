@@ -1,7 +1,7 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
-  LayoutDashboard, Tags, Truck, Package, FileSpreadsheet,
+  LayoutDashboard, Tags, Truck, Package, Combine, FileSpreadsheet,
   ClipboardList, ShoppingCart, LogOut, Inbox,
 } from 'lucide-react';
 import { useAuth } from '../store/auth.store';
@@ -13,6 +13,7 @@ const nav = [
   { to: '/categories', label: 'Categorias', icon: Tags },
   { to: '/suppliers', label: 'Fornecedores', icon: Truck },
   { to: '/items', label: 'Itens', icon: Package },
+  { to: '/products', label: 'Produtos', icon: Combine },
   { to: '/import', label: 'Importação', icon: FileSpreadsheet },
   { to: '/quotations', label: 'Cotações', icon: ClipboardList },
   { to: '/orders', label: 'Pedidos', icon: ShoppingCart },

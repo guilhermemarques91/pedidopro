@@ -166,26 +166,33 @@ export const quotationsService = {
   },
 
   /**
-   * Comparativo de preços: agrupa por nome do item e lista o preço de cada
-   * fornecedor, marcando o menor preço. É o que permite "comparar fornecedores".
+   * Comparativo de preços: agrupa por PRODUTO canônico (quando o item está
+   * vinculado a um) ou pelo nome do item (fallback), e marca o menor preço.
+   * É o que permite comparar "Acém" e "Acém completo" como o mesmo produto.
    */
   async comparison(quotationId: number): Promise<unknown[]> {
     await this.getById(quotationId);
-    const rows = await query<QuotationItemRow>(
-      `SELECT qi.*, i.name AS item_name, i.unit, s.name AS supplier_name
+    const rows = await query<QuotationItemRow & { product_id: number | null; product_name: string | null }>(
+      `SELECT qi.*, i.name AS item_name, i.unit, s.name AS supplier_name,
+              i.product_id, p.name AS product_name
          FROM quotation_items qi
          JOIN items i ON i.id = qi.item_id
          JOIN suppliers s ON s.id = qi.supplier_id
+         LEFT JOIN products p ON p.id = i.product_id
         WHERE qi.quotation_id = $1 AND qi.price IS NOT NULL
-        ORDER BY lower(i.name)`,
+        ORDER BY lower(COALESCE(p.name, i.name))`,
       [quotationId]
     );
 
-    const groups = new Map<string, { item: string; unit: string; offers: { supplier: string; price: number; qiId: number }[] }>();
+    const groups = new Map<string, { item: string; unit: string; offers: { supplier: string; price: number; qiId: number; itemName: string }[] }>();
     for (const r of rows) {
-      const key = r.item_name.trim().toLowerCase();
-      if (!groups.has(key)) groups.set(key, { item: r.item_name, unit: r.unit, offers: [] });
-      groups.get(key)!.offers.push({ supplier: r.supplier_name, price: Number(r.price), qiId: r.id });
+      // Agrupa por produto canônico se houver; senão, pelo nome do item.
+      const key = r.product_id ? `p${r.product_id}` : `n:${r.item_name.trim().toLowerCase()}`;
+      const groupName = r.product_name ?? r.item_name;
+      if (!groups.has(key)) groups.set(key, { item: groupName, unit: r.unit, offers: [] });
+      groups.get(key)!.offers.push({
+        supplier: r.supplier_name, price: Number(r.price), qiId: r.id, itemName: r.item_name,
+      });
     }
 
     return [...groups.values()].map((g) => {

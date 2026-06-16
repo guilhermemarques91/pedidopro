@@ -5,6 +5,7 @@ import { CreateItemDto, UpdateItemDto } from './items.dto';
 export interface Item {
   id: number;
   supplier_id: number;
+  product_id: number | null;
   name: string;
   unit: string;
   package_size: string | null; // NUMERIC volta como string no pg
@@ -16,10 +17,12 @@ export interface Item {
 
 export interface ItemWithSupplier extends Item {
   supplier_name: string;
+  product_name: string | null;
 }
 
 const COLUMNS = [
   'supplier_id',
+  'product_id',
   'name',
   'unit',
   'package_size',
@@ -41,9 +44,10 @@ export const itemsService = {
 
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     return query<ItemWithSupplier>(
-      `SELECT i.*, s.name AS supplier_name
+      `SELECT i.*, s.name AS supplier_name, p.name AS product_name
          FROM items i
          JOIN suppliers s ON s.id = i.supplier_id
+         LEFT JOIN products p ON p.id = i.product_id
          ${where}
          ORDER BY s.name, i.name`,
       params
@@ -52,9 +56,10 @@ export const itemsService = {
 
   async getById(id: number): Promise<ItemWithSupplier> {
     const row = await queryOne<ItemWithSupplier>(
-      `SELECT i.*, s.name AS supplier_name
+      `SELECT i.*, s.name AS supplier_name, p.name AS product_name
          FROM items i
          JOIN suppliers s ON s.id = i.supplier_id
+         LEFT JOIN products p ON p.id = i.product_id
         WHERE i.id = $1`,
       [id]
     );

@@ -7,6 +7,7 @@ import { Inbox } from './pages/Inbox';
 import { Categories } from './pages/Categories';
 import { Suppliers } from './pages/Suppliers';
 import { Items } from './pages/Items';
+import { Products } from './pages/Products';
 import { Import } from './pages/Import';
 import { Quotations } from './pages/Quotations';
 import { QuotationDetailPage } from './pages/QuotationDetail';
@@ -36,6 +37,7 @@ export default function App() {
         <Route path="categories" element={<Categories />} />
         <Route path="suppliers" element={<Suppliers />} />
         <Route path="items" element={<Items />} />
+        <Route path="products" element={<Products />} />
         <Route path="import" element={<Import />} />
         <Route path="quotations" element={<Quotations />} />
         <Route path="quotations/:id" element={<QuotationDetailPage />} />

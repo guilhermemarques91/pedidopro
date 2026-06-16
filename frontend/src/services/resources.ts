@@ -1,6 +1,6 @@
 import { api } from './api';
 import type {
-  Category, Supplier, Item, Quotation, QuotationDetail, ComparisonRow,
+  Category, Supplier, Item, Product, Quotation, QuotationDetail, ComparisonRow,
   Order, OrderDetail,
 } from '../types';
 
@@ -27,6 +27,24 @@ export const itemsApi = {
   create: (body: Partial<Item>) => api.post<Item>('/items', body).then((r) => r.data),
   update: (id: number, body: Partial<Item>) => api.put<Item>(`/items/${id}`, body).then((r) => r.data),
   remove: (id: number) => api.delete(`/items/${id}`).then((r) => r.data),
+};
+
+// ---- Products (produtos canônicos) ----
+export interface ProductItem { id: number; name: string; unit: string; base_price: string | null; supplier_name: string }
+export interface ProductDetail extends Product { items: ProductItem[] }
+export interface UnmappedItem { id: number; name: string; unit: string; supplier_name: string }
+export interface SuggestedGroup { suggested_name: string; item_ids: number[]; items: { id: number; name: string; supplier_name: string }[] }
+
+export const productsApi = {
+  list: () => api.get<Product[]>('/products').then((r) => r.data),
+  get: (id: number) => api.get<ProductDetail>(`/products/${id}`).then((r) => r.data),
+  unmapped: () => api.get<UnmappedItem[]>('/products/unmapped').then((r) => r.data),
+  suggest: () => api.post<SuggestedGroup[]>('/products/suggest').then((r) => r.data),
+  create: (name: string, categoryId?: number) => api.post<Product>('/products', { name, category_id: categoryId }).then((r) => r.data),
+  update: (id: number, body: { name?: string; category_id?: number | null }) => api.put<Product>(`/products/${id}`, body).then((r) => r.data),
+  remove: (id: number) => api.delete(`/products/${id}`).then((r) => r.data),
+  assign: (productId: number, itemIds: number[]) => api.post<{ assigned: number }>(`/products/${productId}/items`, { item_ids: itemIds }).then((r) => r.data),
+  unassign: (itemIds: number[]) => api.post<{ unassigned: number }>('/products/unassign', { item_ids: itemIds }).then((r) => r.data),
 };
 
 // ---- Import ----
