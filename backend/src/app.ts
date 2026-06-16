@@ -12,6 +12,8 @@ import quotationsRoutes from './modules/quotations/quotations.routes';
 import ordersRoutes from './modules/orders/orders.routes';
 import inboxRoutes from './modules/inbox/inbox.routes';
 import whatsappRoutes from './modules/whatsapp/whatsapp.routes';
+import usersRoutes from './modules/users/users.routes';
+import requestsRoutes from './modules/requests/requests.routes';
 import { notFoundHandler, errorHandler } from './shared/middlewares/error.middleware';
 import { env } from './config/env';
 
@@ -48,6 +50,8 @@ app.use('/api/quotations', quotationsRoutes);
 app.use('/api/orders', ordersRoutes);
 app.use('/api/inbox', inboxRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
+app.use('/api/users', usersRoutes);
+app.use('/api/requests', requestsRoutes);
 
 // 404 + handler global de erros (sempre por último)
 app.use(notFoundHandler);

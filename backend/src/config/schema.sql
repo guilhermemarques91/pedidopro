@@ -5,7 +5,7 @@ CREATE TABLE users (
   name       VARCHAR(150) NOT NULL,
   email      VARCHAR(150) NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
-  role       VARCHAR(20) NOT NULL CHECK (role IN ('admin', 'buyer', 'approver')),
+  role       VARCHAR(20) NOT NULL CHECK (role IN ('admin', 'buyer', 'approver', 'requester')),
   active     BOOLEAN NOT NULL DEFAULT true,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -109,6 +109,7 @@ CREATE TABLE orders (
   id               SERIAL PRIMARY KEY,
   supplier_id      INT NOT NULL REFERENCES suppliers(id),
   quotation_id     INT REFERENCES quotations(id),
+  purchase_request_id INT,  -- FK adicionada após a criação de purchase_requests (ver ALTER abaixo)
   status           VARCHAR(30) NOT NULL DEFAULT 'draft'
                      CHECK (status IN ('draft', 'pending_approval', 'approved', 'sent', 'received', 'cancelled')),
   total_amount     NUMERIC(14,2),
@@ -124,6 +125,49 @@ CREATE TABLE orders (
 CREATE INDEX idx_orders_supplier ON orders(supplier_id);
 CREATE INDEX idx_orders_status ON orders(status);
 CREATE INDEX idx_orders_created_by ON orders(created_by);
+
+-- Lista de compras (supplier-agnóstica): o funcionário escolhe PRODUTOS
+-- (ou texto livre); o admin depois aloca cada item a um fornecedor e gera
+-- 1 pedido por fornecedor.
+CREATE TABLE purchase_requests (
+  id           SERIAL PRIMARY KEY,
+  title        VARCHAR(200) NOT NULL,
+  status       VARCHAR(20) NOT NULL DEFAULT 'draft'
+                 CHECK (status IN ('draft', 'submitted', 'allocated', 'ordered', 'cancelled')),
+  notes        TEXT,
+  created_by   INT NOT NULL REFERENCES users(id),
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  submitted_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_preq_status ON purchase_requests(status);
+CREATE INDEX idx_preq_created_by ON purchase_requests(created_by);
+
+CREATE TABLE purchase_request_items (
+  id               SERIAL PRIMARY KEY,
+  request_id       INT NOT NULL REFERENCES purchase_requests(id) ON DELETE CASCADE,
+  product_id       INT REFERENCES products(id) ON DELETE SET NULL,
+  free_text        VARCHAR(200),          -- item fora do catálogo (resolvido na alocação)
+  quantity         NUMERIC(10,3) NOT NULL,
+  unit             VARCHAR(30) NOT NULL DEFAULT 'un',
+  notes            TEXT,
+  -- Alocação (preenchida pelo admin):
+  alloc_supplier_id INT REFERENCES suppliers(id),
+  alloc_item_id     INT REFERENCES items(id),
+  alloc_name        VARCHAR(200),          -- nome do item novo a criar (texto livre/manual)
+  alloc_unit        VARCHAR(30),
+  alloc_price       NUMERIC(12,2),
+  CHECK (product_id IS NOT NULL OR free_text IS NOT NULL)
+);
+
+CREATE INDEX idx_preq_items_request ON purchase_request_items(request_id);
+
+-- FK orders → purchase_requests (orders é criada antes; rastreabilidade lista→pedidos)
+ALTER TABLE orders
+  ADD CONSTRAINT fk_orders_purchase_request
+  FOREIGN KEY (purchase_request_id) REFERENCES purchase_requests(id);
+
+CREATE INDEX idx_orders_preq ON orders(purchase_request_id);
 
 CREATE TABLE order_items (
   id          SERIAL PRIMARY KEY,

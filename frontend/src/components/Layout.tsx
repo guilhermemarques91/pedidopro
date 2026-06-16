@@ -2,26 +2,31 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   LayoutDashboard, Tags, Truck, Package, Combine, FileSpreadsheet,
-  ClipboardList, ShoppingCart, LogOut, Inbox,
+  ClipboardList, ShoppingCart, LogOut, Inbox, ListChecks, Users,
 } from 'lucide-react';
 import { useAuth } from '../store/auth.store';
 import { inboxApi } from '../services/resources';
+import type { UserRole } from '../types';
 
-const nav = [
+// `roles` ausente = visível a todos os papéis autenticados.
+const nav: { to: string; label: string; icon: typeof LayoutDashboard; end?: boolean; roles?: UserRole[] }[] = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
-  { to: '/inbox', label: 'Caixa de entrada', icon: Inbox },
-  { to: '/categories', label: 'Categorias', icon: Tags },
-  { to: '/suppliers', label: 'Fornecedores', icon: Truck },
-  { to: '/items', label: 'Itens', icon: Package },
-  { to: '/products', label: 'Produtos', icon: Combine },
-  { to: '/import', label: 'Importação', icon: FileSpreadsheet },
-  { to: '/quotations', label: 'Cotações', icon: ClipboardList },
-  { to: '/orders', label: 'Pedidos', icon: ShoppingCart },
+  { to: '/requests', label: 'Lista de compras', icon: ListChecks },
+  { to: '/inbox', label: 'Caixa de entrada', icon: Inbox, roles: ['admin', 'buyer'] },
+  { to: '/categories', label: 'Categorias', icon: Tags, roles: ['admin', 'buyer'] },
+  { to: '/suppliers', label: 'Fornecedores', icon: Truck, roles: ['admin', 'buyer'] },
+  { to: '/items', label: 'Itens', icon: Package, roles: ['admin', 'buyer'] },
+  { to: '/products', label: 'Produtos', icon: Combine, roles: ['admin', 'buyer'] },
+  { to: '/import', label: 'Importação', icon: FileSpreadsheet, roles: ['admin', 'buyer'] },
+  { to: '/quotations', label: 'Cotações', icon: ClipboardList, roles: ['admin', 'buyer'] },
+  { to: '/orders', label: 'Pedidos', icon: ShoppingCart, roles: ['admin', 'buyer', 'approver'] },
+  { to: '/users', label: 'Usuários', icon: Users, roles: ['admin'] },
 ];
 
 export function Layout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const visibleNav = nav.filter((n) => !n.roles || (user && n.roles.includes(user.role)));
   // Contagem de pendentes na caixa de entrada (atualiza a cada 60s).
   const { data: inboxCount } = useQuery({
     queryKey: ['inbox-count'],
@@ -42,7 +47,7 @@ export function Layout() {
           <span className="text-xl font-bold text-slate-800">PedidoPro</span>
         </div>
         <nav className="flex-1 space-y-1 px-3">
-          {nav.map(({ to, label, icon: Icon, end }) => (
+          {visibleNav.map(({ to, label, icon: Icon, end }) => (
             <NavLink
               key={to}
               to={to}

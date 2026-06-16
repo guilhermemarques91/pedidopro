@@ -1,7 +1,7 @@
 import { api } from './api';
 import type {
   Category, Supplier, Item, Product, Quotation, QuotationDetail, ComparisonRow,
-  Order, OrderDetail,
+  Order, OrderDetail, User, UserRole, PurchaseRequest, RequestDetail,
 } from '../types';
 
 // ---- Categories ----
@@ -129,6 +129,48 @@ export interface InboxRow {
   notes: string | null;
   received_at: string | null;
 }
+// ---- Users (gestão de acesso — admin) ----
+export const usersApi = {
+  list: () => api.get<User[]>('/users').then((r) => r.data),
+  create: (body: { name: string; email: string; password: string; role: UserRole }) =>
+    api.post<User>('/users', body).then((r) => r.data),
+  update: (id: number, body: { name?: string; role?: UserRole; password?: string }) =>
+    api.put<User>(`/users/${id}`, body).then((r) => r.data),
+  setActive: (id: number, active: boolean) =>
+    api.patch<User>(`/users/${id}/active`, { active }).then((r) => r.data),
+};
+
+// ---- Requests (listas de compra) ----
+export interface RequestItemInput {
+  product_id?: number | null;
+  free_text?: string | null;
+  quantity: number;
+  unit?: string;
+  notes?: string;
+}
+export interface AllocationInput {
+  id: number;
+  supplier_id: number;
+  item_id?: number | null;
+  name?: string | null;
+  unit?: string | null;
+  price: number;
+}
+export const requestsApi = {
+  list: () => api.get<PurchaseRequest[]>('/requests').then((r) => r.data),
+  get: (id: number) => api.get<RequestDetail>(`/requests/${id}`).then((r) => r.data),
+  create: (body: { title?: string; notes?: string; items: RequestItemInput[] }) =>
+    api.post<PurchaseRequest>('/requests', body).then((r) => r.data),
+  update: (id: number, body: { title?: string; notes?: string; items: RequestItemInput[] }) =>
+    api.put<PurchaseRequest>(`/requests/${id}`, body).then((r) => r.data),
+  submit: (id: number) => api.post<PurchaseRequest>(`/requests/${id}/submit`).then((r) => r.data),
+  cancel: (id: number) => api.post<PurchaseRequest>(`/requests/${id}/cancel`).then((r) => r.data),
+  saveAllocation: (id: number, allocations: AllocationInput[]) =>
+    api.put<RequestDetail>(`/requests/${id}/allocation`, { allocations }).then((r) => r.data),
+  generateOrders: (id: number) =>
+    api.post<{ orderIds: number[] }>(`/requests/${id}/generate-orders`).then((r) => r.data),
+};
+
 export const inboxApi = {
   list: () => api.get<InboxRow[]>('/inbox').then((r) => r.data),
   count: () => api.get<{ count: number }>('/inbox/count').then((r) => r.data.count),

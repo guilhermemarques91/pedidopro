@@ -1,6 +1,6 @@
 import { Request } from 'express';
 
-export type UserRole = 'admin' | 'buyer' | 'approver';
+export type UserRole = 'admin' | 'buyer' | 'approver' | 'requester';
 
 export interface User {
   id: number;

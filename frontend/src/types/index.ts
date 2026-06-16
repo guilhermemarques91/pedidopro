@@ -1,6 +1,6 @@
 // Tipos compartilhados — espelham as respostas da API do backend.
 
-export type UserRole = 'admin' | 'buyer' | 'approver';
+export type UserRole = 'admin' | 'buyer' | 'approver' | 'requester';
 
 export interface User {
   id: number;
@@ -157,4 +157,52 @@ export interface OrderDetail extends Order {
   whatsapp_number?: string | null;
   items: OrderItem[];
   approvals: OrderApproval[];
+}
+
+// ---- Lista de compras (purchase requests) ----
+export type RequestStatus = 'draft' | 'submitted' | 'allocated' | 'ordered' | 'cancelled';
+
+export interface PurchaseRequest {
+  id: number;
+  title: string;
+  status: RequestStatus;
+  notes: string | null;
+  created_by: number;
+  created_by_name?: string;
+  item_count?: string;
+  created_at: string;
+  submitted_at: string | null;
+}
+
+export interface RequestItemOffer {
+  product_id: number;
+  item_id: number;
+  supplier_id: number;
+  supplier_name: string;
+  name: string;
+  unit: string;
+  base_price: string | null;
+}
+
+export interface RequestItem {
+  id: number;
+  request_id: number;
+  product_id: number | null;
+  product_name: string | null;
+  free_text: string | null;
+  category_id: number | null;
+  category_name: string | null;
+  quantity: string;
+  unit: string;
+  notes: string | null;
+  alloc_supplier_id: number | null;
+  alloc_item_id: number | null;
+  alloc_name: string | null;
+  alloc_unit: string | null;
+  alloc_price: string | null;
+  offers: RequestItemOffer[];
+}
+
+export interface RequestDetail extends PurchaseRequest {
+  items: RequestItem[];
 }

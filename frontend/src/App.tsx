@@ -13,6 +13,9 @@ import { Quotations } from './pages/Quotations';
 import { QuotationDetailPage } from './pages/QuotationDetail';
 import { Orders } from './pages/Orders';
 import { OrderDetailPage } from './pages/OrderDetail';
+import { Requests } from './pages/Requests';
+import { RequestDetailPage } from './pages/RequestDetail';
+import { UsersPage } from './pages/Users';
 import { JSX } from 'react';
 
 function Protected({ children }: { children: JSX.Element }) {
@@ -33,6 +36,9 @@ export default function App() {
         }
       >
         <Route index element={<Dashboard />} />
+        <Route path="requests" element={<Requests />} />
+        <Route path="requests/:id" element={<RequestDetailPage />} />
+        <Route path="users" element={<UsersPage />} />
         <Route path="inbox" element={<Inbox />} />
         <Route path="categories" element={<Categories />} />
         <Route path="suppliers" element={<Suppliers />} />

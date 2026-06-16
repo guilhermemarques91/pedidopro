@@ -68,6 +68,9 @@ const badgeColors: Record<string, string> = {
   sent: 'bg-indigo-100 text-indigo-700',
   received: 'bg-green-100 text-green-700',
   cancelled: 'bg-red-100 text-red-700',
+  submitted: 'bg-amber-100 text-amber-700',
+  allocated: 'bg-blue-100 text-blue-700',
+  ordered: 'bg-green-100 text-green-700',
 };
 
 const badgeLabels: Record<string, string> = {
@@ -79,6 +82,9 @@ const badgeLabels: Record<string, string> = {
   sent: 'Enviado',
   received: 'Recebido',
   cancelled: 'Cancelado',
+  submitted: 'Enviada p/ aprovação',
+  allocated: 'Alocada',
+  ordered: 'Pedidos gerados',
 };
 
 export function Badge({ status }: { status: string }) {
