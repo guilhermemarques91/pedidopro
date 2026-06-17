@@ -1,9 +1,10 @@
 name: Deploy frontend para HostGator
 
-# Backend (Node + PostgreSQL) NÃO roda na HostGator (hospedagem compartilhada
-# Apache/PHP/MySQL) — ele fica no PC local exposto via Cloudflare tunnel em
-# pedidopro-api.guimarques.dev.br. Aqui publicamos apenas o build estático do
-# frontend React no document root do subdomínio pedidos.guimarques.dev.br.
+# Frontend (build estático React) publicado no document root do subdomínio
+# pedidos.guimarques.dev.br. A API agora roda na mesma HostGator, em PHP,
+# servida na subpasta /api (mesma origem) — por isso VITE_API_URL fica vazio
+# e o app chama caminhos relativos "/api/...". O backend PHP é publicado pelo
+# workflow deploy-backend.yml. Apenas a Evolution API e o Ollama seguem no PC.
 
 on:
   push:
@@ -27,10 +28,11 @@ jobs:
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Build frontend (apontando para a API pública)
+      - name: Build frontend (API na mesma origem, /api)
         working-directory: frontend
         env:
-          VITE_API_URL: https://pedidopro-api.guimarques.dev.br
+          # Vazio = chamadas relativas a "/api" (mesma origem, sem CORS).
+          VITE_API_URL: ''
         run: |
           npm ci
           npm run build
@@ -44,3 +46,8 @@ jobs:
           server-dir: ${{ secrets.FTP_SERVER_DIR }}
           local-dir:  ./frontend/dist/
           dangerous-clean-slate: false
+          # Não apaga a pasta /api (backend PHP) ao sincronizar o frontend.
+          exclude: |
+            **/.git*
+            **/.git*/**
+            api/**

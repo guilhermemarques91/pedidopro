@@ -1,6 +1,6 @@
 import { FormEvent, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Pencil, Lock, Unlock } from 'lucide-react';
+import { Plus, Pencil, Lock, Unlock, Trash2 } from 'lucide-react';
 import { usersApi } from '../../services/resources';
 import { apiError } from '../../services/api';
 import { useAuth } from '../../store/auth.store';
@@ -25,6 +25,11 @@ export function UsersPage() {
   const setActive = useMutation({
     mutationFn: ({ id, active }: { id: number; active: boolean }) => usersApi.setActive(id, active),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
+  });
+  const remove = useMutation({
+    mutationFn: (id: number) => usersApi.remove(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
+    onError: (e) => alert(apiError(e)),
   });
 
   return (
@@ -66,9 +71,12 @@ export function UsersPage() {
                   <td className="px-5 py-3 text-right">
                     <button onClick={() => { setEditing(u); setOpen(true); }} className="mr-3 text-slate-400 hover:text-emerald-600" title="Editar"><Pencil size={16} /></button>
                     {u.id !== me?.id && (
-                      u.active
-                        ? <button onClick={() => setActive.mutate({ id: u.id, active: false })} className="text-slate-400 hover:text-red-600" title="Bloquear acesso"><Lock size={16} /></button>
-                        : <button onClick={() => setActive.mutate({ id: u.id, active: true })} className="text-slate-400 hover:text-emerald-600" title="Liberar acesso"><Unlock size={16} /></button>
+                      <>
+                        {u.active
+                          ? <button onClick={() => setActive.mutate({ id: u.id, active: false })} className="mr-3 text-slate-400 hover:text-red-600" title="Bloquear acesso"><Lock size={16} /></button>
+                          : <button onClick={() => setActive.mutate({ id: u.id, active: true })} className="mr-3 text-slate-400 hover:text-emerald-600" title="Liberar acesso"><Unlock size={16} /></button>}
+                        <button onClick={() => { if (confirm(`Excluir o usuário "${u.name}"? Esta ação é permanente.`)) remove.mutate(u.id); }} className="text-slate-400 hover:text-red-600" title="Excluir usuário"><Trash2 size={16} /></button>
+                      </>
                     )}
                   </td>
                 </tr>

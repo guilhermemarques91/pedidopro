@@ -1,8 +1,9 @@
+import { useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   LayoutDashboard, Tags, Truck, Package, Combine, FileSpreadsheet,
-  ClipboardList, ShoppingCart, LogOut, Inbox, ListChecks, Users,
+  ClipboardList, ShoppingCart, LogOut, Inbox, ListChecks, Users, Menu, X,
 } from 'lucide-react';
 import { useAuth } from '../store/auth.store';
 import { inboxApi } from '../services/resources';
@@ -26,6 +27,7 @@ const nav: { to: string; label: string; icon: typeof LayoutDashboard; end?: bool
 export function Layout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const [menuOpen, setMenuOpen] = useState(false);
   const visibleNav = nav.filter((n) => !n.roles || (user && n.roles.includes(user.role)));
   // Contagem de pendentes na caixa de entrada (atualiza a cada 60s).
   const { data: inboxCount } = useQuery({
@@ -41,17 +43,32 @@ export function Layout() {
 
   return (
     <div className="flex h-screen bg-slate-50">
-      <aside className="flex w-60 flex-col border-r border-slate-200 bg-white">
-        <div className="flex items-center gap-2 px-6 py-5">
-          <ShoppingCart className="text-emerald-600" size={26} />
-          <span className="text-xl font-bold text-slate-800">PedidoPro</span>
+      {/* Backdrop no mobile quando o menu está aberto */}
+      {menuOpen && (
+        <div className="fixed inset-0 z-30 bg-black/40 md:hidden" onClick={() => setMenuOpen(false)} />
+      )}
+
+      <aside
+        className={`fixed inset-y-0 left-0 z-40 flex w-60 flex-col border-r border-slate-200 bg-white transition-transform duration-200 md:static md:translate-x-0 ${
+          menuOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
+        <div className="flex items-center justify-between px-6 py-5">
+          <div className="flex items-center gap-2">
+            <ShoppingCart className="text-emerald-600" size={26} />
+            <span className="text-xl font-bold text-slate-800">PedidoPro</span>
+          </div>
+          <button onClick={() => setMenuOpen(false)} className="text-slate-400 hover:text-slate-700 md:hidden" aria-label="Fechar menu">
+            <X size={22} />
+          </button>
         </div>
-        <nav className="flex-1 space-y-1 px-3">
+        <nav className="flex-1 space-y-1 overflow-y-auto px-3">
           {visibleNav.map(({ to, label, icon: Icon, end }) => (
             <NavLink
               key={to}
               to={to}
               end={end}
+              onClick={() => setMenuOpen(false)}
               className={({ isActive }) =>
                 `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition ${
                   isActive ? 'bg-emerald-50 text-emerald-700' : 'text-slate-600 hover:bg-slate-100'
@@ -80,11 +97,25 @@ export function Layout() {
           </button>
         </div>
       </aside>
-      <main className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-6xl p-8">
-          <Outlet />
-        </div>
-      </main>
+
+      <div className="flex min-w-0 flex-1 flex-col">
+        {/* Barra superior — só no mobile */}
+        <header className="flex items-center gap-3 border-b border-slate-200 bg-white px-4 py-3 md:hidden">
+          <button onClick={() => setMenuOpen(true)} className="text-slate-600 hover:text-slate-900" aria-label="Abrir menu">
+            <Menu size={24} />
+          </button>
+          <div className="flex items-center gap-2">
+            <ShoppingCart className="text-emerald-600" size={22} />
+            <span className="text-lg font-bold text-slate-800">PedidoPro</span>
+          </div>
+        </header>
+
+        <main className="flex-1 overflow-y-auto">
+          <div className="mx-auto max-w-6xl p-4 sm:p-6 md:p-8">
+            <Outlet />
+          </div>
+        </main>
+      </div>
     </div>
   );
 }
