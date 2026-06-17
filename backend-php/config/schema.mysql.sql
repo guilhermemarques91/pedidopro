@@ -1,7 +1,26 @@
 -- PedidoPro — Schema MySQL (porte do schema PostgreSQL)
 -- Importar via phpMyAdmin no banco criado pelo cPanel.
+-- Idempotente: dropa as tabelas antes de recriar. As validações de enum
+-- (role/status/order_type/...) são feitas na aplicação (PHP), por isso não há
+-- CHECK aqui — evita incompatibilidade de parser/versão do MySQL/MariaDB.
 SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
+
+DROP TABLE IF EXISTS inbox_prices;
+DROP TABLE IF EXISTS imports;
+DROP TABLE IF EXISTS order_approvals;
+DROP TABLE IF EXISTS order_items;
+DROP TABLE IF EXISTS purchase_request_items;
+DROP TABLE IF EXISTS orders;
+DROP TABLE IF EXISTS purchase_requests;
+DROP TABLE IF EXISTS price_history;
+DROP TABLE IF EXISTS quotation_items;
+DROP TABLE IF EXISTS quotations;
+DROP TABLE IF EXISTS items;
+DROP TABLE IF EXISTS products;
+DROP TABLE IF EXISTS suppliers;
+DROP TABLE IF EXISTS categories;
+DROP TABLE IF EXISTS users;
 
 CREATE TABLE users (
   id            INT AUTO_INCREMENT PRIMARY KEY,
@@ -10,8 +29,7 @@ CREATE TABLE users (
   password_hash TEXT NOT NULL,
   role          VARCHAR(20) NOT NULL,
   active        TINYINT(1) NOT NULL DEFAULT 1,
-  created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CHECK (role IN ('admin','buyer','approver','requester'))
+  created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE categories (
@@ -36,8 +54,7 @@ CREATE TABLE suppliers (
   notes           TEXT,
   active          TINYINT(1) NOT NULL DEFAULT 1,
   created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT fk_suppliers_category FOREIGN KEY (category_id) REFERENCES categories(id),
-  CHECK (order_type IN ('portal','whatsapp'))
+  CONSTRAINT fk_suppliers_category FOREIGN KEY (category_id) REFERENCES categories(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 CREATE INDEX idx_suppliers_category ON suppliers(category_id);
 
@@ -74,8 +91,7 @@ CREATE TABLE quotations (
   created_by INT NOT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   closed_at  TIMESTAMP NULL,
-  CONSTRAINT fk_quotations_user FOREIGN KEY (created_by) REFERENCES users(id),
-  CHECK (status IN ('draft','active','closed'))
+  CONSTRAINT fk_quotations_user FOREIGN KEY (created_by) REFERENCES users(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 CREATE INDEX idx_quotations_status ON quotations(status);
 CREATE INDEX idx_quotations_created_by ON quotations(created_by);
@@ -94,8 +110,7 @@ CREATE TABLE quotation_items (
   created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_qi_quotation FOREIGN KEY (quotation_id) REFERENCES quotations(id),
   CONSTRAINT fk_qi_item FOREIGN KEY (item_id) REFERENCES items(id),
-  CONSTRAINT fk_qi_supplier FOREIGN KEY (supplier_id) REFERENCES suppliers(id),
-  CHECK (source IN ('manual','excel','pdf','image','whatsapp'))
+  CONSTRAINT fk_qi_supplier FOREIGN KEY (supplier_id) REFERENCES suppliers(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 CREATE INDEX idx_qi_quotation ON quotation_items(quotation_id);
 CREATE INDEX idx_qi_item ON quotation_items(item_id);
@@ -123,8 +138,7 @@ CREATE TABLE purchase_requests (
   created_by   INT NOT NULL,
   created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   submitted_at TIMESTAMP NULL,
-  CONSTRAINT fk_preq_user FOREIGN KEY (created_by) REFERENCES users(id),
-  CHECK (status IN ('draft','submitted','allocated','ordered','cancelled'))
+  CONSTRAINT fk_preq_user FOREIGN KEY (created_by) REFERENCES users(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 CREATE INDEX idx_preq_status ON purchase_requests(status);
 CREATE INDEX idx_preq_created_by ON purchase_requests(created_by);
@@ -147,8 +161,7 @@ CREATE TABLE orders (
   CONSTRAINT fk_orders_quotation FOREIGN KEY (quotation_id) REFERENCES quotations(id),
   CONSTRAINT fk_orders_preq FOREIGN KEY (purchase_request_id) REFERENCES purchase_requests(id),
   CONSTRAINT fk_orders_created_by FOREIGN KEY (created_by) REFERENCES users(id),
-  CONSTRAINT fk_orders_approved_by FOREIGN KEY (approved_by) REFERENCES users(id),
-  CHECK (status IN ('draft','pending_approval','approved','sent','received','cancelled'))
+  CONSTRAINT fk_orders_approved_by FOREIGN KEY (approved_by) REFERENCES users(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 CREATE INDEX idx_orders_supplier ON orders(supplier_id);
 CREATE INDEX idx_orders_status ON orders(status);
@@ -171,8 +184,7 @@ CREATE TABLE purchase_request_items (
   CONSTRAINT fk_preq_items_request FOREIGN KEY (request_id) REFERENCES purchase_requests(id) ON DELETE CASCADE,
   CONSTRAINT fk_preq_items_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL,
   CONSTRAINT fk_preq_items_supplier FOREIGN KEY (alloc_supplier_id) REFERENCES suppliers(id),
-  CONSTRAINT fk_preq_items_item FOREIGN KEY (alloc_item_id) REFERENCES items(id),
-  CHECK (product_id IS NOT NULL OR free_text IS NOT NULL)
+  CONSTRAINT fk_preq_items_item FOREIGN KEY (alloc_item_id) REFERENCES items(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 CREATE INDEX idx_preq_items_request ON purchase_request_items(request_id);
 
@@ -197,8 +209,7 @@ CREATE TABLE order_approvals (
   comment    TEXT,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_approvals_order FOREIGN KEY (order_id) REFERENCES orders(id),
-  CONSTRAINT fk_approvals_user FOREIGN KEY (user_id) REFERENCES users(id),
-  CHECK (action IN ('approved','rejected'))
+  CONSTRAINT fk_approvals_user FOREIGN KEY (user_id) REFERENCES users(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 CREATE INDEX idx_approvals_order ON order_approvals(order_id);
 
@@ -212,8 +223,7 @@ CREATE TABLE imports (
   error_log     JSON,
   created_by    INT NOT NULL,
   created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT fk_imports_user FOREIGN KEY (created_by) REFERENCES users(id),
-  CHECK (status IN ('pending','processing','done','error'))
+  CONSTRAINT fk_imports_user FOREIGN KEY (created_by) REFERENCES users(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE inbox_prices (
@@ -232,8 +242,7 @@ CREATE TABLE inbox_prices (
   reviewed_at TIMESTAMP NULL,
   reviewed_by INT,
   CONSTRAINT fk_inbox_supplier FOREIGN KEY (supplier_id) REFERENCES suppliers(id),
-  CONSTRAINT fk_inbox_user FOREIGN KEY (reviewed_by) REFERENCES users(id),
-  CHECK (status IN ('pending','approved','discarded'))
+  CONSTRAINT fk_inbox_user FOREIGN KEY (reviewed_by) REFERENCES users(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 CREATE INDEX idx_inbox_status ON inbox_prices(status, supplier_id);
 CREATE INDEX idx_inbox_msgkey ON inbox_prices(message_key);
