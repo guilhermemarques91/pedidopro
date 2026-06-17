@@ -20,10 +20,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup PHP 8.1
+      - name: Setup PHP 8.3
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.1'
+          # Casar com o cPanel da HostGator (ea-php83).
+          php-version: '8.3'
           extensions: pdo_mysql, mbstring, curl, json, gd, zip
           tools: composer
 
