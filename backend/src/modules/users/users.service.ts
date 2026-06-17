@@ -65,4 +65,16 @@ export const usersService = {
     );
     return u!;
   },
+
+  async remove(id: number, actingUserId: number): Promise<void> {
+    await this.getById(id);
+    if (id === actingUserId) throw badRequest('Você não pode excluir o seu próprio usuário');
+    // Usuários referenciados em pedidos/cotações/listas não podem ser apagados
+    // (integridade do histórico); nesse caso, oriente a bloquear o acesso.
+    try {
+      await query('DELETE FROM users WHERE id = $1', [id]);
+    } catch {
+      throw badRequest('Usuário com registros vinculados. Bloqueie o acesso em vez de excluir.');
+    }
+  },
 };

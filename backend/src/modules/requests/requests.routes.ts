@@ -17,6 +17,7 @@ router.post('/', requesters, requestsController.create);
 router.put('/:id', requesters, requestsController.update);
 router.post('/:id/submit', requesters, requestsController.submit);
 router.post('/:id/cancel', requesters, requestsController.cancel);
+router.delete('/:id', requesters, requestsController.remove);
 
 router.put('/:id/allocation', adminOnly, requestsController.allocate);
 router.post('/:id/generate-orders', adminOnly, requestsController.generateOrders);

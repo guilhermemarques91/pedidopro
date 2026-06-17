@@ -143,11 +143,11 @@ export const ordersService = {
     return updated!;
   },
 
-  /** Remove o pedido (apenas em rascunho). */
+  /** Exclui o pedido em qualquer status (limpa itens e aprovações). */
   async remove(id: number): Promise<void> {
-    const o = await this.getById(id);
-    this.assertDraft(o);
+    await this.getById(id);
     await withTransaction(async (client) => {
+      await client.query('DELETE FROM order_approvals WHERE order_id = $1', [id]);
       await client.query('DELETE FROM order_items WHERE order_id = $1', [id]);
       await client.query('DELETE FROM orders WHERE id = $1', [id]);
     });

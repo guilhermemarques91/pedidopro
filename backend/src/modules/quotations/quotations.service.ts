@@ -109,11 +109,11 @@ export const quotationsService = {
     return updated!;
   },
 
-  /** Remove a cotação e seus itens. Bloqueado se já estiver fechada. */
+  /** Exclui a cotação e seus itens (desvincula pedidos que a referenciam). */
   async remove(id: number): Promise<void> {
-    const q = await this.getById(id);
-    if (q.status === 'closed') throw badRequest('Cotação fechada não pode ser excluída');
+    await this.getById(id);
     await withTransaction(async (client) => {
+      await client.query('UPDATE orders SET quotation_id = NULL WHERE quotation_id = $1', [id]);
       await client.query('DELETE FROM quotation_items WHERE quotation_id = $1', [id]);
       await client.query('DELETE FROM quotations WHERE id = $1', [id]);
     });

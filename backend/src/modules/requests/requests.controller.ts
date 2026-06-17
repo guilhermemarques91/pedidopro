@@ -44,4 +44,10 @@ export const requestsController = {
   async cancel(req: AuthRequest, res: Response, next: NextFunction) {
     try { res.json(await requestsService.cancel(parseId(req.params.id))); } catch (err) { next(err); }
   },
+  async remove(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      await requestsService.remove(parseId(req.params.id), req.user!);
+      res.status(204).send();
+    } catch (err) { next(err); }
+  },
 };

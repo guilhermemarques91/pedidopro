@@ -1,7 +1,7 @@
 import { FormEvent, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
 import { quotationsApi } from '../../services/resources';
 import { apiError } from '../../services/api';
 import { useAuth } from '../../store/auth.store';
@@ -21,6 +21,10 @@ export function Quotations() {
     mutationFn: () => quotationsApi.create(title),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['quotations'] }); setOpen(false); setTitle(''); },
     onError: (e) => setError(apiError(e)),
+  });
+  const remove = useMutation({
+    mutationFn: (id: number) => quotationsApi.remove(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['quotations'] }),
   });
 
   function submit(e: FormEvent) { e.preventDefault(); setError(''); create.mutate(); }
@@ -47,6 +51,7 @@ export function Quotations() {
                 <th className="px-5 py-3 font-medium">Status</th>
                 <th className="px-5 py-3 font-medium">Itens</th>
                 <th className="px-5 py-3 font-medium">Criada em</th>
+                {canWrite && <th className="px-5 py-3" />}
               </tr>
             </thead>
             <tbody>
@@ -58,6 +63,17 @@ export function Quotations() {
                   <td className="px-5 py-3"><Badge status={q.status} /></td>
                   <td className="px-5 py-3 text-slate-600">{q.item_count ?? 0}</td>
                   <td className="px-5 py-3 text-slate-600">{date(q.created_at)}</td>
+                  {canWrite && (
+                    <td className="px-5 py-3 text-right">
+                      <button
+                        onClick={() => { if (confirm(`Excluir a cotação "${q.title}"?`)) remove.mutate(q.id); }}
+                        className="text-slate-300 hover:text-red-600"
+                        title="Excluir cotação"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>

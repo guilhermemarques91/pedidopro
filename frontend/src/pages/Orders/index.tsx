@@ -12,13 +12,19 @@ import { Button, Card, Field, Input, Select, Modal, Spinner, ErrorBox, EmptyStat
 const STATUS = ['', 'draft', 'pending_approval', 'approved', 'sent', 'received', 'cancelled'];
 
 export function Orders() {
+  const qc = useQueryClient();
   const canWrite = useAuth((s) => s.hasRole('admin', 'buyer'));
+  const isAdmin = useAuth((s) => s.hasRole('admin'));
   const [status, setStatus] = useState('');
   const [open, setOpen] = useState(false);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['orders', status],
     queryFn: () => ordersApi.list(status || undefined),
+  });
+  const remove = useMutation({
+    mutationFn: (id: number) => ordersApi.remove(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['orders'] }),
   });
 
   return (
@@ -50,6 +56,7 @@ export function Orders() {
                 <th className="px-5 py-3 font-medium">Status</th>
                 <th className="px-5 py-3 font-medium text-right">Total</th>
                 <th className="px-5 py-3 font-medium">Criado</th>
+                {isAdmin && <th className="px-5 py-3" />}
               </tr>
             </thead>
             <tbody>
@@ -60,6 +67,17 @@ export function Orders() {
                   <td className="px-5 py-3"><Badge status={o.status} /></td>
                   <td className="px-5 py-3 text-right text-slate-600">{brl(o.total_amount)}</td>
                   <td className="px-5 py-3 text-slate-600">{date(o.created_at)}</td>
+                  {isAdmin && (
+                    <td className="px-5 py-3 text-right">
+                      <button
+                        onClick={() => { if (confirm(`Excluir o pedido #${o.id}?`)) remove.mutate(o.id); }}
+                        className="text-slate-300 hover:text-red-600"
+                        title="Excluir pedido"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>

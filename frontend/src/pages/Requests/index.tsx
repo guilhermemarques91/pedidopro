@@ -4,17 +4,21 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2, ListChecks } from 'lucide-react';
 import { requestsApi, productsApi, RequestItemInput } from '../../services/resources';
 import { apiError } from '../../services/api';
-import type { Product } from '../../types';
 import { date } from '../../utils/format';
 import { PageHeader } from '../../components/PageHeader';
-import { Button, Card, Field, Input, Select, Modal, Badge, Spinner, ErrorBox, EmptyState } from '../../components/ui';
+import { Button, Card, Field, Input, Combobox, Modal, Badge, Spinner, ErrorBox, EmptyState, ComboOption } from '../../components/ui';
 
 // Linha em edição na nova lista.
 interface Draft { key: number; productId: string; freeText: string; quantity: string; unit: string }
 
 export function Requests() {
+  const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const { data, isLoading, error } = useQuery({ queryKey: ['requests'], queryFn: requestsApi.list });
+  const remove = useMutation({
+    mutationFn: (id: number) => requestsApi.remove(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['requests'] }),
+  });
 
   return (
     <div>
@@ -32,20 +36,27 @@ export function Requests() {
       ) : (
         <div className="space-y-2">
           {data.map((r) => (
-            <Link key={r.id} to={`/requests/${r.id}`}>
-              <Card className="flex items-center justify-between transition hover:border-emerald-300">
-                <div className="flex items-center gap-3">
-                  <ListChecks size={18} className="text-emerald-600" />
-                  <div>
-                    <p className="font-medium text-slate-800">{r.title}</p>
-                    <p className="text-xs text-slate-400">
-                      {r.item_count} item(ns) · {r.created_by_name} · {date(r.created_at)}
-                    </p>
-                  </div>
+            <Card key={r.id} className="flex items-center justify-between transition hover:border-emerald-300">
+              <Link to={`/requests/${r.id}`} className="flex flex-1 items-center gap-3">
+                <ListChecks size={18} className="text-emerald-600" />
+                <div>
+                  <p className="font-medium text-slate-800">{r.title}</p>
+                  <p className="text-xs text-slate-400">
+                    {r.item_count} item(ns) · {r.created_by_name} · {date(r.created_at)}
+                  </p>
                 </div>
+              </Link>
+              <div className="flex items-center gap-3">
                 <Badge status={r.status} />
-              </Card>
-            </Link>
+                <button
+                  onClick={() => { if (confirm(`Excluir a lista "${r.title}"?`)) remove.mutate(r.id); }}
+                  className="text-slate-300 hover:text-red-600"
+                  title="Excluir lista"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            </Card>
           ))}
         </div>
       ))}
@@ -59,13 +70,21 @@ function RequestForm({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const { data: products } = useQuery({ queryKey: ['products'], queryFn: productsApi.list });
+  const { data: unmapped } = useQuery({ queryKey: ['products', 'unmapped'], queryFn: productsApi.unmapped });
   const [title, setTitle] = useState('');
   const [lines, setLines] = useState<Draft[]>([]);
   const [error, setError] = useState('');
 
+  // Catálogo completo: produtos canônicos (agrupados) + itens ainda não agrupados.
+  // Os produtos agrupados substituem os itens que incorporam.
+  const catalog: ComboOption[] = [
+    ...(products ?? []).map((p) => ({ value: `p:${p.id}`, label: p.name, hint: p.category_name ?? undefined })),
+    ...(unmapped ?? []).map((it) => ({ value: `i:${it.id}`, label: it.name, hint: it.supplier_name })),
+  ].sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'));
+
   // Sub-form da linha atual.
   const [mode, setMode] = useState<'product' | 'free'>('product');
-  const [productId, setProductId] = useState('');
+  const [catalogSel, setCatalogSel] = useState('');
   const [freeText, setFreeText] = useState('');
   const [quantity, setQuantity] = useState('1');
   const [unit, setUnit] = useState('un');
@@ -93,19 +112,26 @@ function RequestForm({ onClose }: { onClose: () => void }) {
 
   function addLine() {
     setError('');
-    if (mode === 'product' && !productId) { setError('Escolha um produto ou use texto livre'); return; }
-    if (mode === 'free' && !freeText.trim()) { setError('Digite o nome do item'); return; }
-    setLines((ls) => [...ls, {
-      key: Date.now(),
-      productId: mode === 'product' ? productId : '',
-      freeText: mode === 'free' ? freeText.trim() : '',
-      quantity, unit,
-    }]);
-    setProductId(''); setFreeText(''); setQuantity('1'); setUnit('un');
+    if (mode === 'free') {
+      if (!freeText.trim()) { setError('Digite o nome do item'); return; }
+      setLines((ls) => [...ls, { key: Date.now(), productId: '', freeText: freeText.trim(), quantity, unit }]);
+    } else {
+      if (!catalogSel) { setError('Escolha um produto ou item'); return; }
+      const opt = catalog.find((o) => o.value === catalogSel);
+      const [kind, idStr] = catalogSel.split(':');
+      // Produto canônico → product_id. Item ainda não agrupado → texto livre com o nome do item.
+      setLines((ls) => [...ls, {
+        key: Date.now(),
+        productId: kind === 'p' ? idStr : '',
+        freeText: kind === 'p' ? '' : (opt?.label ?? ''),
+        quantity, unit,
+      }]);
+    }
+    setCatalogSel(''); setFreeText(''); setQuantity('1'); setUnit('un');
   }
 
   function nameOf(l: Draft): string {
-    if (l.productId) return (products as Product[] | undefined)?.find((p) => p.id === Number(l.productId))?.name ?? `Produto ${l.productId}`;
+    if (l.productId) return products?.find((p) => p.id === Number(l.productId))?.name ?? `Produto ${l.productId}`;
     return l.freeText;
   }
 
@@ -144,10 +170,7 @@ function RequestForm({ onClose }: { onClose: () => void }) {
             <button onClick={() => setMode('free')} className={`rounded-lg px-3 py-1 font-medium ${mode === 'free' ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600'}`}>+ outro item</button>
           </div>
           {mode === 'product' ? (
-            <Select value={productId} onChange={(e) => setProductId(e.target.value)}>
-              <option value="">— selecione o produto —</option>
-              {products?.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </Select>
+            <Combobox options={catalog} value={catalogSel} onChange={setCatalogSel} placeholder="— selecione o produto ou item —" />
           ) : (
             <Input value={freeText} onChange={(e) => setFreeText(e.target.value)} placeholder="Nome do item (ex.: Cebola)" />
           )}

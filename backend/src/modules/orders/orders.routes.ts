@@ -16,7 +16,7 @@ router.get('/:id', ordersController.getById);
 // CRUD de rascunho
 router.post('/', buyers, ordersController.create);
 router.patch('/:id', buyers, ordersController.update);
-router.delete('/:id', buyers, ordersController.remove);
+router.delete('/:id', authorize('admin'), ordersController.remove);
 
 // Itens (apenas em rascunho)
 router.post('/:id/items', buyers, ordersController.addItem);

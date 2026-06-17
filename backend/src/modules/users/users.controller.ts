@@ -32,4 +32,10 @@ export const usersController = {
       res.json(await usersService.setActive(parseId(req.params.id), active, req.user!.id));
     } catch (err) { next(err); }
   },
+  async remove(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      await usersService.remove(parseId(req.params.id), req.user!.id);
+      res.status(204).send();
+    } catch (err) { next(err); }
+  },
 };

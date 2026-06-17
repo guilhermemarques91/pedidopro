@@ -11,5 +11,6 @@ router.get('/', usersController.list);
 router.post('/', usersController.create);
 router.put('/:id', usersController.update);
 router.patch('/:id/active', usersController.setActive);
+router.delete('/:id', usersController.remove);
 
 export default router;

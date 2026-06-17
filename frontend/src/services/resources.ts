@@ -138,6 +138,7 @@ export const usersApi = {
     api.put<User>(`/users/${id}`, body).then((r) => r.data),
   setActive: (id: number, active: boolean) =>
     api.patch<User>(`/users/${id}/active`, { active }).then((r) => r.data),
+  remove: (id: number) => api.delete(`/users/${id}`).then((r) => r.data),
 };
 
 // ---- Requests (listas de compra) ----
@@ -165,6 +166,7 @@ export const requestsApi = {
     api.put<PurchaseRequest>(`/requests/${id}`, body).then((r) => r.data),
   submit: (id: number) => api.post<PurchaseRequest>(`/requests/${id}/submit`).then((r) => r.data),
   cancel: (id: number) => api.post<PurchaseRequest>(`/requests/${id}/cancel`).then((r) => r.data),
+  remove: (id: number) => api.delete(`/requests/${id}`).then((r) => r.data),
   saveAllocation: (id: number, allocations: AllocationInput[]) =>
     api.put<RequestDetail>(`/requests/${id}/allocation`, { allocations }).then((r) => r.data),
   generateOrders: (id: number) =>

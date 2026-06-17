@@ -277,6 +277,20 @@ export const requestsService = {
     return { orderIds };
   },
 
+  /** Exclui a lista (admin, ou o dono enquanto rascunho). Desvincula pedidos gerados. */
+  async remove(id: number, user: JwtPayload): Promise<void> {
+    const r = await this.getById(id);
+    if (user.role !== 'admin') {
+      if (r.created_by !== user.id) throw forbidden('Lista de outro usuário');
+      if (r.status !== 'draft') throw badRequest('Apenas listas em rascunho podem ser excluídas');
+    }
+    await withTransaction(async (client) => {
+      await client.query('UPDATE orders SET purchase_request_id = NULL WHERE purchase_request_id = $1', [id]);
+      // purchase_request_items é removido em cascata (ON DELETE CASCADE).
+      await client.query('DELETE FROM purchase_requests WHERE id = $1', [id]);
+    });
+  },
+
   async cancel(id: number): Promise<PurchaseRequest> {
     const r = await this.getById(id);
     if (r.status === 'ordered' || r.status === 'cancelled') {
