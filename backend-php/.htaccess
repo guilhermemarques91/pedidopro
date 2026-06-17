@@ -1,0 +1,24 @@
+# PedidoPro API (PHP) — publica em pedidos.guimarques.dev.br/api
+# Esta pasta é o webroot da API. O front controller é o index.php desta pasta.
+
+RewriteEngine On
+
+# Encaminha o header Authorization (alguns ambientes Apache/CGI o removem).
+RewriteCond %{HTTP:Authorization} .
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+# Bloqueia acesso direto a código/segredos (estão sob o webroot da API).
+RewriteRule ^(src|config|bin|vendor)/ - [F,L]
+<FilesMatch "(^\.env|composer\.(json|lock)|\.md)$">
+  Require all denied
+</FilesMatch>
+
+# Tudo que não for arquivo/dir real vai para o front controller.
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.php [QSA,L]
+
+# Respostas da API não devem ser cacheadas.
+<IfModule mod_headers.c>
+  Header set Cache-Control "no-store"
+</IfModule>
