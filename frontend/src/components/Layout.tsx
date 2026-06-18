@@ -8,6 +8,7 @@ import {
 import { useAuth } from '../store/auth.store';
 import { inboxApi } from '../services/resources';
 import type { UserRole } from '../types';
+import { APP_NAME, Logo } from '../config/brand';
 
 // `roles` ausente = visível a todos os papéis autenticados.
 const nav: { to: string; label: string; icon: typeof LayoutDashboard; end?: boolean; roles?: UserRole[] }[] = [
@@ -55,8 +56,8 @@ export function Layout() {
       >
         <div className="flex items-center justify-between px-6 py-5">
           <div className="flex items-center gap-2">
-            <ShoppingCart className="text-emerald-600" size={26} />
-            <span className="text-xl font-bold text-slate-800">PedidoPro</span>
+            <Logo size={26} />
+            <span className="text-xl font-bold text-slate-800">{APP_NAME}</span>
           </div>
           <button onClick={() => setMenuOpen(false)} className="text-slate-400 hover:text-slate-700 md:hidden" aria-label="Fechar menu">
             <X size={22} />
@@ -105,8 +106,8 @@ export function Layout() {
             <Menu size={24} />
           </button>
           <div className="flex items-center gap-2">
-            <ShoppingCart className="text-emerald-600" size={22} />
-            <span className="text-lg font-bold text-slate-800">PedidoPro</span>
+            <Logo size={22} />
+            <span className="text-lg font-bold text-slate-800">{APP_NAME}</span>
           </div>
         </header>
 

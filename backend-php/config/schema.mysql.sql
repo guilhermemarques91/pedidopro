@@ -69,10 +69,11 @@ CREATE TABLE products (
 
 CREATE TABLE items (
   id           INT AUTO_INCREMENT PRIMARY KEY,
-  supplier_id  INT NOT NULL,
-  product_id   INT,
-  name         VARCHAR(200) NOT NULL,
-  unit         VARCHAR(30) NOT NULL,
+  supplier_id   INT NOT NULL,
+  product_id    INT,
+  name          VARCHAR(200) NOT NULL,
+  supplier_code VARCHAR(50),
+  unit          VARCHAR(30) NOT NULL,
   package_size DECIMAL(10,3),
   package_unit VARCHAR(30),
   base_price   DECIMAL(12,2),

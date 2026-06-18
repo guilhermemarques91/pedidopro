@@ -1,4 +1,5 @@
 import { ReactNode, ButtonHTMLAttributes, InputHTMLAttributes, SelectHTMLAttributes, useEffect, useRef, useState } from 'react';
+import { MoreVertical } from 'lucide-react';
 
 type Variant = 'primary' | 'secondary' | 'danger' | 'ghost';
 
@@ -111,6 +112,62 @@ export function Combobox({
               </li>
             ))}
           </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export interface MenuAction {
+  label: string;
+  icon?: ReactNode;
+  onClick?: () => void;
+  href?: string;
+  danger?: boolean;
+}
+
+/** Menu de ações (kebab) — agrupa ações de uma linha para caber em telas pequenas. */
+export function ActionMenu({ actions }: { actions: MenuAction[] }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function onClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, []);
+
+  if (actions.length === 0) return null;
+
+  return (
+    <div className="relative inline-block text-left" ref={ref}>
+      <button
+        type="button"
+        aria-label="Ações"
+        onClick={() => setOpen((v) => !v)}
+        className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+      >
+        <MoreVertical size={18} />
+      </button>
+      {open && (
+        <div className="absolute right-0 z-30 mt-1 min-w-[11rem] overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+          {actions.map((a, i) => {
+            const cls = `flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-sm ${
+              a.danger ? 'text-red-600 hover:bg-red-50' : 'text-slate-700 hover:bg-slate-50'
+            }`;
+            const inner = <>{a.icon}<span>{a.label}</span></>;
+            return a.href ? (
+              <a key={i} href={a.href} target="_blank" rel="noreferrer" className={cls} onClick={() => setOpen(false)}>
+                {inner}
+              </a>
+            ) : (
+              <button key={i} type="button" className={cls} onClick={() => { setOpen(false); a.onClick?.(); }}>
+                {inner}
+              </button>
+            );
+          })}
         </div>
       )}
     </div>

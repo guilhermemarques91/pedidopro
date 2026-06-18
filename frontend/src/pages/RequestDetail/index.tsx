@@ -5,13 +5,20 @@ import { ArrowLeft, ShoppingCart, Trophy } from 'lucide-react';
 import { requestsApi, suppliersApi, AllocationInput } from '../../services/resources';
 import { apiError } from '../../services/api';
 import { useAuth } from '../../store/auth.store';
-import type { RequestItem } from '../../types';
+import type { RequestItem, RequestItemOffer } from '../../types';
 import { brl, parseNum } from '../../utils/format';
 import { PageHeader } from '../../components/PageHeader';
 import { Button, Card, Select, Input, Badge, Spinner, ErrorBox } from '../../components/ui';
 
 // Estado de alocação de uma linha.
 interface Alloc { source: string; supplierId: string; itemId: number | null; name: string; unit: string; price: string }
+
+// Fornecedor "principal" = oferta de menor preço base (ou a primeira cadastrada, se nenhuma tem preço).
+function principalOffer(it: RequestItem): RequestItemOffer | null {
+  const priced = it.offers.filter((o) => o.base_price != null);
+  if (priced.length === 0) return it.offers[0] ?? null;
+  return priced.reduce((a, b) => (Number(b.base_price) < Number(a.base_price) ? b : a));
+}
 
 function initAlloc(it: RequestItem): Alloc {
   if (it.alloc_supplier_id) {
@@ -160,9 +167,19 @@ export function RequestDetailPage() {
                         </td>
                       ) : (
                         <td className="px-4 py-3 text-right text-slate-500">
-                          {it.alloc_supplier_id
-                            ? <span>{suppliers?.find((s) => s.id === it.alloc_supplier_id)?.name ?? `Fornecedor ${it.alloc_supplier_id}`} · {brl(it.alloc_price)}</span>
-                            : <span className="text-xs text-slate-400">aguardando alocação</span>}
+                          {it.alloc_supplier_id ? (
+                            <span>{suppliers?.find((s) => s.id === it.alloc_supplier_id)?.name ?? it.alloc_name ?? `Fornecedor ${it.alloc_supplier_id}`} · {brl(it.alloc_price)}</span>
+                          ) : (() => {
+                            const p = principalOffer(it);
+                            if (!p) return <span className="text-xs text-slate-400">sem fornecedor cadastrado</span>;
+                            return (
+                              <span>
+                                <span className="font-medium text-slate-700">{p.supplier_name}</span>
+                                {' · '}{p.base_price != null ? brl(p.base_price) : 'sem preço'}
+                                <span className="ml-1 text-xs text-slate-400">(principal)</span>
+                              </span>
+                            );
+                          })()}
                         </td>
                       )}
                     </tr>

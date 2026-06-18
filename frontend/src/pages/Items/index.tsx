@@ -7,7 +7,7 @@ import { useAuth } from '../../store/auth.store';
 import type { Item } from '../../types';
 import { brl, parseNum } from '../../utils/format';
 import { PageHeader } from '../../components/PageHeader';
-import { Button, Card, Field, Input, Select, Modal, Spinner, ErrorBox, EmptyState } from '../../components/ui';
+import { Button, Card, Field, Input, Select, Modal, Spinner, ErrorBox, EmptyState, ActionMenu, type MenuAction } from '../../components/ui';
 
 export function Items() {
   const qc = useQueryClient();
@@ -31,6 +31,13 @@ export function Items() {
 
   const q = search.trim().toLowerCase();
   const filtered = (data ?? []).filter((i) => !q || i.name.toLowerCase().includes(q));
+
+  function actionsFor(it: Item): MenuAction[] {
+    const out: MenuAction[] = [];
+    if (canWrite) out.push({ label: 'Editar', icon: <Pencil size={16} />, onClick: () => { setEditing(it); setOpen(true); } });
+    if (isAdmin) out.push({ label: 'Excluir', icon: <Trash2 size={16} />, danger: true, onClick: () => confirm(`Excluir "${it.name}"?`) && remove.mutate(it.id) });
+    return out;
+  }
 
   return (
     <div>
@@ -59,41 +66,58 @@ export function Items() {
       {data && (filtered.length === 0 ? (
         <EmptyState message="Nenhum item encontrado." />
       ) : (
-        <Card className="p-0">
-          <table className="w-full text-sm">
-            <thead className="border-b border-slate-200 text-left text-slate-500">
-              <tr>
-                <th className="px-5 py-3 font-medium">Item</th>
-                <th className="px-5 py-3 font-medium">Produto</th>
-                <th className="px-5 py-3 font-medium">Fornecedor</th>
-                <th className="px-5 py-3 font-medium">Un.</th>
-                <th className="px-5 py-3 font-medium text-right">Preço base</th>
-                {canWrite && <th className="px-5 py-3" />}
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((it) => (
-                <tr key={it.id} className="border-b border-slate-100 last:border-0">
-                  <td className="px-5 py-3 font-medium text-slate-800">{it.name}</td>
-                  <td className="px-5 py-3">
-                    {it.product_name
-                      ? <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">{it.product_name}</span>
-                      : <span className="text-xs text-slate-300">—</span>}
-                  </td>
-                  <td className="px-5 py-3 text-slate-600">{it.supplier_name}</td>
-                  <td className="px-5 py-3 text-slate-600">{it.unit}</td>
-                  <td className="px-5 py-3 text-right text-slate-600">{brl(it.base_price)}</td>
-                  {canWrite && (
-                    <td className="px-5 py-3 text-right">
-                      <button onClick={() => { setEditing(it); setOpen(true); }} className="mr-2 text-slate-400 hover:text-emerald-600"><Pencil size={16} /></button>
-                      {isAdmin && <button onClick={() => confirm(`Excluir "${it.name}"?`) && remove.mutate(it.id)} className="text-slate-400 hover:text-red-600"><Trash2 size={16} /></button>}
-                    </td>
-                  )}
+        <>
+          {/* Mobile: lista de cartões */}
+          <div className="space-y-3 sm:hidden">
+            {filtered.map((it) => (
+              <Card key={it.id} className="flex items-start justify-between gap-3 p-4">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-medium text-slate-800">{it.name}</p>
+                    {it.product_name && <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">{it.product_name}</span>}
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">{it.supplier_name}</p>
+                  <p className="mt-2 text-sm text-slate-600">{brl(it.base_price)} <span className="text-xs text-slate-400">/ {it.unit}</span></p>
+                </div>
+                <ActionMenu actions={actionsFor(it)} />
+              </Card>
+            ))}
+          </div>
+
+          {/* Desktop: tabela */}
+          <Card className="hidden p-0 sm:block">
+            <table className="w-full text-sm">
+              <thead className="border-b border-slate-200 text-left text-slate-500">
+                <tr>
+                  <th className="px-5 py-3 font-medium">Item</th>
+                  <th className="px-5 py-3 font-medium">Produto</th>
+                  <th className="px-5 py-3 font-medium">Fornecedor</th>
+                  <th className="px-5 py-3 font-medium">Un.</th>
+                  <th className="px-5 py-3 font-medium text-right">Preço base</th>
+                  <th className="px-5 py-3" />
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </Card>
+              </thead>
+              <tbody>
+                {filtered.map((it) => (
+                  <tr key={it.id} className="border-b border-slate-100 last:border-0">
+                    <td className="px-5 py-3 font-medium text-slate-800">{it.name}</td>
+                    <td className="px-5 py-3">
+                      {it.product_name
+                        ? <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">{it.product_name}</span>
+                        : <span className="text-xs text-slate-300">—</span>}
+                    </td>
+                    <td className="px-5 py-3 text-slate-600">{it.supplier_name}</td>
+                    <td className="px-5 py-3 text-slate-600">{it.unit}</td>
+                    <td className="px-5 py-3 text-right text-slate-600">{brl(it.base_price)}</td>
+                    <td className="px-5 py-3 text-right">
+                      <ActionMenu actions={actionsFor(it)} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Card>
+        </>
       ))}
 
       {open && <ItemForm item={editing} defaultSupplier={supplierId} onClose={() => setOpen(false)} />}
@@ -107,6 +131,7 @@ function ItemForm({ item, defaultSupplier, onClose }: { item: Item | null; defau
   const { data: products } = useQuery({ queryKey: ['products'], queryFn: productsApi.list });
   const [supplierId, setSupplierId] = useState<string>(String(item?.supplier_id ?? defaultSupplier ?? ''));
   const [name, setName] = useState(item?.name ?? '');
+  const [supplierCode, setSupplierCode] = useState(item?.supplier_code ?? '');
   const [unit, setUnit] = useState(item?.unit ?? 'un');
   const [price, setPrice] = useState(item?.base_price ?? '');
   const [productId, setProductId] = useState<string>(item?.product_id ? String(item.product_id) : '');
@@ -142,6 +167,7 @@ function ItemForm({ item, defaultSupplier, onClose }: { item: Item | null; defau
     const parsedPrice = parseNum(String(price));
     save.mutate({
       supplier_id: Number(supplierId), name, unit,
+      supplier_code: supplierCode.trim() || null,
       base_price: parsedPrice === null ? undefined : (parsedPrice as unknown as string),
     });
   }
@@ -157,6 +183,9 @@ function ItemForm({ item, defaultSupplier, onClose }: { item: Item | null; defau
           </Select>
         </Field>
         <Field label="Nome"><Input value={name} onChange={(e) => setName(e.target.value)} required autoFocus /></Field>
+        <Field label="Código do fornecedor (opcional)">
+          <Input value={supplierCode} onChange={(e) => setSupplierCode(e.target.value)} placeholder="ex.: 0466" />
+        </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Unidade"><Input value={unit} onChange={(e) => setUnit(e.target.value)} required /></Field>
           <Field label="Preço base"><Input value={price} onChange={(e) => setPrice(e.target.value)} placeholder="12,90" /></Field>

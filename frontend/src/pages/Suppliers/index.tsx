@@ -1,12 +1,12 @@
 import { FormEvent, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Pencil, Trash2, MessageCircle, Globe } from 'lucide-react';
+import { Plus, Pencil, Trash2, MessageCircle, Globe, ExternalLink } from 'lucide-react';
 import { suppliersApi, categoriesApi } from '../../services/resources';
 import { apiError } from '../../services/api';
 import { useAuth } from '../../store/auth.store';
 import type { Supplier, OrderType } from '../../types';
 import { PageHeader } from '../../components/PageHeader';
-import { Button, Card, Field, Input, Select, Modal, Spinner, ErrorBox, EmptyState } from '../../components/ui';
+import { Button, Card, Field, Input, Select, Modal, Spinner, ErrorBox, EmptyState, ActionMenu, type MenuAction } from '../../components/ui';
 
 export function Suppliers() {
   const qc = useQueryClient();
@@ -29,6 +29,19 @@ export function Suppliers() {
     (!q || s.name.toLowerCase().includes(q)) &&
     (!categoryFilter || s.category_id === Number(categoryFilter))
   );
+
+  function actionsFor(s: Supplier): MenuAction[] {
+    const out: MenuAction[] = [];
+    if (s.order_type === 'whatsapp' && s.whatsapp_number) {
+      out.push({ label: 'Abrir WhatsApp', icon: <MessageCircle size={16} />, href: `https://wa.me/${s.whatsapp_number.replace(/\D/g, '')}` });
+    }
+    if (s.order_type === 'portal' && s.portal_url) {
+      out.push({ label: 'Abrir portal', icon: <ExternalLink size={16} />, href: s.portal_url });
+    }
+    if (canWrite) out.push({ label: 'Editar', icon: <Pencil size={16} />, onClick: () => { setEditing(s); setOpen(true); } });
+    if (isAdmin) out.push({ label: 'Excluir', icon: <Trash2 size={16} />, danger: true, onClick: () => confirm(`Excluir "${s.name}"?`) && remove.mutate(s.id) });
+    return out;
+  }
 
   return (
     <div>
@@ -57,40 +70,57 @@ export function Suppliers() {
       {data && (filtered.length === 0 ? (
         <EmptyState message="Nenhum fornecedor encontrado." />
       ) : (
-        <Card className="p-0">
-          <table className="w-full text-sm">
-            <thead className="border-b border-slate-200 text-left text-slate-500">
-              <tr>
-                <th className="px-5 py-3 font-medium">Nome</th>
-                <th className="px-5 py-3 font-medium">Categoria</th>
-                <th className="px-5 py-3 font-medium">Tipo</th>
-                <th className="px-5 py-3 font-medium">Contato</th>
-                {canWrite && <th className="px-5 py-3" />}
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((s) => (
-                <tr key={s.id} className="border-b border-slate-100 last:border-0">
-                  <td className="px-5 py-3 font-medium text-slate-800">{s.name}</td>
-                  <td className="px-5 py-3 text-slate-600">{s.category_name ?? '—'}</td>
-                  <td className="px-5 py-3">
-                    <span className="inline-flex items-center gap-1.5 text-slate-600">
-                      {s.order_type === 'whatsapp' ? <MessageCircle size={15} className="text-emerald-600" /> : <Globe size={15} className="text-blue-600" />}
-                      {s.order_type === 'whatsapp' ? 'WhatsApp' : 'Portal'}
-                    </span>
-                  </td>
-                  <td className="px-5 py-3 text-slate-600">{s.whatsapp_number ?? s.contact_name ?? '—'}</td>
-                  {canWrite && (
-                    <td className="px-5 py-3 text-right">
-                      <button onClick={() => { setEditing(s); setOpen(true); }} className="mr-2 text-slate-400 hover:text-emerald-600"><Pencil size={16} /></button>
-                      {isAdmin && <button onClick={() => confirm(`Excluir "${s.name}"?`) && remove.mutate(s.id)} className="text-slate-400 hover:text-red-600"><Trash2 size={16} /></button>}
-                    </td>
-                  )}
+        <>
+          {/* Mobile: lista de cartões */}
+          <div className="space-y-3 sm:hidden">
+            {filtered.map((s) => (
+              <Card key={s.id} className="flex items-start justify-between gap-3 p-4">
+                <div className="min-w-0">
+                  <p className="truncate font-medium text-slate-800">{s.name}</p>
+                  <p className="mt-0.5 text-xs text-slate-500">{s.category_name ?? 'Sem categoria'}</p>
+                  <p className="mt-2 inline-flex items-center gap-1.5 text-sm text-slate-600">
+                    {s.order_type === 'whatsapp' ? <MessageCircle size={14} className="text-emerald-600" /> : <Globe size={14} className="text-blue-600" />}
+                    {s.whatsapp_number ?? s.contact_name ?? (s.order_type === 'whatsapp' ? 'WhatsApp' : 'Portal')}
+                  </p>
+                </div>
+                <ActionMenu actions={actionsFor(s)} />
+              </Card>
+            ))}
+          </div>
+
+          {/* Desktop: tabela */}
+          <Card className="hidden p-0 sm:block">
+            <table className="w-full text-sm">
+              <thead className="border-b border-slate-200 text-left text-slate-500">
+                <tr>
+                  <th className="px-5 py-3 font-medium">Nome</th>
+                  <th className="px-5 py-3 font-medium">Categoria</th>
+                  <th className="px-5 py-3 font-medium">Tipo</th>
+                  <th className="px-5 py-3 font-medium">Contato</th>
+                  <th className="px-5 py-3" />
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </Card>
+              </thead>
+              <tbody>
+                {filtered.map((s) => (
+                  <tr key={s.id} className="border-b border-slate-100 last:border-0">
+                    <td className="px-5 py-3 font-medium text-slate-800">{s.name}</td>
+                    <td className="px-5 py-3 text-slate-600">{s.category_name ?? '—'}</td>
+                    <td className="px-5 py-3">
+                      <span className="inline-flex items-center gap-1.5 text-slate-600">
+                        {s.order_type === 'whatsapp' ? <MessageCircle size={15} className="text-emerald-600" /> : <Globe size={15} className="text-blue-600" />}
+                        {s.order_type === 'whatsapp' ? 'WhatsApp' : 'Portal'}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3 text-slate-600">{s.whatsapp_number ?? s.contact_name ?? '—'}</td>
+                    <td className="px-5 py-3 text-right">
+                      <ActionMenu actions={actionsFor(s)} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Card>
+        </>
       ))}
 
       {open && <SupplierForm supplier={editing} onClose={() => setOpen(false)} />}

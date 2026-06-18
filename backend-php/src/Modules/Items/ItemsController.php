@@ -10,7 +10,7 @@ use App\Core\Request;
 
 final class ItemsController
 {
-    private const COLUMNS = ['supplier_id', 'product_id', 'name', 'unit', 'package_size', 'package_unit', 'base_price'];
+    private const COLUMNS = ['supplier_id', 'product_id', 'name', 'supplier_code', 'unit', 'package_size', 'package_unit', 'base_price'];
 
     public static function list(Request $req): void
     {

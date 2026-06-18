@@ -91,17 +91,26 @@ final class Evolution
     public static function formatOrderMessage(array $order, array $items): string
     {
         $brl = static fn (float $v) => 'R$ ' . number_format($v, 2, ',', '.');
+        // Quantidade: inteiro quando não tem fração (1, não 1,000); decimais só quando precisa (ex.: kg).
+        $qty = static function ($q): string {
+            $n = (float) $q;
+            if (floor($n) === $n) {
+                return (string) (int) $n;
+            }
+            return rtrim(rtrim(number_format($n, 3, ',', ''), '0'), ',');
+        };
         $date = !empty($order['created_at'])
             ? date('d/m/Y', strtotime((string) $order['created_at']))
             : date('d/m/Y');
         $lines = [];
         foreach ($items as $it) {
-            $lines[] = '• ' . $it['quantity'] . 'x ' . $it['name'] . ' (' . $it['unit'] . ') — '
-                . $brl((float) $it['unit_price']) . '/un';
+            $code = trim((string) ($it['code'] ?? ''));
+            $prefix = $qty($it['quantity']) . 'x ' . ($code !== '' ? '(' . $code . ') ' : '');
+            $lines[] = '• ' . $prefix . $it['name'] . ' — ' . $brl((float) $it['unit_price']);
         }
         return implode("\n", array_merge(
             [
-                "🛒 *Pedido #{$order['id']} — PedidoPro*",
+                "🛒 *Pedido #{$order['id']} — Restaurante Seu Sérgio*",
                 "📅 Data: {$date}",
                 '',
             ],

@@ -232,6 +232,7 @@ final class OrdersController
                 ['id' => $o['id'], 'total_amount' => (float) ($o['total_amount'] ?? 0), 'created_at' => $o['created_at']],
                 array_map(static fn ($it) => [
                     'name' => $it['item_name'],
+                    'code' => $it['supplier_code'] ?? null,
                     'quantity' => $it['quantity'],
                     'unit' => $it['unit'],
                     'unit_price' => $it['unit_price'],
@@ -305,7 +306,7 @@ final class OrdersController
     private static function items(int $orderId): array
     {
         return Db::query(
-            'SELECT oi.*, i.name AS item_name, i.unit
+            'SELECT oi.*, i.name AS item_name, i.unit, i.supplier_code
                FROM order_items oi JOIN items i ON i.id = oi.item_id
               WHERE oi.order_id = ? ORDER BY i.name',
             [$orderId]

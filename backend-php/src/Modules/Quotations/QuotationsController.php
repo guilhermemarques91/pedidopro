@@ -113,6 +113,13 @@ final class QuotationsController
                    FROM quotation_items
                   WHERE quotation_id = ? AND price IS NOT NULL'
             )->execute([$id]);
+            // O preço lançado vira o "preço base" do item, para alimentar a lista de compras.
+            $pdo->prepare(
+                'UPDATE items i
+                   JOIN quotation_items qi ON qi.item_id = i.id
+                    SET i.base_price = qi.price
+                  WHERE qi.quotation_id = ? AND qi.price IS NOT NULL'
+            )->execute([$id]);
             $pdo->prepare("UPDATE quotations SET status = 'closed', closed_at = NOW() WHERE id = ?")->execute([$id]);
         });
         Http::json(self::row($id));

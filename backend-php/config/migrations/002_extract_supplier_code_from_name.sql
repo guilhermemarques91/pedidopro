@@ -1,0 +1,13 @@
+-- ⚠️ Este método NÃO funciona no MySQL 5.7 (sem REGEXP_SUBSTR/REGEXP_REPLACE),
+--    que é o caso da HostGator. Use o script PHP em vez disto:
+--      php bin/extract-supplier-codes.php           (prévia)
+--      php bin/extract-supplier-codes.php --apply    (aplica)
+--
+-- Mantido apenas como referência para bancos MySQL 8+ / MariaDB 10.0.5+.
+
+-- UPDATE items
+-- SET
+--   supplier_code = REGEXP_SUBSTR(name, '\\b[0-9]{4}\\b'),
+--   name = TRIM(REGEXP_REPLACE(REGEXP_REPLACE(name, '\\b[0-9]{4}\\b', ''), ' {2,}', ' '))
+-- WHERE supplier_code IS NULL
+--   AND name REGEXP '\\b[0-9]{4}\\b';

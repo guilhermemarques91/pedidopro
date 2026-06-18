@@ -55,6 +55,7 @@ export interface Item {
   product_id: number | null;
   product_name?: string | null;
   name: string;
+  supplier_code: string | null;
   unit: string;
   package_size: string | null;
   package_unit: string | null;
