@@ -20,6 +20,9 @@ final class Ollama
             'model' => $model,
             'stream' => false,
             'options' => ['temperature' => 0],
+            // Mantém o modelo carregado na RAM por 10min entre chamadas (sync processa
+            // várias mensagens em sequência; evita recarregar ~8B a cada uma).
+            'keep_alive' => '10m',
             'messages' => $messages,
         ];
         if ($format !== null) {

@@ -26,7 +26,12 @@ export function Inbox() {
 
   const sync = useMutation({
     mutationFn: inboxApi.sync,
-    onSuccess: (r) => { setMsg(`Sincronizado: ${r.itemsAdded} item(ns) novos de ${r.candidates} mensagem(ns).`); setError(''); refresh(); },
+    onSuccess: (r) => {
+      const base = `Sincronizado: ${r.itemsAdded} item(ns) novos de ${r.candidates} mensagem(ns).`;
+      setMsg(r.partial ? `${base} Ainda há mensagens a processar — clique de novo em alguns segundos.` : base);
+      setError('');
+      refresh();
+    },
     onError: (e) => setError(apiError(e)),
   });
   const approve = useMutation({

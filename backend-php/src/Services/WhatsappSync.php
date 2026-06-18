@@ -18,7 +18,12 @@ final class WhatsappSync
         );
 
         $sinceMs = (time() - Env::int('INBOX_SYNC_DAYS', 2) * 86400) * 1000;
-        $result = ['suppliers' => count($suppliers), 'messagesScanned' => 0, 'candidates' => 0, 'itemsAdded' => 0];
+        $result = ['suppliers' => count($suppliers), 'messagesScanned' => 0, 'candidates' => 0, 'itemsAdded' => 0, 'partial' => false];
+
+        // Orçamento de tempo: cada extração chama a IA (lenta). Quando chamado via
+        // HTTP, a Cloudflare corta em 100s (erro 524); paramos antes e marcamos
+        // `partial` — o restante é processado no próximo sync (dedup) ou no cron CLI.
+        $deadline = PHP_SAPI === 'cli' ? null : microtime(true) + 80.0;
 
         foreach ($suppliers as $sup) {
             // Tenta variantes do número (9º dígito do celular BR) e junta as mensagens.
@@ -37,6 +42,9 @@ final class WhatsappSync
                 }
             }
             $result['messagesScanned'] += count($messages);
+
+            // Mais recentes primeiro: prioriza a lista de preços que acabou de chegar.
+            usort($messages, static fn ($a, $b) => ((int) ($b['messageTimestamp'] ?? 0)) <=> ((int) ($a['messageTimestamp'] ?? 0)));
 
             foreach ($messages as $m) {
                 if (!empty($m['key']['fromMe'])) {
@@ -59,6 +67,11 @@ final class WhatsappSync
                 // dedup: já processada?
                 if (Db::queryOne('SELECT id FROM inbox_prices WHERE message_key = ? LIMIT 1', [$key])) {
                     continue;
+                }
+                // Estourou o orçamento de tempo: para antes do 524 e deixa o resto p/ depois.
+                if ($deadline !== null && microtime(true) >= $deadline) {
+                    $result['partial'] = true;
+                    break 2;
                 }
                 try {
                     $rows = AiExtractor::fromText($text);
