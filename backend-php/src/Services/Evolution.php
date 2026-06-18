@@ -56,11 +56,39 @@ final class Evolution
         }
     }
 
-    /** POST /chat/findMessages/{instance} → registros crus. */
+    /**
+     * POST /chat/findMessages/{instance} → registros crus.
+     *
+     * O WhatsApp pode endereçar um contato pelo número (`<num>@s.whatsapp.net`) ou
+     * por um identificador de privacidade (`<id>@lid`). Quando é LID, `key.remoteJid`
+     * é o `@lid` e o número real fica em `key.remoteJidAlt`. Consultamos os dois
+     * campos com o mesmo `<num>@s.whatsapp.net` e juntamos (dedup por `key.id`),
+     * senão contatos migrados para LID nunca seriam encontrados.
+     */
     public static function fetchMessages(string $remoteJid): array
     {
+        $merged = [];
+        $seen = [];
+        foreach (['remoteJid', 'remoteJidAlt'] as $field) {
+            foreach (self::queryMessages([$field => $remoteJid]) as $m) {
+                $id = $m['key']['id'] ?? null;
+                if ($id !== null && isset($seen[$id])) {
+                    continue;
+                }
+                if ($id !== null) {
+                    $seen[$id] = true;
+                }
+                $merged[] = $m;
+            }
+        }
+        return $merged;
+    }
+
+    /** @param array<string,string> $keyWhere filtro aplicado em `key` */
+    private static function queryMessages(array $keyWhere): array
+    {
         $r = self::call('POST', '/chat/findMessages/' . self::instance(), [
-            'where' => ['key' => ['remoteJid' => $remoteJid]],
+            'where' => ['key' => $keyWhere],
         ]);
         $data = $r['data'];
         $records = $data['messages']['records'] ?? $data['records'] ?? $data;
