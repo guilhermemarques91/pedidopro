@@ -21,8 +21,21 @@ final class WhatsappSync
         $result = ['suppliers' => count($suppliers), 'messagesScanned' => 0, 'candidates' => 0, 'itemsAdded' => 0];
 
         foreach ($suppliers as $sup) {
-            $jid = self::digits($sup['whatsapp_number']) . '@s.whatsapp.net';
-            $messages = Evolution::fetchMessages($jid);
+            // Tenta variantes do número (9º dígito do celular BR) e junta as mensagens.
+            $messages = [];
+            $seenMsg = [];
+            foreach (self::phoneVariants($sup['whatsapp_number']) as $num) {
+                foreach (Evolution::fetchMessages($num . '@s.whatsapp.net') as $m) {
+                    $id = $m['key']['id'] ?? null;
+                    if ($id !== null && isset($seenMsg[$id])) {
+                        continue;
+                    }
+                    if ($id !== null) {
+                        $seenMsg[$id] = true;
+                    }
+                    $messages[] = $m;
+                }
+            }
             $result['messagesScanned'] += count($messages);
 
             foreach ($messages as $m) {
@@ -70,6 +83,30 @@ final class WhatsappSync
     private static function digits(?string $s): string
     {
         return preg_replace('/\D/', '', (string) $s);
+    }
+
+    /**
+     * Variantes do número para lidar com o 9º dígito do celular brasileiro:
+     * muitas contas antigas do WhatsApp ainda usam o número SEM o 9 (8 dígitos
+     * locais), enquanto o cadastro costuma ter o 9 (9 dígitos). Tentamos as duas
+     * para que o JID case independente de como a conta foi registrada.
+     *
+     * @return string[] só dígitos (sem `@s.whatsapp.net`), sem duplicatas
+     */
+    private static function phoneVariants(?string $raw): array
+    {
+        $d = self::digits($raw);
+        if ($d === '') {
+            return [];
+        }
+        $out = [$d];
+        // BR: 55 + DDD(2) + local. Local com 9 dígitos começando em 9 → também sem o 9.
+        if (str_starts_with($d, '55') && strlen($d) === 13 && $d[4] === '9') {
+            $out[] = substr($d, 0, 4) . substr($d, 5); // remove o 9º dígito
+        } elseif (str_starts_with($d, '55') && strlen($d) === 12) {
+            $out[] = substr($d, 0, 4) . '9' . substr($d, 4); // adiciona o 9º dígito
+        }
+        return array_values(array_unique($out));
     }
 
     private static function looksLikePrice(string $text): bool
