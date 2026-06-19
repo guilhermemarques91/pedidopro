@@ -55,12 +55,27 @@ final class AiExtractor
     public static function fromText(string $text): array
     {
         $out = [];
-        foreach (self::splitForExtraction($text) as $chunk) {
-            foreach (self::extractChunk($chunk) as $row) {
-                $out[] = $row;
+        $chunks = self::splitForExtraction($text);
+        $total = count($chunks);
+        foreach ($chunks as $i => $chunk) {
+            try {
+                foreach (self::extractChunk($chunk) as $row) {
+                    $out[] = $row;
+                }
+            } catch (\Throwable $e) {
+                // Um chunk que falha (timeout/erro da IA) não pode zerar os demais.
+                self::log('chunk ' . ($i + 1) . "/{$total} falhou: " . $e->getMessage());
             }
         }
         return $out;
+    }
+
+    /** Loga no stderr (cron → sync-inbox.log). Sem efeito relevante via HTTP. */
+    private static function log(string $msg): void
+    {
+        if (defined('STDERR')) {
+            fwrite(STDERR, '[AiExtractor] ' . $msg . "\n");
+        }
     }
 
     /** Uma única chamada à IA p/ um trecho de texto. */

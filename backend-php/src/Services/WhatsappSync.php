@@ -75,8 +75,14 @@ final class WhatsappSync
                 }
                 try {
                     $rows = AiExtractor::fromText($text);
-                } catch (\Throwable) {
+                } catch (\Throwable $e) {
+                    if (defined('STDERR')) {
+                        fwrite(STDERR, "[sync] extração falhou (msg {$key}): " . $e->getMessage() . "\n");
+                    }
                     continue; // extração falhou; segue
+                }
+                if (defined('STDERR')) {
+                    fwrite(STDERR, "[sync] msg {$key}: " . count($rows) . " item(ns) extraído(s) de " . mb_strlen($text) . " chars.\n");
                 }
                 $received = $tsMs ? date('Y-m-d H:i:s', (int) ($tsMs / 1000)) : null;
                 foreach ($rows as $r) {
