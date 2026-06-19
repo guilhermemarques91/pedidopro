@@ -49,7 +49,7 @@ final class AiExtractor
      * itens) estouram o tempo da IA e degradam a qualidade quando enviadas de uma
      * vez; quebramos em pedaços por linha p/ cada chamada ficar rápida e precisa.
      */
-    private const CHUNK_CHARS = 900;
+    private const CHUNK_CHARS = 700;
 
     /** @return array<int,array{name:string,unit:string,price:?float,quantity:?float,notes:?string}> */
     public static function fromText(string $text): array
