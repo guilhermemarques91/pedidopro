@@ -33,33 +33,77 @@ final class Db
                 PDO::ATTR_EMULATE_PREPARES => false,
                 PDO::ATTR_STRINGIFY_FETCHES => false,
             ]);
+            // Runs longos (extração de IA leva minutos) deixam a conexão ociosa;
+            // tenta evitar que o MySQL a derrube por wait_timeout (best-effort).
+            try {
+                self::$pdo->exec('SET SESSION wait_timeout = 28800, interactive_timeout = 28800');
+            } catch (\Throwable) {
+                // host pode não permitir; o auto-reconnect cobre o caso.
+            }
         }
         return self::$pdo;
+    }
+
+    /** Detecta perda de conexão ("MySQL server has gone away" / "Lost connection"). */
+    private static function isDisconnect(\PDOException $e): bool
+    {
+        $code = $e->errorInfo[1] ?? null;
+        if ($code === 2006 || $code === 2013) {
+            return true;
+        }
+        $msg = $e->getMessage();
+        return stripos($msg, 'gone away') !== false || stripos($msg, 'Lost connection') !== false;
+    }
+
+    /**
+     * Executa a operação e, se a conexão tiver caído (ociosa em run longo),
+     * reconecta e tenta UMA vez. A operação deve usar self::pdo() internamente.
+     * @template T
+     * @param callable():T $op
+     * @return T
+     */
+    private static function withReconnect(callable $op): mixed
+    {
+        try {
+            return $op();
+        } catch (\PDOException $e) {
+            if (!self::isDisconnect($e)) {
+                throw $e;
+            }
+            self::$pdo = null; // próxima self::pdo() abre conexão nova
+            return $op();
+        }
     }
 
     /** @return array<int,array<string,mixed>> */
     public static function query(string $sql, array $params = []): array
     {
-        $stmt = self::pdo()->prepare($sql);
-        $stmt->execute($params);
-        return $stmt->fetchAll();
+        return self::withReconnect(static function () use ($sql, $params): array {
+            $stmt = self::pdo()->prepare($sql);
+            $stmt->execute($params);
+            return $stmt->fetchAll();
+        });
     }
 
     /** @return array<string,mixed>|null */
     public static function queryOne(string $sql, array $params = []): ?array
     {
-        $stmt = self::pdo()->prepare($sql);
-        $stmt->execute($params);
-        $row = $stmt->fetch();
-        return $row === false ? null : $row;
+        return self::withReconnect(static function () use ($sql, $params): ?array {
+            $stmt = self::pdo()->prepare($sql);
+            $stmt->execute($params);
+            $row = $stmt->fetch();
+            return $row === false ? null : $row;
+        });
     }
 
     /** Executa um comando e retorna o nº de linhas afetadas. */
     public static function execute(string $sql, array $params = []): int
     {
-        $stmt = self::pdo()->prepare($sql);
-        $stmt->execute($params);
-        return $stmt->rowCount();
+        return self::withReconnect(static function () use ($sql, $params): int {
+            $stmt = self::pdo()->prepare($sql);
+            $stmt->execute($params);
+            return $stmt->rowCount();
+        });
     }
 
     public static function lastInsertId(): int
