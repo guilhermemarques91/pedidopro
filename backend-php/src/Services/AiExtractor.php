@@ -44,8 +44,27 @@ final class AiExtractor
         ];
     }
 
+    /**
+     * Tamanho de chunk (chars). Listas grandes (ex.: tabela de WhatsApp com 150
+     * itens) estouram o tempo da IA e degradam a qualidade quando enviadas de uma
+     * vez; quebramos em pedaços por linha p/ cada chamada ficar rápida e precisa.
+     */
+    private const CHUNK_CHARS = 900;
+
     /** @return array<int,array{name:string,unit:string,price:?float,quantity:?float,notes:?string}> */
     public static function fromText(string $text): array
+    {
+        $out = [];
+        foreach (self::splitForExtraction($text) as $chunk) {
+            foreach (self::extractChunk($chunk) as $row) {
+                $out[] = $row;
+            }
+        }
+        return $out;
+    }
+
+    /** Uma única chamada à IA p/ um trecho de texto. */
+    private static function extractChunk(string $text): array
     {
         $model = Env::get('OLLAMA_MODEL', 'qwen2.5:3b');
         $content = Ollama::chat($model, [
@@ -58,6 +77,33 @@ final class AiExtractor
             throw new HttpError(502, 'A IA local não retornou JSON estruturado válido.');
         }
         return self::normalize($parsed['items'] ?? null);
+    }
+
+    /**
+     * Quebra o texto em pedaços de até CHUNK_CHARS, sempre em quebras de linha
+     * (nunca corta uma linha/item no meio). Texto curto volta como um único pedaço.
+     *
+     * @return string[]
+     */
+    private static function splitForExtraction(string $text): array
+    {
+        $text = trim($text);
+        if ($text === '' || mb_strlen($text) <= self::CHUNK_CHARS) {
+            return $text === '' ? [] : [$text];
+        }
+        $chunks = [];
+        $buf = '';
+        foreach (preg_split('/\r\n|\r|\n/', $text) as $line) {
+            if ($buf !== '' && mb_strlen($buf) + mb_strlen($line) + 1 > self::CHUNK_CHARS) {
+                $chunks[] = $buf;
+                $buf = '';
+            }
+            $buf = $buf === '' ? $line : $buf . "\n" . $line;
+        }
+        if (trim($buf) !== '') {
+            $chunks[] = $buf;
+        }
+        return $chunks;
     }
 
     /** @return array<int,array{name:string,unit:string,price:?float,quantity:?float,notes:?string}> */

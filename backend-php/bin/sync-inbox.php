@@ -33,6 +33,14 @@ if (!Env::bool('INBOX_SYNC_ENABLED', true)) {
     exit;
 }
 
+// Lock: uma extração pode levar minutos; evita que dois crons rodem juntos
+// (concorreriam pela RAM do Ollama e ficariam ainda mais lentos).
+$lock = fopen(sys_get_temp_dir() . '/pedidopro-sync-inbox.lock', 'c');
+if ($lock === false || !flock($lock, LOCK_EX | LOCK_NB)) {
+    echo "Outra sincronização já está em andamento; saindo.\n";
+    exit;
+}
+
 try {
     $r = WhatsappSync::run();
     echo sprintf(

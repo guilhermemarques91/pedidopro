@@ -27,8 +27,12 @@ export function Inbox() {
   const sync = useMutation({
     mutationFn: inboxApi.sync,
     onSuccess: (r) => {
-      const base = `Sincronizado: ${r.itemsAdded} item(ns) novos de ${r.candidates} mensagem(ns).`;
-      setMsg(r.partial ? `${base} Ainda há mensagens a processar — clique de novo em alguns segundos.` : base);
+      const msg = r.itemsAdded > 0
+        ? `Sincronizado: ${r.itemsAdded} item(ns) novos.`
+        : r.pending > 0
+          ? `${r.pending} mensagem(ns) nova(s) encontrada(s). A extração por IA roda em segundo plano (sincronização automática) — os preços aparecem aqui em alguns minutos.`
+          : 'Nenhuma mensagem nova encontrada.';
+      setMsg(msg);
       setError('');
       refresh();
     },

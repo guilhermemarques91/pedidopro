@@ -176,7 +176,7 @@ export const requestsApi = {
 export const inboxApi = {
   list: () => api.get<InboxRow[]>('/inbox').then((r) => r.data),
   count: () => api.get<{ count: number }>('/inbox/count').then((r) => r.data.count),
-  sync: () => api.post<{ suppliers: number; messagesScanned: number; candidates: number; itemsAdded: number; partial: boolean }>('/inbox/sync').then((r) => r.data),
+  sync: () => api.post<{ suppliers: number; messagesScanned: number; candidates: number; itemsAdded: number; pending: number }>('/inbox/sync').then((r) => r.data),
   update: (id: number, body: Partial<Pick<InboxRow, 'item_name' | 'unit'>> & { price?: number | null; quantity?: number | null; notes?: string | null }) =>
     api.put<InboxRow>(`/inbox/${id}`, body).then((r) => r.data),
   approve: (ids: number[], quotationId: number) =>

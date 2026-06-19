@@ -8,7 +8,7 @@ use App\Core\Env;
 /** Sincroniza preços recebidos por WhatsApp para a fila de revisão (inbox_prices). */
 final class WhatsappSync
 {
-    /** @return array{suppliers:int,messagesScanned:int,candidates:int,itemsAdded:int} */
+    /** @return array{suppliers:int,messagesScanned:int,candidates:int,itemsAdded:int,pending:int} */
     public static function run(): array
     {
         $suppliers = Db::query(
@@ -18,12 +18,12 @@ final class WhatsappSync
         );
 
         $sinceMs = (time() - Env::int('INBOX_SYNC_DAYS', 2) * 86400) * 1000;
-        $result = ['suppliers' => count($suppliers), 'messagesScanned' => 0, 'candidates' => 0, 'itemsAdded' => 0, 'partial' => false];
+        $result = ['suppliers' => count($suppliers), 'messagesScanned' => 0, 'candidates' => 0, 'itemsAdded' => 0, 'pending' => 0];
 
-        // Orçamento de tempo: cada extração chama a IA (lenta). Quando chamado via
-        // HTTP, a Cloudflare corta em 100s (erro 524); paramos antes e marcamos
-        // `partial` — o restante é processado no próximo sync (dedup) ou no cron CLI.
-        $deadline = PHP_SAPI === 'cli' ? null : microtime(true) + 80.0;
+        // A IA local (CPU) é lenta: uma lista grande leva minutos e estoura os 100s
+        // da Cloudflare (524). Por isso a extração só roda no cron (CLI). Via HTTP
+        // (o botão) apenas contamos as mensagens novas em `pending` — o cron extrai.
+        $extract = PHP_SAPI === 'cli';
 
         foreach ($suppliers as $sup) {
             // Tenta variantes do número (9º dígito do celular BR) e junta as mensagens.
@@ -68,10 +68,10 @@ final class WhatsappSync
                 if (Db::queryOne('SELECT id FROM inbox_prices WHERE message_key = ? LIMIT 1', [$key])) {
                     continue;
                 }
-                // Estourou o orçamento de tempo: para antes do 524 e deixa o resto p/ depois.
-                if ($deadline !== null && microtime(true) >= $deadline) {
-                    $result['partial'] = true;
-                    break 2;
+                // Via HTTP não extraímos (IA lenta → 524): apenas marcamos pendente.
+                if (!$extract) {
+                    $result['pending']++;
+                    continue;
                 }
                 try {
                     $rows = AiExtractor::fromText($text);

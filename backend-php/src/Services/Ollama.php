@@ -14,7 +14,7 @@ final class Ollama
      * @param array<int,array<string,mixed>> $messages
      * @param array<string,mixed>|null       $format   JSON schema p/ saída estruturada
      */
-    public static function chat(string $model, array $messages, ?array $format = null, int $timeout = 300): string
+    public static function chat(string $model, array $messages, ?array $format = null, int $timeout = 600): string
     {
         $payload = [
             'model' => $model,
