@@ -59,8 +59,9 @@ export function QuotationDetailPage() {
                 <p className="mb-2 font-medium text-slate-800">{row.item} <span className="text-xs text-slate-400">({row.unit})</span></p>
                 <div className="flex flex-wrap gap-2">
                   {row.offers.map((o) => (
-                    <span key={o.qiId} className={`rounded-md px-2.5 py-1 text-sm ${o.isBest ? 'bg-emerald-100 font-semibold text-emerald-800' : 'bg-slate-100 text-slate-600'}`}>
-                      {o.supplier}: {brl(o.price)} {o.isBest && '🏆'}
+                    <span key={o.qiId} className={`flex flex-col rounded-md px-2.5 py-1 text-sm ${o.isBest ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'}`}>
+                      <span className={o.isBest ? 'font-semibold' : ''}>{o.supplier}: {brl(o.price)} {o.isBest && '🏆'}</span>
+                      {o.itemName !== row.item && <span className="text-xs opacity-70">{o.itemName}</span>}
                     </span>
                   ))}
                 </div>

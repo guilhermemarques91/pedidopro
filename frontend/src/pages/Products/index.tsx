@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Combine, Trash2, X, Sparkles, ChevronDown, ChevronRight, Check } from 'lucide-react';
+import { Combine, Trash2, X, Sparkles, ChevronDown, ChevronRight, Check, Pencil } from 'lucide-react';
 import { productsApi, SuggestedGroup } from '../../services/resources';
 import { apiError } from '../../services/api';
 import { brl } from '../../utils/format';
@@ -125,18 +125,49 @@ export function Products() {
 
 function ProductCard({ id, name, count, onChanged }: { id: number; name: string; count: number; onChanged: () => void }) {
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(name);
   const detail = useQuery({ queryKey: ['product', id], queryFn: () => productsApi.get(id), enabled: open });
   const unassign = useMutation({ mutationFn: (itemId: number) => productsApi.unassign([itemId]), onSuccess: () => { detail.refetch(); onChanged(); } });
   const remove = useMutation({ mutationFn: () => productsApi.remove(id), onSuccess: onChanged });
+  const rename = useMutation({
+    mutationFn: () => productsApi.update(id, { name: draft.trim() }),
+    onSuccess: () => { setEditing(false); onChanged(); },
+  });
+
+  function saveName() {
+    const v = draft.trim();
+    if (!v || v === name) { setEditing(false); setDraft(name); return; }
+    rename.mutate();
+  }
 
   return (
     <Card className="p-0">
       <div className="flex items-center justify-between px-4 py-3">
-        <button onClick={() => setOpen((o) => !o)} className="flex items-center gap-2 font-medium text-slate-800">
-          {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-          {name} <span className="text-xs font-normal text-slate-400">({count} {count === 1 ? 'item' : 'itens'})</span>
-        </button>
-        <button onClick={() => confirm(`Excluir o produto "${name}"? Os itens serão desvinculados.`) && remove.mutate()} className="text-slate-400 hover:text-red-600"><Trash2 size={15} /></button>
+        {editing ? (
+          <div className="flex flex-1 items-center gap-2">
+            <Input
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') saveName(); if (e.key === 'Escape') { setEditing(false); setDraft(name); } }}
+              autoFocus
+              className="flex-1"
+            />
+            <Button onClick={saveName} disabled={rename.isPending}><Check size={15} /></Button>
+            <button onClick={() => { setEditing(false); setDraft(name); }} className="text-slate-400 hover:text-slate-600"><X size={16} /></button>
+          </div>
+        ) : (
+          <>
+            <button onClick={() => setOpen((o) => !o)} className="flex items-center gap-2 font-medium text-slate-800">
+              {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+              {name} <span className="text-xs font-normal text-slate-400">({count} {count === 1 ? 'item' : 'itens'})</span>
+            </button>
+            <div className="flex items-center gap-2">
+              <button onClick={() => { setDraft(name); setEditing(true); }} className="text-slate-400 hover:text-emerald-600" title="editar nome"><Pencil size={15} /></button>
+              <button onClick={() => confirm(`Excluir o produto "${name}"? Os itens serão desvinculados.`) && remove.mutate()} className="text-slate-400 hover:text-red-600"><Trash2 size={15} /></button>
+            </div>
+          </>
+        )}
       </div>
       {open && (
         <div className="border-t border-slate-100 px-4 py-2">

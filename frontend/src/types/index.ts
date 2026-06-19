@@ -102,6 +102,7 @@ export interface ComparisonOffer {
   price: number;
   qiId: number;
   isBest: boolean;
+  itemName: string;
 }
 export interface ComparisonRow {
   item: string;
