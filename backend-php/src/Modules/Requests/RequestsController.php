@@ -76,9 +76,39 @@ final class RequestsController
                 $offersByProduct[(int) $o['product_id']][] = $o;
             }
         }
+        // Ofertas para itens sem produto canônico mas com referência ao item escolhido (não agrupado).
+        $sourceIds = [];
+        foreach ($items as $it) {
+            if ($it['product_id'] === null && $it['source_item_id'] !== null) {
+                $sourceIds[(int) $it['source_item_id']] = true;
+            }
+        }
+        $offerBySourceItem = [];
+        if ($sourceIds) {
+            $ids = array_keys($sourceIds);
+            $place = Db::inClause($ids);
+            $rows = Db::query(
+                "SELECT i.id AS item_id, i.product_id, i.supplier_id, s.name AS supplier_name,
+                        i.name, i.unit, i.base_price
+                   FROM items i JOIN suppliers s ON s.id = i.supplier_id
+                  WHERE i.id IN ({$place})",
+                $ids
+            );
+            foreach ($rows as $o) {
+                $offerBySourceItem[(int) $o['item_id']] = $o;
+            }
+        }
+
         foreach ($items as &$it) {
             $pid = $it['product_id'] !== null ? (int) $it['product_id'] : null;
-            $it['offers'] = ($pid !== null && isset($offersByProduct[$pid])) ? $offersByProduct[$pid] : [];
+            $sid = $it['source_item_id'] !== null ? (int) $it['source_item_id'] : null;
+            if ($pid !== null && isset($offersByProduct[$pid])) {
+                $it['offers'] = $offersByProduct[$pid];
+            } elseif ($sid !== null && isset($offerBySourceItem[$sid])) {
+                $it['offers'] = [$offerBySourceItem[$sid]];
+            } else {
+                $it['offers'] = [];
+            }
         }
         unset($it);
 
@@ -221,16 +251,17 @@ final class RequestsController
         if (!$items) {
             throw HttpError::badRequest('Lista sem itens');
         }
+        // Preço é opcional (só consulta); para gerar o pedido basta fornecedor + nome do item.
         $pending = 0;
         foreach ($items as $i) {
             $hasName = $i['alloc_item_id'] !== null
                 || ($i['alloc_name'] ?? $i['free_text'] ?? $i['product_name']);
-            if ($i['alloc_supplier_id'] === null || $i['alloc_price'] === null || !$hasName) {
+            if ($i['alloc_supplier_id'] === null || !$hasName) {
                 $pending++;
             }
         }
         if ($pending > 0) {
-            throw HttpError::badRequest("{$pending} item(ns) sem alocação completa (fornecedor e preço)");
+            throw HttpError::badRequest("{$pending} item(ns) sem fornecedor alocado");
         }
 
         $orderIds = Db::transaction(function (PDO $pdo) use ($items, $id, $req) {
@@ -295,7 +326,7 @@ final class RequestsController
         }
         $pdo->prepare(
             'INSERT INTO order_items (order_id, item_id, quantity, unit_price, notes) VALUES (?, ?, ?, ?, ?)'
-        )->execute([$orderId, $itemId, $line['quantity'], $line['alloc_price'], $line['notes']]);
+        )->execute([$orderId, $itemId, $line['quantity'], $line['alloc_price'] ?? 0, $line['notes']]);
     }
 
     private static function row(int $id): array
@@ -324,8 +355,12 @@ final class RequestsController
             if ($qty <= 0) {
                 throw HttpError::badRequest('Quantidade deve ser maior que zero');
             }
+            // Item de catálogo ainda não agrupado: guarda a referência para puxar o fornecedor na aprovação.
+            $sourceItemId = $productId === null && isset($r['source_item_id']) && $r['source_item_id'] !== null
+                ? (int) $r['source_item_id'] : null;
             $out[] = [
                 'product_id' => $productId,
+                'source_item_id' => $sourceItemId,
                 'free_text' => $freeText !== '' ? $freeText : null,
                 'quantity' => $qty,
                 'unit' => isset($r['unit']) && is_string($r['unit']) && trim($r['unit']) !== '' ? trim($r['unit']) : 'un',
@@ -338,11 +373,11 @@ final class RequestsController
     private static function insertItems(PDO $pdo, int $requestId, array $items): void
     {
         $stmt = $pdo->prepare(
-            'INSERT INTO purchase_request_items (request_id, product_id, free_text, quantity, unit, notes)
-             VALUES (?, ?, ?, ?, ?, ?)'
+            'INSERT INTO purchase_request_items (request_id, product_id, source_item_id, free_text, quantity, unit, notes)
+             VALUES (?, ?, ?, ?, ?, ?, ?)'
         );
         foreach ($items as $it) {
-            $stmt->execute([$requestId, $it['product_id'], $it['free_text'], $it['quantity'], $it['unit'], $it['notes']]);
+            $stmt->execute([$requestId, $it['product_id'], $it['source_item_id'], $it['free_text'], $it['quantity'], $it['unit'], $it['notes']]);
         }
     }
 

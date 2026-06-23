@@ -38,7 +38,8 @@ export interface SuggestedGroup { suggested_name: string; item_ids: number[]; it
 export const productsApi = {
   list: () => api.get<Product[]>('/products').then((r) => r.data),
   get: (id: number) => api.get<ProductDetail>(`/products/${id}`).then((r) => r.data),
-  unmapped: () => api.get<UnmappedItem[]>('/products/unmapped').then((r) => r.data),
+  unmapped: (forCatalog = false) =>
+    api.get<UnmappedItem[]>('/products/unmapped', { params: forCatalog ? { for_catalog: 1 } : {} }).then((r) => r.data),
   suggest: () => api.post<SuggestedGroup[]>('/products/suggest').then((r) => r.data),
   create: (name: string, categoryId?: number) => api.post<Product>('/products', { name, category_id: categoryId }).then((r) => r.data),
   update: (id: number, body: { name?: string; category_id?: number | null }) => api.put<Product>(`/products/${id}`, body).then((r) => r.data),
@@ -146,6 +147,7 @@ export const usersApi = {
 // ---- Requests (listas de compra) ----
 export interface RequestItemInput {
   product_id?: number | null;
+  source_item_id?: number | null;
   free_text?: string | null;
   quantity: number;
   unit?: string;

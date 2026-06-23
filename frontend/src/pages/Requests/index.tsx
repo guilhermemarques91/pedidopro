@@ -10,7 +10,7 @@ import { PageHeader } from '../../components/PageHeader';
 import { Button, Card, Field, Input, Combobox, Modal, Badge, Spinner, ErrorBox, EmptyState, ComboOption } from '../../components/ui';
 
 // Linha em edição na nova lista.
-interface Draft { key: number; productId: string; freeText: string; quantity: string; unit: string }
+interface Draft { key: number; productId: string; sourceItemId: string; freeText: string; quantity: string; unit: string }
 
 // Status em que a lista ainda pode ser editada (funcionário: até submitted; admin: até allocated).
 function canEdit(status: string, isAdmin: boolean): boolean {
@@ -88,7 +88,7 @@ function RequestForm({ onClose, editId }: { onClose: () => void; editId?: number
   const qc = useQueryClient();
   const navigate = useNavigate();
   const { data: products } = useQuery({ queryKey: ['products'], queryFn: productsApi.list });
-  const { data: unmapped } = useQuery({ queryKey: ['products', 'unmapped'], queryFn: productsApi.unmapped });
+  const { data: unmapped } = useQuery({ queryKey: ['unmapped', 'catalog'], queryFn: () => productsApi.unmapped(true) });
   const { data: editing } = useQuery({
     queryKey: ['request', editId],
     queryFn: () => requestsApi.get(editId as number),
@@ -106,6 +106,7 @@ function RequestForm({ onClose, editId }: { onClose: () => void; editId?: number
     setLines(editing.items.map((it, i) => ({
       key: Date.now() + i,
       productId: it.product_id ? String(it.product_id) : '',
+      sourceItemId: it.source_item_id ? String(it.source_item_id) : '',
       freeText: it.product_id ? '' : (it.free_text ?? ''),
       quantity: String(Number(it.quantity)),
       unit: it.unit,
@@ -135,6 +136,7 @@ function RequestForm({ onClose, editId }: { onClose: () => void; editId?: number
     mutationFn: (submit: boolean) => {
       const items: RequestItemInput[] = lines.map((l) => ({
         product_id: l.productId ? Number(l.productId) : null,
+        source_item_id: !l.productId && l.sourceItemId ? Number(l.sourceItemId) : null,
         free_text: l.productId ? null : l.freeText,
         quantity: Number(l.quantity.replace(',', '.')) || 1,
         unit: l.unit || 'un',
@@ -160,15 +162,16 @@ function RequestForm({ onClose, editId }: { onClose: () => void; editId?: number
     setError('');
     if (mode === 'free') {
       if (!freeText.trim()) { setError('Digite o nome do item'); return; }
-      setLines((ls) => [...ls, { key: Date.now(), productId: '', freeText: freeText.trim(), quantity, unit }]);
+      setLines((ls) => [...ls, { key: Date.now(), productId: '', sourceItemId: '', freeText: freeText.trim(), quantity, unit }]);
     } else {
       if (!catalogSel) { setError('Escolha um produto ou item'); return; }
       const opt = catalog.find((o) => o.value === catalogSel);
       const [kind, idStr] = catalogSel.split(':');
-      // Produto canônico → product_id. Item ainda não agrupado → texto livre com o nome do item.
+      // Produto canônico → product_id. Item ainda não agrupado → guarda a referência do item (source) + nome p/ exibir.
       setLines((ls) => [...ls, {
         key: Date.now(),
         productId: kind === 'p' ? idStr : '',
+        sourceItemId: kind === 'i' ? idStr : '',
         freeText: kind === 'p' ? '' : (opt?.label ?? ''),
         quantity, unit,
       }]);

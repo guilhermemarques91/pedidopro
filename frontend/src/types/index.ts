@@ -191,6 +191,7 @@ export interface RequestItem {
   id: number;
   request_id: number;
   product_id: number | null;
+  source_item_id: number | null;
   product_name: string | null;
   free_text: string | null;
   category_id: number | null;

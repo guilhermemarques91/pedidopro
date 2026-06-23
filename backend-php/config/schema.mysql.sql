@@ -173,6 +173,7 @@ CREATE TABLE purchase_request_items (
   id                INT AUTO_INCREMENT PRIMARY KEY,
   request_id        INT NOT NULL,
   product_id        INT,
+  source_item_id    INT,
   free_text         VARCHAR(200),
   quantity          DECIMAL(10,3) NOT NULL,
   unit              VARCHAR(30) NOT NULL DEFAULT 'un',
@@ -184,6 +185,7 @@ CREATE TABLE purchase_request_items (
   alloc_price       DECIMAL(12,2),
   CONSTRAINT fk_preq_items_request FOREIGN KEY (request_id) REFERENCES purchase_requests(id) ON DELETE CASCADE,
   CONSTRAINT fk_preq_items_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL,
+  CONSTRAINT fk_preq_items_source FOREIGN KEY (source_item_id) REFERENCES items(id) ON DELETE SET NULL,
   CONSTRAINT fk_preq_items_supplier FOREIGN KEY (alloc_supplier_id) REFERENCES suppliers(id),
   CONSTRAINT fk_preq_items_item FOREIGN KEY (alloc_item_id) REFERENCES items(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

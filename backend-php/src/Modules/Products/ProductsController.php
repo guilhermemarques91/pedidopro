@@ -32,10 +32,17 @@ final class ProductsController
 
     public static function unmapped(Request $req): void
     {
+        // No catálogo da lista de compras (?for_catalog=1) escondemos itens soltos cujo nome já é
+        // coberto por um item agrupado num produto — evita o produto aparecer junto com duplicatas.
+        $extra = $req->query('for_catalog')
+            ? ' AND NOT EXISTS (SELECT 1 FROM items g
+                                 WHERE g.product_id IS NOT NULL
+                                   AND LOWER(TRIM(g.name)) = LOWER(TRIM(i.name)))'
+            : '';
         Http::json(Db::query(
             "SELECT i.id, i.name, i.unit, s.name AS supplier_name
                FROM items i JOIN suppliers s ON s.id = i.supplier_id
-              WHERE i.active = 1 AND i.product_id IS NULL
+              WHERE i.active = 1 AND i.product_id IS NULL{$extra}
               ORDER BY LOWER(i.name)"
         ));
     }

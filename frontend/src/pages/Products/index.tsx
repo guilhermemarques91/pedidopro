@@ -17,7 +17,7 @@ export function Products() {
   const [suggestOpen, setSuggestOpen] = useState(false);
 
   const products = useQuery({ queryKey: ['products'], queryFn: productsApi.list });
-  const unmapped = useQuery({ queryKey: ['unmapped'], queryFn: productsApi.unmapped });
+  const unmapped = useQuery({ queryKey: ['unmapped'], queryFn: () => productsApi.unmapped() });
 
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ['products'] });

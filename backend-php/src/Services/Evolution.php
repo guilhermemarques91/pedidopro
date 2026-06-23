@@ -115,10 +115,9 @@ final class Evolution
         return trim((string) $text);
     }
 
-    /** Monta a mensagem de pedido formatada para WhatsApp. */
+    /** Monta a mensagem de pedido formatada para WhatsApp (sem preços — só itens e quantidades). */
     public static function formatOrderMessage(array $order, array $items): string
     {
-        $brl = static fn (float $v) => 'R$ ' . number_format($v, 2, ',', '.');
         // Quantidade: inteiro quando não tem fração (1, não 1,000); decimais só quando precisa (ex.: kg).
         $qty = static function ($q): string {
             $n = (float) $q;
@@ -134,7 +133,7 @@ final class Evolution
         foreach ($items as $it) {
             $code = trim((string) ($it['code'] ?? ''));
             $prefix = $qty($it['quantity']) . 'x ' . ($code !== '' ? '(' . $code . ') ' : '');
-            $lines[] = '• ' . $prefix . $it['name'] . ' — ' . $brl((float) $it['unit_price']);
+            $lines[] = '• ' . $prefix . $it['name'];
         }
         return implode("\n", array_merge(
             [
@@ -144,8 +143,6 @@ final class Evolution
             ],
             $lines,
             [
-                '',
-                '*Total: ' . $brl((float) $order['total_amount']) . '*',
                 '',
                 'Confirmar recebimento respondendo esta mensagem.',
             ]
