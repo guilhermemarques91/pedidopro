@@ -44,6 +44,7 @@ export interface Product {
   category_id: number | null;
   category_name?: string | null;
   item_count?: string;
+  default_unit?: string | null;
   active: boolean;
   created_at: string;
 }

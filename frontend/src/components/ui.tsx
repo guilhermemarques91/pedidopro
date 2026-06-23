@@ -80,14 +80,19 @@ export function Combobox({
       <button
         type="button"
         disabled={disabled}
-        onClick={() => { setOpen((v) => !v); setSearch(''); }}
+        onClick={() => {
+          setOpen((v) => !v);
+          setSearch('');
+          // No celular o popover pode ficar atrás do teclado; rola o campo para o centro ao abrir.
+          requestAnimationFrame(() => ref.current?.scrollIntoView({ block: 'center', behavior: 'smooth' }));
+        }}
         className="flex w-full items-center justify-between rounded-lg border border-slate-300 bg-white px-3 py-2 text-left text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 disabled:opacity-50"
       >
         <span className={selected ? 'text-slate-800' : 'text-slate-400'}>{selected ? selected.label : placeholder}</span>
         <span className="ml-2 text-slate-400">▾</span>
       </button>
       {open && (
-        <div className="absolute z-20 mt-1 w-full rounded-lg border border-slate-200 bg-white shadow-lg">
+        <div className="absolute z-50 mt-1 w-full rounded-lg border border-slate-200 bg-white shadow-lg">
           <div className="p-2">
             <input
               autoFocus
@@ -97,7 +102,7 @@ export function Combobox({
               className="w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-emerald-500"
             />
           </div>
-          <ul className="max-h-60 overflow-y-auto pb-1">
+          <ul className="max-h-52 overflow-y-auto pb-1">
             {filtered.length === 0 && <li className="px-3 py-2 text-sm text-slate-400">Nada encontrado</li>}
             {filtered.map((o) => (
               <li key={o.value}>

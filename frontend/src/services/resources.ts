@@ -111,6 +111,8 @@ export const ordersApi = {
   approve: (id: number, comment?: string) => api.post(`/orders/${id}/approve`, { comment }).then((r) => r.data),
   reject: (id: number, comment?: string) => api.post(`/orders/${id}/reject`, { comment }).then((r) => r.data),
   send: (id: number) => api.post<{ order: Order; whatsappSent: boolean }>(`/orders/${id}/send`).then((r) => r.data),
+  message: (id: number) =>
+    api.get<{ message: string; whatsapp_number: string | null; order_type: string }>(`/orders/${id}/message`).then((r) => r.data),
   receive: (id: number) => api.post(`/orders/${id}/receive`).then((r) => r.data),
   cancel: (id: number) => api.post(`/orders/${id}/cancel`).then((r) => r.data),
 };
@@ -155,7 +157,7 @@ export interface AllocationInput {
   item_id?: number | null;
   name?: string | null;
   unit?: string | null;
-  price: number;
+  price: number | null;
 }
 export const requestsApi = {
   list: () => api.get<PurchaseRequest[]>('/requests').then((r) => r.data),

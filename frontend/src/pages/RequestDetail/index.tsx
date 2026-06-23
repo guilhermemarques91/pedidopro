@@ -6,7 +6,7 @@ import { requestsApi, suppliersApi, AllocationInput } from '../../services/resou
 import { apiError } from '../../services/api';
 import { useAuth } from '../../store/auth.store';
 import type { RequestItem, RequestItemOffer } from '../../types';
-import { brl, parseNum } from '../../utils/format';
+import { brl, parseNum, numToInput } from '../../utils/format';
 import { PageHeader } from '../../components/PageHeader';
 import { Button, Card, Select, Input, Badge, Spinner, ErrorBox } from '../../components/ui';
 
@@ -28,13 +28,13 @@ function initAlloc(it: RequestItem): Alloc {
       itemId: it.alloc_item_id,
       name: it.alloc_name ?? '',
       unit: it.alloc_unit ?? it.unit,
-      price: it.alloc_price ?? '',
+      price: numToInput(it.alloc_price),
     };
   }
-  // Pré-seleciona a melhor oferta (menor base_price), se houver.
-  const best = it.offers.find((o) => o.base_price != null);
+  // Pré-seleciona o fornecedor principal (menor preço, ou o primeiro se nenhum tem preço).
+  const best = principalOffer(it);
   if (best) {
-    return { source: `item:${best.item_id}`, supplierId: String(best.supplier_id), itemId: best.item_id, name: best.name, unit: best.unit, price: best.base_price ?? '' };
+    return { source: `item:${best.item_id}`, supplierId: String(best.supplier_id), itemId: best.item_id, name: best.name, unit: best.unit, price: numToInput(best.base_price) };
   }
   return { source: '', supplierId: '', itemId: null, name: it.free_text ?? it.product_name ?? '', unit: it.unit, price: '' };
 }
@@ -83,14 +83,14 @@ export function RequestDetailPage() {
     const out: AllocationInput[] = [];
     for (const it of items) {
       const a = alloc[it.id];
-      if (!a || !a.supplierId || parseNum(a.price) == null) continue;
+      if (!a || !a.supplierId) continue; // preço não é mais obrigatório para salvar
       out.push({
         id: it.id,
         supplier_id: Number(a.supplierId),
         item_id: a.source.startsWith('item:') ? a.itemId : null,
         name: a.source === 'manual' ? a.name : null,
         unit: a.source === 'manual' ? a.unit : null,
-        price: parseNum(a.price)!,
+        price: parseNum(a.price),
       });
     }
     return out;
@@ -105,7 +105,7 @@ export function RequestDetailPage() {
       update(it.id, { source, itemId: null, name: it.free_text ?? it.product_name ?? '', unit: it.unit, supplierId: '', price: '' });
     } else {
       const offer = it.offers.find((o) => `item:${o.item_id}` === source)!;
-      update(it.id, { source, itemId: offer.item_id, supplierId: String(offer.supplier_id), name: offer.name, unit: offer.unit, price: offer.base_price ?? '' });
+      update(it.id, { source, itemId: offer.item_id, supplierId: String(offer.supplier_id), name: offer.name, unit: offer.unit, price: numToInput(offer.base_price) });
     }
   }
 

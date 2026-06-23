@@ -85,6 +85,7 @@ final class Routes
         // Orders
         $r->get('/orders', [OrdersController::class, 'list'], self::ANY);
         $r->get('/orders/:id', [OrdersController::class, 'getById'], self::ANY);
+        $r->get('/orders/:id/message', [OrdersController::class, 'message'], self::WRITERS);
         $r->post('/orders', [OrdersController::class, 'create'], self::WRITERS);
         $r->patch('/orders/:id', [OrdersController::class, 'update'], self::WRITERS);
         $r->delete('/orders/:id', [OrdersController::class, 'remove'], self::ADMIN);

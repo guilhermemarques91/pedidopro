@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2, ListChecks } from 'lucide-react';
+import { Plus, Trash2, ListChecks, Pencil } from 'lucide-react';
 import { requestsApi, productsApi, RequestItemInput } from '../../services/resources';
 import { apiError } from '../../services/api';
+import { useAuth } from '../../store/auth.store';
 import { date } from '../../utils/format';
 import { PageHeader } from '../../components/PageHeader';
 import { Button, Card, Field, Input, Combobox, Modal, Badge, Spinner, ErrorBox, EmptyState, ComboOption } from '../../components/ui';
@@ -11,9 +12,17 @@ import { Button, Card, Field, Input, Combobox, Modal, Badge, Spinner, ErrorBox, 
 // Linha em edição na nova lista.
 interface Draft { key: number; productId: string; freeText: string; quantity: string; unit: string }
 
+// Status em que a lista ainda pode ser editada (funcionário: até submitted; admin: até allocated).
+function canEdit(status: string, isAdmin: boolean): boolean {
+  if (isAdmin) return ['draft', 'submitted', 'allocated'].includes(status);
+  return ['draft', 'submitted'].includes(status);
+}
+
 export function Requests() {
   const qc = useQueryClient();
+  const isAdmin = useAuth((s) => s.hasRole('admin'));
   const [open, setOpen] = useState(false);
+  const [editId, setEditId] = useState<number | null>(null);
   const { data, isLoading, error } = useQuery({ queryKey: ['requests'], queryFn: requestsApi.list });
   const remove = useMutation({
     mutationFn: (id: number) => requestsApi.remove(id),
@@ -48,6 +57,15 @@ export function Requests() {
               </Link>
               <div className="flex items-center gap-3">
                 <Badge status={r.status} />
+                {canEdit(r.status, isAdmin) && (
+                  <button
+                    onClick={() => { setEditId(r.id); setOpen(true); }}
+                    className="text-slate-300 hover:text-emerald-600"
+                    title="Editar lista"
+                  >
+                    <Pencil size={16} />
+                  </button>
+                )}
                 <button
                   onClick={() => { if (confirm(`Excluir a lista "${r.title}"?`)) remove.mutate(r.id); }}
                   className="text-slate-300 hover:text-red-600"
@@ -61,19 +79,38 @@ export function Requests() {
         </div>
       ))}
 
-      {open && <RequestForm onClose={() => setOpen(false)} />}
+      {open && <RequestForm editId={editId} onClose={() => { setOpen(false); setEditId(null); }} />}
     </div>
   );
 }
 
-function RequestForm({ onClose }: { onClose: () => void }) {
+function RequestForm({ onClose, editId }: { onClose: () => void; editId?: number | null }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const { data: products } = useQuery({ queryKey: ['products'], queryFn: productsApi.list });
   const { data: unmapped } = useQuery({ queryKey: ['products', 'unmapped'], queryFn: productsApi.unmapped });
+  const { data: editing } = useQuery({
+    queryKey: ['request', editId],
+    queryFn: () => requestsApi.get(editId as number),
+    enabled: !!editId,
+  });
   const [title, setTitle] = useState('');
   const [lines, setLines] = useState<Draft[]>([]);
   const [error, setError] = useState('');
+  const [loaded, setLoaded] = useState(false);
+
+  // Pré-carrega título e linhas ao editar uma lista existente.
+  if (editing && !loaded) {
+    setLoaded(true);
+    setTitle(editing.title);
+    setLines(editing.items.map((it, i) => ({
+      key: Date.now() + i,
+      productId: it.product_id ? String(it.product_id) : '',
+      freeText: it.product_id ? '' : (it.free_text ?? ''),
+      quantity: String(Number(it.quantity)),
+      unit: it.unit,
+    })));
+  }
 
   // Catálogo completo: produtos canônicos (agrupados) + itens ainda não agrupados.
   // Os produtos agrupados substituem os itens que incorporam.
@@ -81,6 +118,11 @@ function RequestForm({ onClose }: { onClose: () => void }) {
     ...(products ?? []).map((p) => ({ value: `p:${p.id}`, label: p.name, hint: p.category_name ?? undefined })),
     ...(unmapped ?? []).map((it) => ({ value: `i:${it.id}`, label: it.name, hint: it.supplier_name })),
   ].sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'));
+
+  // Unidade padrão de compra por opção do catálogo (produto → oferta mais barata; item → unidade do item).
+  const unitByValue = new Map<string, string>();
+  (products ?? []).forEach((p) => unitByValue.set(`p:${p.id}`, p.default_unit || 'un'));
+  (unmapped ?? []).forEach((it) => unitByValue.set(`i:${it.id}`, it.unit || 'un'));
 
   // Sub-form da linha atual.
   const [mode, setMode] = useState<'product' | 'free'>('product');
@@ -97,6 +139,9 @@ function RequestForm({ onClose }: { onClose: () => void }) {
         quantity: Number(l.quantity.replace(',', '.')) || 1,
         unit: l.unit || 'un',
       }));
+      if (editId) {
+        return requestsApi.update(editId, { title: title.trim() || undefined, items });
+      }
       return requestsApi.create({ title: title.trim() || undefined, items }).then(async (r) => {
         if (submit) await requestsApi.submit(r.id);
         return r;
@@ -104,6 +149,7 @@ function RequestForm({ onClose }: { onClose: () => void }) {
     },
     onSuccess: (r) => {
       qc.invalidateQueries({ queryKey: ['requests'] });
+      if (editId) qc.invalidateQueries({ queryKey: ['request', editId] });
       onClose();
       navigate(`/requests/${r.id}`);
     },
@@ -136,7 +182,7 @@ function RequestForm({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <Modal title="Nova lista de compras" onClose={onClose} size="xl">
+    <Modal title={editId ? 'Editar lista de compras' : 'Nova lista de compras'} onClose={onClose} size="xl">
       <div className="space-y-4">
         {error && <ErrorBox message={error} />}
         <Field label="Título (opcional)"><Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ex.: Compras da semana" /></Field>
@@ -170,7 +216,12 @@ function RequestForm({ onClose }: { onClose: () => void }) {
             <button onClick={() => setMode('free')} className={`rounded-lg px-3 py-1 font-medium ${mode === 'free' ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600'}`}>+ outro item</button>
           </div>
           {mode === 'product' ? (
-            <Combobox options={catalog} value={catalogSel} onChange={setCatalogSel} placeholder="— selecione o produto ou item —" />
+            <Combobox
+              options={catalog}
+              value={catalogSel}
+              onChange={(v) => { setCatalogSel(v); setUnit(unitByValue.get(v) || 'un'); }}
+              placeholder="— selecione o produto ou item —"
+            />
           ) : (
             <Input value={freeText} onChange={(e) => setFreeText(e.target.value)} placeholder="Nome do item (ex.: Cebola)" />
           )}
@@ -183,8 +234,14 @@ function RequestForm({ onClose }: { onClose: () => void }) {
 
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button>
-          <Button type="button" variant="ghost" disabled={!lines.length || create.isPending} onClick={() => create.mutate(false)}>Salvar rascunho</Button>
-          <Button type="button" disabled={!lines.length || create.isPending} onClick={() => create.mutate(true)}>Enviar para o admin</Button>
+          {editId ? (
+            <Button type="button" disabled={!lines.length || create.isPending} onClick={() => create.mutate(false)}>Salvar alterações</Button>
+          ) : (
+            <>
+              <Button type="button" variant="ghost" disabled={!lines.length || create.isPending} onClick={() => create.mutate(false)}>Salvar rascunho</Button>
+              <Button type="button" disabled={!lines.length || create.isPending} onClick={() => create.mutate(true)}>Enviar para o admin</Button>
+            </>
+          )}
         </div>
       </div>
     </Modal>

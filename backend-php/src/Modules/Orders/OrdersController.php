@@ -227,22 +227,49 @@ final class OrdersController
             if (!$supplier['whatsapp_number']) {
                 throw HttpError::badRequest('Fornecedor não tem número de WhatsApp cadastrado');
             }
-            $items = self::items($id);
-            $message = Evolution::formatOrderMessage(
-                ['id' => $o['id'], 'total_amount' => (float) ($o['total_amount'] ?? 0), 'created_at' => $o['created_at']],
-                array_map(static fn ($it) => [
-                    'name' => $it['item_name'],
-                    'code' => $it['supplier_code'] ?? null,
-                    'quantity' => $it['quantity'],
-                    'unit' => $it['unit'],
-                    'unit_price' => $it['unit_price'],
-                ], $items)
-            );
-            Evolution::sendMessage($supplier['whatsapp_number'], $message);
+            Evolution::sendMessage($supplier['whatsapp_number'], self::buildMessage($o));
             $whatsappSent = true;
         }
         Db::execute("UPDATE orders SET status = 'sent', sent_at = NOW() WHERE id = ?", [$id]);
         Http::json(['order' => self::row($id), 'whatsappSent' => $whatsappSent]);
+    }
+
+    /**
+     * Retorna a mensagem do pedido formatada (mesma do envio), sem enviar.
+     * Permite copiar/colar manualmente no WhatsApp caso a Evolution esteja indisponível.
+     */
+    public static function message(Request $req): void
+    {
+        $id = $req->intParam('id');
+        $o = self::row($id);
+        $supplier = Db::queryOne(
+            'SELECT order_type, whatsapp_number FROM suppliers WHERE id = ?',
+            [$o['supplier_id']]
+        );
+        if (!$supplier) {
+            throw HttpError::badRequest('Fornecedor do pedido não encontrado');
+        }
+        Http::json([
+            'message' => self::buildMessage($o),
+            'whatsapp_number' => $supplier['whatsapp_number'],
+            'order_type' => $supplier['order_type'],
+        ]);
+    }
+
+    /** Monta a mensagem de WhatsApp do pedido a partir dos seus itens. */
+    private static function buildMessage(array $o): string
+    {
+        $items = self::items((int) $o['id']);
+        return Evolution::formatOrderMessage(
+            ['id' => $o['id'], 'total_amount' => (float) ($o['total_amount'] ?? 0), 'created_at' => $o['created_at']],
+            array_map(static fn ($it) => [
+                'name' => $it['item_name'],
+                'code' => $it['supplier_code'] ?? null,
+                'quantity' => $it['quantity'],
+                'unit' => $it['unit'],
+                'unit_price' => $it['unit_price'],
+            ], $items)
+        );
     }
 
     public static function receive(Request $req): void

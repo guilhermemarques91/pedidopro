@@ -16,7 +16,11 @@ final class ProductsController
         // FILTER (WHERE i.active) → SUM(i.active = 1).
         Http::json(Db::query(
             "SELECT p.*, c.name AS category_name,
-                    COALESCE(SUM(i.active = 1), 0) AS item_count
+                    COALESCE(SUM(i.active = 1), 0) AS item_count,
+                    (SELECT i2.unit FROM items i2
+                      WHERE i2.product_id = p.id AND i2.active = 1
+                      ORDER BY (i2.base_price IS NULL), i2.base_price ASC, i2.id
+                      LIMIT 1) AS default_unit
                FROM products p
                LEFT JOIN categories c ON c.id = p.category_id
                LEFT JOIN items i ON i.product_id = p.id

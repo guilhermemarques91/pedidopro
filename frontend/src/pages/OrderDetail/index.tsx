@@ -1,11 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Send, Check, X, PackageCheck, Ban, MessageCircle, Plus, Trash2 } from 'lucide-react';
+import { ArrowLeft, Send, Check, X, PackageCheck, Ban, MessageCircle, Plus, Trash2, Copy } from 'lucide-react';
 import { ordersApi, itemsApi } from '../../services/resources';
 import { apiError } from '../../services/api';
 import { useAuth } from '../../store/auth.store';
-import { brl, datetime, parseNum } from '../../utils/format';
+import { brl, datetime, parseNum, numToInput } from '../../utils/format';
 import type { OrderItem } from '../../types';
 import { Button, Card, Spinner, ErrorBox, Badge, Input, Select } from '../../components/ui';
 
@@ -26,6 +26,17 @@ export function OrderDetailPage() {
   const approve = useMutation({ mutationFn: () => ordersApi.approve(oid), onSuccess: invalidate });
   const reject = useMutation({ mutationFn: (c: string) => ordersApi.reject(oid, c), onSuccess: invalidate });
   const send = useMutation({ mutationFn: () => ordersApi.send(oid), onSuccess: invalidate });
+  const [msgBox, setMsgBox] = useState<{ message: string; whatsapp_number: string | null } | null>(null);
+  const [copied, setCopied] = useState(false);
+  const fetchMsg = useMutation({
+    mutationFn: () => ordersApi.message(oid),
+    onSuccess: (d) => { setMsgBox(d); setCopied(false); },
+  });
+  // Se a Evolution falhar (ex.: 502), mostra a mensagem automaticamente para copiar/colar.
+  useEffect(() => {
+    if (send.isError && !msgBox && !fetchMsg.isPending) fetchMsg.mutate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [send.isError]);
   const receive = useMutation({ mutationFn: () => ordersApi.receive(oid), onSuccess: invalidate });
   const cancel = useMutation({ mutationFn: () => ordersApi.cancel(oid), onSuccess: invalidate });
 
@@ -60,6 +71,11 @@ export function OrderDetailPage() {
               {data.order_type === 'whatsapp' ? <MessageCircle size={16} /> : <Send size={16} />} Enviar ao fornecedor
             </Button>
           )}
+          {isBuyer && data.order_type === 'whatsapp' && ['approved', 'sent'].includes(data.status) && (
+            <Button variant="secondary" onClick={() => fetchMsg.mutate()} disabled={fetchMsg.isPending}>
+              <Copy size={16} /> Gerar mensagem
+            </Button>
+          )}
           {isBuyer && data.status === 'sent' && <Button onClick={() => receive.mutate()} disabled={busy}><PackageCheck size={16} /> Marcar recebido</Button>}
           {isBuyer && !['received', 'cancelled'].includes(data.status) && <Button variant="ghost" onClick={() => confirm('Cancelar pedido?') && cancel.mutate()} disabled={busy}><Ban size={16} /> Cancelar</Button>}
         </div>
@@ -67,6 +83,44 @@ export function OrderDetailPage() {
 
       {mutError && <div className="mb-4"><ErrorBox message={apiError(mutError)} /></div>}
       {send.data?.whatsappSent && <div className="mb-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700">✅ Pedido enviado pelo WhatsApp!</div>}
+
+      {msgBox && (
+        <Card className="mb-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-slate-800">Mensagem do pedido</h3>
+            <button onClick={() => setMsgBox(null)} className="text-slate-300 hover:text-slate-600"><X size={16} /></button>
+          </div>
+          {send.isError && (
+            <p className="text-sm text-amber-700">
+              O envio automático falhou. Copie a mensagem abaixo e cole no WhatsApp do fornecedor.
+            </p>
+          )}
+          <textarea
+            readOnly
+            value={msgBox.message}
+            rows={Math.min(16, msgBox.message.split('\n').length + 1)}
+            className="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 font-mono text-sm text-slate-700 outline-none"
+            onFocus={(e) => e.currentTarget.select()}
+          />
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="secondary"
+              onClick={() => { navigator.clipboard.writeText(msgBox.message); setCopied(true); }}
+            >
+              <Copy size={16} /> {copied ? 'Copiado!' : 'Copiar mensagem'}
+            </Button>
+            {msgBox.whatsapp_number && (
+              <a
+                href={`https://wa.me/${msgBox.whatsapp_number.replace(/\D/g, '')}?text=${encodeURIComponent(msgBox.message)}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <Button><MessageCircle size={16} /> Abrir WhatsApp</Button>
+              </a>
+            )}
+          </div>
+        </Card>
+      )}
 
       <div className="grid gap-6 md:grid-cols-3">
         <Card className="md:col-span-2 p-0">
@@ -155,8 +209,8 @@ function Row({ label, value }: { label: string; value?: string | null }) {
 
 /** Linha de item editável (qtd/preço salvam ao sair do campo) — só em rascunho. */
 function EditableItemRow({ oid, item, onChanged }: { oid: number; item: OrderItem; onChanged: () => void }) {
-  const [qty, setQty] = useState(String(Number(item.quantity)));
-  const [price, setPrice] = useState(String(Number(item.unit_price)));
+  const [qty, setQty] = useState(numToInput(item.quantity));
+  const [price, setPrice] = useState(numToInput(item.unit_price));
 
   const update = useMutation({
     mutationFn: (body: { quantity?: number; unit_price?: number }) => ordersApi.updateItem(oid, item.id, body),
@@ -212,7 +266,7 @@ function AddItemRow({ oid, supplierId, onChanged }: { oid: number; supplierId: n
   function pick(id: string) {
     setItemId(id);
     const it = items?.find((x) => x.id === Number(id));
-    if (it?.base_price) setPrice(it.base_price);
+    if (it?.base_price) setPrice(numToInput(it.base_price));
   }
 
   return (

@@ -110,8 +110,13 @@ final class RequestsController
         if ((int) $r['created_by'] !== $req->userId() && !$req->isAdmin()) {
             throw HttpError::forbidden('Lista de outro usuário');
         }
-        if ($r['status'] !== 'draft') {
-            throw HttpError::badRequest('Apenas listas em rascunho podem ser editadas');
+        // Funcionário (dono) edita enquanto a lista ainda não virou pedido (draft/submitted);
+        // admin edita também depois de alocada. Editar reseta as alocações (re-derivadas na tela).
+        $editable = $req->isAdmin()
+            ? in_array($r['status'], ['draft', 'submitted', 'allocated'], true)
+            : in_array($r['status'], ['draft', 'submitted'], true);
+        if (!$editable) {
+            throw HttpError::badRequest('Esta lista não pode mais ser editada');
         }
         $in = $req->input();
         $items = self::parseItems($in->array('items', true));
@@ -233,42 +238,65 @@ final class RequestsController
             foreach ($items as $i) {
                 $bySupplier[(int) $i['alloc_supplier_id']][] = $i;
             }
-            $created = [];
+            $touched = [];
             foreach ($bySupplier as $supplierId => $lines) {
-                $o = $pdo->prepare(
-                    'INSERT INTO orders (supplier_id, purchase_request_id, created_by, notes) VALUES (?, ?, ?, ?)'
+                // Junta com um pedido já aberto (não enviado) do mesmo fornecedor, se existir,
+                // para não gerar pedidos separados de listas diferentes (#7).
+                $open = $pdo->prepare(
+                    "SELECT id, status FROM orders
+                      WHERE supplier_id = ? AND status IN ('draft', 'pending_approval')
+                      ORDER BY created_at DESC LIMIT 1"
                 );
-                $o->execute([$supplierId, $id, $req->userId(), "Gerado da lista #{$id}"]);
-                $orderId = (int) $pdo->lastInsertId();
+                $open->execute([$supplierId]);
+                $existing = $open->fetch();
+
+                if ($existing) {
+                    $orderId = (int) $existing['id'];
+                    // Itens novos precisam de nova aprovação: volta o pedido para rascunho.
+                    if ($existing['status'] === 'pending_approval') {
+                        $pdo->prepare("UPDATE orders SET status = 'draft', approved_by = NULL, approved_at = NULL WHERE id = ?")
+                            ->execute([$orderId]);
+                    }
+                } else {
+                    $pdo->prepare(
+                        'INSERT INTO orders (supplier_id, purchase_request_id, created_by, notes) VALUES (?, ?, ?, ?)'
+                    )->execute([$supplierId, $id, $req->userId(), "Gerado da lista #{$id}"]);
+                    $orderId = (int) $pdo->lastInsertId();
+                }
 
                 foreach ($lines as $line) {
-                    $itemId = $line['alloc_item_id'] !== null ? (int) $line['alloc_item_id'] : null;
-                    if ($itemId === null) {
-                        $name = trim((string) ($line['alloc_name'] ?: $line['free_text'] ?: $line['product_name']));
-                        $unit = $line['alloc_unit'] ?: ($line['unit'] ?: 'un');
-                        $ins = $pdo->prepare(
-                            'INSERT INTO items (supplier_id, product_id, name, unit, base_price) VALUES (?, ?, ?, ?, ?)'
-                        );
-                        $ins->execute([$supplierId, $line['product_id'], $name, $unit, $line['alloc_price']]);
-                        $itemId = (int) $pdo->lastInsertId();
-                    }
-                    $pdo->prepare(
-                        'INSERT INTO order_items (order_id, item_id, quantity, unit_price, notes) VALUES (?, ?, ?, ?, ?)'
-                    )->execute([$orderId, $itemId, $line['quantity'], $line['alloc_price'], $line['notes']]);
+                    self::insertOrderLine($pdo, $orderId, $supplierId, $line);
                 }
                 $pdo->prepare(
                     'UPDATE orders SET total_amount = COALESCE(
                         (SELECT SUM(subtotal) FROM order_items WHERE order_id = ?), 0) WHERE id = ?'
                 )->execute([$orderId, $orderId]);
-                $created[] = $orderId;
+                $touched[$orderId] = true;
             }
             $pdo->prepare("UPDATE purchase_requests SET status = 'ordered' WHERE id = ?")->execute([$id]);
-            return $created;
+            return array_keys($touched);
         });
         Http::json(['orderIds' => $orderIds]);
     }
 
     // ---- helpers ----
+
+    /** Insere uma linha alocada como item de pedido, criando o item no catálogo do fornecedor se necessário. */
+    private static function insertOrderLine(PDO $pdo, int $orderId, int $supplierId, array $line): void
+    {
+        $itemId = $line['alloc_item_id'] !== null ? (int) $line['alloc_item_id'] : null;
+        if ($itemId === null) {
+            $name = trim((string) ($line['alloc_name'] ?: $line['free_text'] ?: $line['product_name']));
+            $unit = $line['alloc_unit'] ?: ($line['unit'] ?: 'un');
+            $pdo->prepare(
+                'INSERT INTO items (supplier_id, product_id, name, unit, base_price) VALUES (?, ?, ?, ?, ?)'
+            )->execute([$supplierId, $line['product_id'], $name, $unit, $line['alloc_price']]);
+            $itemId = (int) $pdo->lastInsertId();
+        }
+        $pdo->prepare(
+            'INSERT INTO order_items (order_id, item_id, quantity, unit_price, notes) VALUES (?, ?, ?, ?, ?)'
+        )->execute([$orderId, $itemId, $line['quantity'], $line['alloc_price'], $line['notes']]);
+    }
 
     private static function row(int $id): array
     {
@@ -330,8 +358,14 @@ final class RequestsController
             if ($lineId <= 0 || $supplierId <= 0) {
                 throw HttpError::badRequest('Alocação inválida (item/fornecedor)');
             }
-            if (!isset($a['price']) || !is_numeric($a['price']) || (float) $a['price'] < 0) {
-                throw HttpError::badRequest('Preço inválido');
+            // Preço é opcional ao salvar a alocação; só rejeita se vier negativo.
+            // (A exigência de preço fica no generate-orders.)
+            $price = null;
+            if (isset($a['price']) && $a['price'] !== null && $a['price'] !== '') {
+                if (!is_numeric($a['price']) || (float) $a['price'] < 0) {
+                    throw HttpError::badRequest('Preço inválido');
+                }
+                $price = (float) $a['price'];
             }
             $out[] = [
                 'id' => $lineId,
@@ -339,7 +373,7 @@ final class RequestsController
                 'item_id' => isset($a['item_id']) && $a['item_id'] !== null ? (int) $a['item_id'] : null,
                 'name' => isset($a['name']) && is_string($a['name']) && trim($a['name']) !== '' ? trim($a['name']) : null,
                 'unit' => isset($a['unit']) && is_string($a['unit']) && trim($a['unit']) !== '' ? trim($a['unit']) : null,
-                'price' => (float) $a['price'],
+                'price' => $price,
             ];
         }
         return $out;
