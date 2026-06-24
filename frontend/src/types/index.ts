@@ -210,3 +210,71 @@ export interface RequestItem {
 export interface RequestDetail extends PurchaseRequest {
   items: RequestItem[];
 }
+
+// ---- Delivery (pedidos de clientes: iFood + 99Food) ----
+export type DeliveryPlatform = 'ifood' | '99food';
+export type DeliveryStatus =
+  | 'placed' | 'confirmed' | 'preparing' | 'ready' | 'dispatched' | 'concluded' | 'cancelled';
+export type DeliveryMode = 'own' | 'partner';
+
+export interface DeliveryOrder {
+  id: number;
+  channel_id: number | null;
+  platform: DeliveryPlatform;
+  platform_order_id: string;
+  display_id: string | null;
+  merchant_id: string | null;
+  status: DeliveryStatus;
+  platform_status: string | null;
+  order_type: string;
+  delivery_mode: DeliveryMode | null;
+  delivery_address: Record<string, unknown> | null;
+  delivery_distance_m: number | null;
+  eta: string | null;
+  customer_id: number | null;
+  customer_name: string | null;
+  customer_phone: string | null;
+  items_amount: string | null;
+  delivery_fee: string | null;
+  discount_merchant: string | null;
+  discount_platform: string | null;
+  customer_paid: string | null;
+  commission: string | null;
+  net_amount: string | null;
+  placed_at: string | null;
+  confirmed_at: string | null;
+  ready_at: string | null;
+  dispatched_at: string | null;
+  concluded_at: string | null;
+  cancelled_at: string | null;
+  created_at: string;
+  items_count?: number;
+}
+
+export interface DeliveryOrderItem {
+  id: number;
+  order_id: number;
+  name: string;
+  quantity: string;
+  unit_price: string | null;
+  total: string | null;
+  observations: string | null;
+  options: unknown;
+}
+
+export interface DeliveryOrderDetail extends DeliveryOrder {
+  items: DeliveryOrderItem[];
+}
+
+export interface Channel {
+  id: number;
+  platform: DeliveryPlatform;
+  name: string;
+  merchant_id: string | null;
+  client_id: string | null;
+  webhook_secret: string | null;
+  has_client_secret: boolean;
+  active: boolean;
+  auto_confirm: boolean;
+  created_at: string;
+}

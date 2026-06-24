@@ -2,6 +2,7 @@ import { api } from './api';
 import type {
   Category, Supplier, Item, Product, Quotation, QuotationDetail, ComparisonRow,
   Order, OrderDetail, User, UserRole, PurchaseRequest, RequestDetail,
+  DeliveryOrder, DeliveryOrderDetail, DeliveryStatus, DeliveryPlatform, Channel,
 } from '../types';
 
 // ---- Categories ----
@@ -175,6 +176,39 @@ export const requestsApi = {
     api.put<RequestDetail>(`/requests/${id}/allocation`, { allocations }).then((r) => r.data),
   generateOrders: (id: number) =>
     api.post<{ orderIds: number[] }>(`/requests/${id}/generate-orders`).then((r) => r.data),
+};
+
+// ---- Delivery (pedidos de clientes: iFood + 99Food) ----
+export interface DeliveryFilters { status?: DeliveryStatus; platform?: DeliveryPlatform; date?: string; all?: boolean }
+export interface ChannelInput {
+  platform: DeliveryPlatform;
+  name: string;
+  merchant_id?: string | null;
+  client_id?: string | null;
+  client_secret?: string | null;
+  webhook_secret?: string | null;
+  active?: boolean;
+  auto_confirm?: boolean;
+}
+
+export const deliveryApi = {
+  list: (f: DeliveryFilters = {}) =>
+    api.get<DeliveryOrder[]>('/delivery/orders', { params: f }).then((r) => r.data),
+  get: (id: number) => api.get<DeliveryOrderDetail>(`/delivery/orders/${id}`).then((r) => r.data),
+  confirm: (id: number) => api.post<DeliveryOrderDetail>(`/delivery/orders/${id}/confirm`).then((r) => r.data),
+  ready: (id: number) => api.post<DeliveryOrderDetail>(`/delivery/orders/${id}/ready`).then((r) => r.data),
+  dispatch: (id: number) => api.post<DeliveryOrderDetail>(`/delivery/orders/${id}/dispatch`).then((r) => r.data),
+  cancel: (id: number) => api.post<DeliveryOrderDetail>(`/delivery/orders/${id}/cancel`).then((r) => r.data),
+  tracking: (id: number) => api.get<Record<string, unknown>>(`/delivery/orders/${id}/tracking`).then((r) => r.data),
+  sync: () => api.post<{ ok: boolean; channels: { channel: string; platform: string; ingested: number; duplicated: number }[] }>('/delivery/sync').then((r) => r.data),
+};
+
+export const channelsApi = {
+  list: () => api.get<Channel[]>('/delivery/channels').then((r) => r.data),
+  create: (body: ChannelInput) => api.post<Channel>('/delivery/channels', body).then((r) => r.data),
+  update: (id: number, body: Partial<ChannelInput>) => api.put<Channel>(`/delivery/channels/${id}`, body).then((r) => r.data),
+  test: (id: number) =>
+    api.post<{ ok: boolean; authenticated: boolean; error?: string; merchants?: { id: string; name: string }[] }>(`/delivery/channels/${id}/test`).then((r) => r.data),
 };
 
 export const inboxApi = {

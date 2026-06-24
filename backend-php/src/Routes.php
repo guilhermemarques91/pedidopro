@@ -16,6 +16,8 @@ use App\Modules\Users\UsersController;
 use App\Modules\Inbox\InboxController;
 use App\Modules\Import\ImportController;
 use App\Modules\Whatsapp\WhatsappController;
+use App\Modules\Webhooks\WebhooksController;
+use App\Modules\Delivery\DeliveryController;
 
 /** Registro central das rotas (espelha as rotas do backend Node). */
 final class Routes
@@ -26,6 +28,7 @@ final class Routes
     private const WRITERS = ['admin', 'buyer'];
     private const APPROVERS = ['admin', 'approver'];
     private const REQUESTERS = ['admin', 'buyer', 'requester'];
+    private const DELIVERY = ['admin', 'buyer', 'approver']; // operadores do painel de delivery
 
     public static function register(Router $r): void
     {
@@ -132,5 +135,25 @@ final class Routes
         // WhatsApp
         $r->post('/whatsapp/test', [WhatsappController::class, 'sendTest'], self::ADMIN);
         $r->get('/whatsapp/status', [WhatsappController::class, 'status'], self::ANY);
+
+        // Webhooks de delivery (PÚBLICOS — validados por segredo do canal)
+        $r->post('/webhooks/ifood', [WebhooksController::class, 'ifood'], null);
+        $r->post('/webhooks/99food', [WebhooksController::class, 'nineFood'], null);
+
+        // Delivery — painel de pedidos (iFood + 99Food)
+        $r->post('/delivery/poll', [DeliveryController::class, 'poll'], null); // protegido por token interno (cron)
+        $r->post('/delivery/sync', [DeliveryController::class, 'sync'], self::ADMIN); // sincronização manual pela UI
+        $r->get('/delivery/orders', [DeliveryController::class, 'listOrders'], self::DELIVERY);
+        $r->get('/delivery/orders/:id', [DeliveryController::class, 'getOrder'], self::DELIVERY);
+        $r->get('/delivery/orders/:id/tracking', [DeliveryController::class, 'tracking'], self::DELIVERY);
+        $r->post('/delivery/orders/:id/confirm', [DeliveryController::class, 'confirm'], self::DELIVERY);
+        $r->post('/delivery/orders/:id/ready', [DeliveryController::class, 'ready'], self::DELIVERY);
+        $r->post('/delivery/orders/:id/dispatch', [DeliveryController::class, 'dispatch'], self::DELIVERY);
+        $r->post('/delivery/orders/:id/cancel', [DeliveryController::class, 'cancel'], self::DELIVERY);
+        // Integrações (canais) — admin
+        $r->get('/delivery/channels', [DeliveryController::class, 'listChannels'], self::ADMIN);
+        $r->post('/delivery/channels', [DeliveryController::class, 'createChannel'], self::ADMIN);
+        $r->put('/delivery/channels/:id', [DeliveryController::class, 'updateChannel'], self::ADMIN);
+        $r->post('/delivery/channels/:id/test', [DeliveryController::class, 'testChannel'], self::ADMIN);
     }
 }
