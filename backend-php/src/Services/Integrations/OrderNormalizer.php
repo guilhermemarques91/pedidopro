@@ -24,25 +24,30 @@ final class OrderNormalizer
         'CANCELLED' => 'cancelled', 'CAN' => 'cancelled', 'CANCELLATION_REQUESTED' => 'cancelled',
     ];
 
-    /** 99Food: status cru → status unificado. */
+    /** 99Food/DiDi: eventos do callback (orderNew/Finish/Cancel) → status unificado. */
     private const NINE_NINE_STATUS = [
-        'RECEIVED' => 'placed', 'PLACED' => 'placed',
+        'ORDERNEW' => 'placed', 'RECEIVED' => 'placed', 'PLACED' => 'placed',
         'CONFIRMED' => 'confirmed', 'ACCEPTED' => 'confirmed',
         'PREPARING' => 'preparing',
         'READY_FOR_PICKUP' => 'ready', 'READY' => 'ready',
         'DISPATCHED' => 'dispatched', 'OUT_FOR_DELIVERY' => 'dispatched',
-        'CONCLUDED' => 'concluded', 'DELIVERED' => 'concluded', 'COMPLETED' => 'concluded',
-        'CANCELED' => 'cancelled', 'CANCELLED' => 'cancelled',
+        'ORDERFINISH' => 'concluded', 'CONCLUDED' => 'concluded', 'DELIVERED' => 'concluded', 'COMPLETED' => 'concluded',
+        'ORDERCANCEL' => 'cancelled', 'CANCELED' => 'cancelled', 'CANCELLED' => 'cancelled',
     ];
+
+    /** Lookup cru → status unificado, ou null se não reconhecido. */
+    public static function statusFromRaw(string $platform, ?string $raw): ?string
+    {
+        if ($raw === null || $raw === '') {
+            return null;
+        }
+        $map = $platform === 'ifood' ? self::IFOOD_STATUS : self::NINE_NINE_STATUS;
+        return $map[strtoupper($raw)] ?? null;
+    }
 
     public static function mapStatus(string $platform, ?string $raw): string
     {
-        if ($raw === null || $raw === '') {
-            return 'placed';
-        }
-        $key = strtoupper($raw);
-        $map = $platform === 'ifood' ? self::IFOOD_STATUS : self::NINE_NINE_STATUS;
-        return $map[$key] ?? 'placed';
+        return self::statusFromRaw($platform, $raw) ?? 'placed';
     }
 
     /**
@@ -108,57 +113,96 @@ final class OrderNormalizer
         ];
     }
 
+    /** 99Food/DiDi OrderModel (valores em centavos; status numérico). */
     private static function nineNine(array $o): array
     {
-        $customer = $o['customer'] ?? ($o['client'] ?? []);
-        $delivery = $o['delivery'] ?? [];
-        $address = $delivery['address'] ?? ($o['deliveryAddress'] ?? null);
+        $shop = $o['shop'] ?? [];
+        $addr = $o['receive_address'] ?? [];
+        $price = $o['price'] ?? [];
 
         $items = [];
-        foreach (($o['items'] ?? []) as $it) {
+        foreach (($o['order_items'] ?? []) as $it) {
             $items[] = [
                 'name' => (string) ($it['name'] ?? 'Item'),
-                'quantity' => (float) ($it['quantity'] ?? 1),
-                'unit_price' => self::money($it['unitPrice'] ?? $it['price'] ?? null),
-                'total' => self::money($it['totalPrice'] ?? $it['total'] ?? null),
-                'observations' => $it['observations'] ?? ($it['notes'] ?? null),
-                'options' => $it['options'] ?? ($it['complements'] ?? null),
+                'quantity' => (float) ($it['amount'] ?? 1),
+                'unit_price' => self::cents($it['sku_price'] ?? null),
+                'total' => self::cents($it['real_price'] ?? ($it['total_price'] ?? null)),
+                'observations' => $it['remark'] ?? null,
+                'options' => $it['sub_item_list'] ?? null,
             ];
         }
 
-        $distance = $delivery['distance'] ?? null; // metros, geralmente
-        $phone = $customer['phone'] ?? ($customer['phoneNumber'] ?? null);
+        // Descontos: shop_subside_price = parte que a LOJA banca; resto = plataforma.
+        [$discMerchant, $discPlatform] = self::nineNineDiscounts($o['promotions'] ?? [], $price);
+
+        // Telefone: calling_code + phone.
+        $phone = trim((string) ($addr['calling_code'] ?? '') . ' ' . (string) ($addr['phone'] ?? '')) ?: null;
+        $name = $addr['name'] ?? trim((string) ($addr['first_name'] ?? '') . ' ' . (string) ($addr['last_name'] ?? '')) ?: null;
+
         $order = [
-            'platform_order_id' => (string) ($o['id'] ?? ($o['orderId'] ?? '')),
-            'display_id' => $o['shortReference'] ?? ($o['code'] ?? ($o['displayId'] ?? null)),
-            'merchant_id' => $o['merchantId'] ?? ($o['storeId'] ?? null),
-            'platform_status' => $o['status'] ?? null,
-            'status' => self::mapStatus('99food', $o['status'] ?? null),
-            'order_type' => strtolower((string) ($o['orderType'] ?? ($o['type'] ?? 'delivery'))),
-            'delivery_mode' => self::nineNineMode($delivery),
-            'delivery_address' => $address,
-            'delivery_distance_m' => $distance !== null ? (int) $distance : null,
-            'eta' => self::ts($delivery['estimatedDeliveryTime'] ?? ($o['eta'] ?? null)),
-            'customer_name' => $customer['name'] ?? null,
+            'platform_order_id' => (string) ($o['order_id'] ?? ''),
+            'display_id' => isset($o['order_index']) ? (string) $o['order_index'] : null,
+            'merchant_id' => isset($shop['app_shop_id']) ? (string) $shop['app_shop_id'] : null,
+            'platform_status' => isset($o['status']) ? (string) $o['status'] : null,
+            // status definitivo vem do evento do callback (override no IngestService).
+            'status' => 'placed',
+            'order_type' => 'delivery',
+            // delivery_type: 1 = DiDi (parceira), 2 = Store (própria).
+            'delivery_mode' => ((int) ($o['delivery_type'] ?? 1)) === 2 ? 'own' : 'partner',
+            'delivery_address' => $addr ?: null,
+            'delivery_distance_m' => null,
+            'eta' => self::ts($o['expected_arrived_eta'] ?? ($o['delivery_eta'] ?? null)),
+            'customer_name' => $name,
             'customer_phone' => $phone,
-            'items_amount' => self::money($o['subtotal'] ?? ($o['itemsAmount'] ?? null)),
-            'delivery_fee' => self::money($delivery['fee'] ?? ($o['deliveryFee'] ?? null)),
-            'discount_merchant' => self::money($o['merchantDiscount'] ?? null),
-            'discount_platform' => self::money($o['platformDiscount'] ?? null),
-            'customer_paid' => self::money($o['totalAmount'] ?? ($o['total'] ?? null)),
-            'commission' => self::money($o['commission'] ?? null),
-            'placed_at' => self::ts($o['createdAt'] ?? ($o['placedAt'] ?? null)),
+            'items_amount' => self::cents($price['order_price'] ?? null),
+            'delivery_fee' => self::cents($price['delivery_price'] ?? null),
+            'discount_merchant' => $discMerchant,
+            'discount_platform' => $discPlatform,
+            'customer_paid' => self::cents($price['customer_need_paying_money'] ?? ($price['real_pay_price'] ?? null)),
+            'placed_at' => self::ts($o['create_time'] ?? null),
         ];
 
         return [
             'order' => $order,
             'items' => $items,
             'customer' => [
-                'platform_customer_id' => $customer['id'] ?? ($customer['customerId'] ?? null),
-                'name' => $customer['name'] ?? null,
+                'platform_customer_id' => isset($addr['uid']) ? (string) $addr['uid'] : null,
+                'name' => $name,
                 'phone' => $phone,
             ],
         ];
+    }
+
+    /**
+     * 99Food: separa desconto da loja (shop_subside_price) vs. plataforma.
+     * @return array{0:?float,1:?float} [merchant, platform]
+     */
+    private static function nineNineDiscounts(array $promotions, array $price): array
+    {
+        $merchantCents = 0;
+        $totalCents = 0;
+        foreach ($promotions as $p) {
+            $totalCents += (int) ($p['save_price'] ?? 0);
+            $merchantCents += (int) ($p['shop_subside_price'] ?? 0);
+        }
+        // Sem detalhamento de promoções: usa os totais de desconto do PriceModel.
+        if ($totalCents === 0) {
+            $totalCents = (int) ($price['items_discount'] ?? 0) + (int) ($price['delivery_discount'] ?? 0);
+        }
+        $platformCents = max($totalCents - $merchantCents, 0);
+        return [
+            $merchantCents > 0 ? round($merchantCents / 100, 2) : null,
+            $platformCents > 0 ? round($platformCents / 100, 2) : null,
+        ];
+    }
+
+    /** Converte centavos (inteiro) para valor decimal. */
+    private static function cents(mixed $v): ?float
+    {
+        if ($v === null || $v === '') {
+            return null;
+        }
+        return is_numeric($v) ? round(((float) $v) / 100, 2) : null;
     }
 
     /** iFood: separa benefícios em desconto da loja (MERCHANT) vs. plataforma (IFOOD). */
@@ -193,20 +237,6 @@ final class OrderNormalizer
         }
         // DEFAULT/MERCHANT = própria; demais (logística iFood) = parceira.
         return in_array($mode, ['DEFAULT', 'MERCHANT'], true) ? 'own' : 'partner';
-    }
-
-    private static function nineNineMode(array $delivery): ?string
-    {
-        $mode = strtoupper((string) ($delivery['mode'] ?? ($delivery['type'] ?? '')));
-        if ($mode !== '') {
-            return in_array($mode, ['OWN', 'MERCHANT', 'SELF'], true) ? 'own' : 'partner';
-        }
-        // Fallback pelo modelo híbrido: até 2km = própria.
-        $distance = $delivery['distance'] ?? null;
-        if ($distance !== null) {
-            return ((int) $distance) <= 2000 ? 'own' : 'partner';
-        }
-        return null;
     }
 
     private static function money(mixed $v): ?float

@@ -146,12 +146,21 @@ function ChannelForm({ channel, onClose }: { channel: Channel | null; onClose: (
           </Select>
         </Field>
         <Field label="Nome"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex.: Restaurante Seu Sérgio — iFood" /></Field>
-        <Field label="Merchant ID"><Input value={merchantId} onChange={(e) => setMerchantId(e.target.value)} /></Field>
-        <Field label="Client ID"><Input value={clientId} onChange={(e) => setClientId(e.target.value)} /></Field>
-        <Field label={isEdit ? 'Client secret (deixe vazio para manter)' : 'Client secret'}>
+        <Field label={platform === '99food' ? 'App Shop ID (id que você define p/ a loja)' : 'Merchant ID'}>
+          <Input value={merchantId} onChange={(e) => setMerchantId(e.target.value)} />
+        </Field>
+        <Field label={platform === '99food' ? 'App ID' : 'Client ID'}><Input value={clientId} onChange={(e) => setClientId(e.target.value)} /></Field>
+        <Field label={`${platform === '99food' ? 'App Secret' : 'Client secret'}${isEdit ? ' (deixe vazio para manter)' : ''}`}>
           <Input type="password" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} placeholder={isEdit ? '••••••' : ''} />
         </Field>
-        <Field label="Webhook secret"><Input value={webhookSecret} onChange={(e) => setWebhookSecret(e.target.value)} /></Field>
+        {platform !== '99food' && (
+          <Field label="Webhook secret"><Input value={webhookSecret} onChange={(e) => setWebhookSecret(e.target.value)} /></Field>
+        )}
+        <p className="rounded-lg bg-slate-50 p-2 text-xs text-slate-500">
+          {platform === '99food'
+            ? 'Callback (no portal 99Food): https://pedidos.guimarques.dev.br/api/webhooks/99food'
+            : 'Webhook (no portal iFood, módulo Events): https://pedidos.guimarques.dev.br/api/webhooks/ifood'}
+        </p>
         <label className="flex items-center gap-2 text-sm text-slate-700">
           <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} /> Ativo
         </label>

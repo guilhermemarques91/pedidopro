@@ -89,6 +89,10 @@ final class WebhooksController
             $body['merchant']['id'] ?? null,
             $body['storeId'] ?? null,
             $body['events'][0]['merchantId'] ?? null,
+            // 99Food/DiDi: o vínculo é pelo app_shop_id (= merchant_id do canal).
+            $body['app_shop_id'] ?? null,
+            $body['data']['app_shop_id'] ?? null,
+            $body['shop']['app_shop_id'] ?? null,
         ];
         foreach ($candidates as $c) {
             if ($c) {

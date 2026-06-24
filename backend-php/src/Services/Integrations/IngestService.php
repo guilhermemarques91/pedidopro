@@ -92,6 +92,13 @@ final class IngestService
             ];
         }
 
+        // O evento é a autoridade da transição de status (essencial p/ 99Food, cujo
+        // status no detalhe é numérico/ambíguo). Só sobrescreve quando reconhecido.
+        $eventStatus = OrderNormalizer::statusFromRaw($platform, $statusRaw);
+        if ($eventStatus !== null) {
+            $normalized['order']['status'] = $eventStatus;
+        }
+
         self::upsert($platform, $channel, $normalized, $fullOrder ?? $event);
 
         // Aceite automático: confirma pedidos novos assim que chegam, se o canal pedir.
@@ -176,6 +183,10 @@ final class IngestService
      */
     private static function extract(string $platform, array $event): array
     {
+        if ($platform === '99food') {
+            return self::extract99food($event);
+        }
+
         $orderId = (string) ($event['orderId'] ?? $event['order']['id'] ?? '');
         if ($orderId === '' && isset($event['id'])) {
             // Webhook de pedido completo (ou evento sem orderId): o id é o do pedido.
@@ -193,6 +204,19 @@ final class IngestService
         }
 
         return [$eventId, $orderId, $statusRaw !== null ? (string) $statusRaw : null, $fullOrder];
+    }
+
+    /**
+     * Callback do 99Food/DiDi: { event: orderNew|orderFinish|orderCancel, order_id, app_shop_id }.
+     * Sempre buscamos o detalhe via getOrder (o callback não traz o pedido completo).
+     * @return array{0:string,1:string,2:?string,3:?array}
+     */
+    private static function extract99food(array $event): array
+    {
+        $orderId = (string) ($event['order_id'] ?? $event['orderId'] ?? ($event['data']['order_id'] ?? ''));
+        $type = $event['event'] ?? $event['event_type'] ?? $event['type'] ?? null;
+        $eventId = (string) ($event['id'] ?? $event['event_id'] ?? ($orderId . ':' . ($type ?? '')));
+        return [$eventId, $orderId, $type !== null ? (string) $type : null, null];
     }
 
     /** UPSERT do pedido normalizado (+ itens + cliente) numa transação. */
