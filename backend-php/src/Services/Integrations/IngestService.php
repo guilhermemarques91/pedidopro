@@ -150,6 +150,11 @@ final class IngestService
             self::log("auto-confirm PULADO ({$platform} {$orderId}): auto_confirm desligado no canal");
             return;
         }
+        // Só confirma se o pedido ainda está em 'placed' (evita reconfirmar em evento reenviado).
+        $cur = Db::queryOne('SELECT status FROM delivery_orders WHERE platform = ? AND platform_order_id = ?', [$platform, $orderId]);
+        if (($cur['status'] ?? null) !== 'placed') {
+            return;
+        }
         $client = self::clientFor($platform);
         if ($client === null) {
             return;
@@ -283,11 +288,25 @@ final class IngestService
                 'items_amount', 'delivery_fee', 'discount_merchant', 'discount_platform',
                 'customer_paid', 'commission', 'net_amount', 'placed_at',
             ];
+            // Status é MONOTÔNICO: só avança (placed→…→concluded). Evita que um evento
+            // reenviado/fora de ordem jogue o pedido pra trás (ex.: confirmado→novos).
+            // 'cancelled' é terminal e sempre vence; estado terminal atual não muda.
+            $ord = "'placed','confirmed','preparing','ready','dispatched','concluded'";
+            $statusExpr = 'status = CASE'
+                . " WHEN status IN ('cancelled','concluded') THEN status"
+                . " WHEN VALUES(status) = 'cancelled' THEN 'cancelled'"
+                . " WHEN FIELD(VALUES(status), {$ord}) > 0 AND FIELD(VALUES(status), {$ord}) >= FIELD(status, {$ord}) THEN VALUES(status)"
+                . ' ELSE status END';
+
             $names = array_keys($cols);
             $place = implode(', ', array_fill(0, count($names), '?'));
             $updates = [];
             foreach ($names as $n) {
                 if (in_array($n, ['platform', 'platform_order_id'], true)) {
+                    continue;
+                }
+                if ($n === 'status') {
+                    $updates[] = $statusExpr;
                     continue;
                 }
                 $updates[] = in_array($n, $coalesce, true)
