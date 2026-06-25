@@ -15,6 +15,7 @@ const COLUMNS: { key: DeliveryStatus; title: string; match: DeliveryStatus[] }[]
   { key: 'confirmed', title: 'Em preparo', match: ['confirmed', 'preparing'] },
   { key: 'ready', title: 'Prontos', match: ['ready'] },
   { key: 'dispatched', title: 'A caminho', match: ['dispatched'] },
+  { key: 'concluded', title: 'Concluídos', match: ['concluded'] },
 ];
 
 const PLATFORM_META: Record<string, { label: string; cls: string }> = {
@@ -58,7 +59,7 @@ export function Delivery() {
       )}
 
       {data && (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
           {COLUMNS.map((col) => {
             const orders = data.filter((o) => col.match.includes(o.status));
             return (
@@ -134,7 +135,7 @@ function OrderCard({
         {order.status === 'dispatched' && (
           <Link to={`/delivery/${order.id}`}><Button variant="secondary" className="px-3 py-1.5 text-xs">Acompanhar</Button></Link>
         )}
-        {order.status !== 'dispatched' && (
+        {['placed', 'confirmed', 'preparing', 'ready'].includes(order.status) && (
           <Button variant="ghost" className="px-3 py-1.5 text-xs" disabled={busy} onClick={onCancel}>Cancelar</Button>
         )}
       </div>
