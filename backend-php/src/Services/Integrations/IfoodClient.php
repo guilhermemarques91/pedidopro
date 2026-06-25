@@ -66,7 +66,12 @@ final class IfoodClient
         );
         $token = $r['data']['accessToken'] ?? null;
         if ($r['status'] >= 400 || !is_string($token)) {
-            throw new HttpError(502, 'Falha ao autenticar no iFood (HTTP ' . $r['status'] . ').');
+            // Surfaça o motivo do iFood (ex.: invalid_client, grant type) p/ diagnóstico.
+            $detail = $r['data']['error']['message']
+                ?? $r['data']['error_description']
+                ?? $r['data']['message']
+                ?? (is_string($r['raw'] ?? null) ? substr((string) $r['raw'], 0, 300) : '');
+            throw new HttpError(502, "Falha ao autenticar no iFood (HTTP {$r['status']})" . ($detail !== '' ? ": {$detail}" : '.'));
         }
         $expiresIn = (int) ($r['data']['expiresIn'] ?? 3600);
         Db::execute(
