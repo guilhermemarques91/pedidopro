@@ -159,14 +159,35 @@ final class IfoodClient
         if (self::mock()) {
             return;
         }
+        // requestCancellation EXIGE corpo { reason, cancellationCode } com um código
+        // válido para AQUELE pedido (varia por pedido). Os demais comandos não têm corpo.
+        $body = $command === 'cancel' ? self::cancellationBody($channel, $orderId) : null;
+
         $r = HttpClient::request(
             'POST',
             self::base() . '/order/v1.0/orders/' . rawurlencode($orderId) . '/' . $action,
-            self::auth($channel)
+            self::auth($channel),
+            $body
         );
         if ($r['status'] >= 400) {
-            throw new HttpError(502, "Falha ao enviar '{$command}' ao iFood (HTTP {$r['status']}).");
+            $detail = $r['data']['error']['message'] ?? $r['data']['message'] ?? '';
+            throw new HttpError(502, "Falha ao enviar '{$command}' ao iFood (HTTP {$r['status']})" . ($detail !== '' ? ": {$detail}" : '.'));
         }
+    }
+
+    /** GET cancellationReasons → escolhe um código válido e monta o corpo do cancelamento. */
+    private static function cancellationBody(array $channel, string $orderId): array
+    {
+        $r = HttpClient::request(
+            'GET',
+            self::base() . '/order/v1.0/orders/' . rawurlencode($orderId) . '/cancellationReasons',
+            self::auth($channel)
+        );
+        $reasons = is_array($r['data']) ? $r['data'] : [];
+        $first = $reasons[0] ?? [];
+        $code = (string) ($first['cancelCodeId'] ?? $first['code'] ?? $first['id'] ?? '501');
+        $desc = (string) ($first['description'] ?? 'Cancelado pela loja');
+        return ['reason' => $desc, 'cancellationCode' => $code];
     }
 
     /** GET /order/v1.0/orders/{id}/tracking — posição/ETA do entregador (entrega própria). */
