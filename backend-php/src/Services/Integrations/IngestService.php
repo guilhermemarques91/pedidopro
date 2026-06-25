@@ -143,7 +143,11 @@ final class IngestService
      */
     private static function maybeAutoConfirm(string $platform, array $channel, string $orderId): void
     {
-        if (empty($channel['auto_confirm']) || Env::bool('INTEGRATIONS_MOCK', false)) {
+        if (Env::bool('INTEGRATIONS_MOCK', false)) {
+            return;
+        }
+        if (empty($channel['auto_confirm'])) {
+            self::log("auto-confirm PULADO ({$platform} {$orderId}): auto_confirm desligado no canal");
             return;
         }
         $client = self::clientFor($platform);
@@ -157,8 +161,18 @@ final class IngestService
                  WHERE platform = ? AND platform_order_id = ? AND status = 'placed'",
                 [$platform, $orderId]
             );
+            self::log("auto-confirm OK ({$platform} {$orderId})");
         } catch (\Throwable $e) {
+            self::log("auto-confirm FALHOU ({$platform} {$orderId}): " . $e->getMessage());
             error_log('[delivery] auto-confirm falhou (' . $platform . ' ' . $orderId . '): ' . $e->getMessage());
+        }
+    }
+
+    /** Log visível no poll.log (apenas em CLI; em web iria corromper a resposta HTTP). */
+    private static function log(string $msg): void
+    {
+        if (PHP_SAPI === 'cli') {
+            fwrite(STDOUT, '[' . date('Y-m-d H:i:s') . '] ' . $msg . "\n");
         }
     }
 
