@@ -132,15 +132,16 @@ final class IngestService
                 }
             }
             $client::acknowledge($channel, $ids);
+            // Rede de segurança: garante que todo pedido em 'placed' do canal seja confirmado.
+            self::autoConfirmSweep($channel);
             $summary[] = ['channel' => $channel['name'], 'platform' => $platform, 'ingested' => $ingested, 'duplicated' => $dup];
         }
+        // Conclusão automática (homologação) — local, gated por env.
+        self::autoConcludeSweep();
         return $summary;
     }
 
-    /**
-     * Confirma o pedido na plataforma (aceite automático) e marca como confirmado
-     * localmente. Best-effort: falha de confirmação não interrompe a ingestão.
-     */
+    /** Aceite automático inline (no momento da ingestão de um pedido novo). */
     private static function maybeAutoConfirm(string $platform, array $channel, string $orderId): void
     {
         if (Env::bool('INTEGRATIONS_MOCK', false)) {
@@ -150,7 +151,35 @@ final class IngestService
             self::log("auto-confirm PULADO ({$platform} {$orderId}): auto_confirm desligado no canal");
             return;
         }
-        // Só confirma se o pedido ainda está em 'placed' (evita reconfirmar em evento reenviado).
+        self::confirmOne($platform, $channel, $orderId);
+    }
+
+    /**
+     * Rede de segurança: confirma TODOS os pedidos ainda em 'placed' do canal (auto_confirm),
+     * independentemente de qual evento os trouxe. Roda a cada ciclo de polling.
+     */
+    private static function autoConfirmSweep(array $channel): void
+    {
+        if (empty($channel['auto_confirm']) || Env::bool('INTEGRATIONS_MOCK', false)) {
+            return;
+        }
+        $platform = (string) $channel['platform'];
+        $pending = Db::query(
+            "SELECT platform_order_id FROM delivery_orders
+              WHERE channel_id = ? AND status = 'placed' AND created_at >= (NOW() - INTERVAL 6 HOUR)",
+            [(int) $channel['id']]
+        );
+        foreach ($pending as $o) {
+            self::confirmOne($platform, $channel, (string) $o['platform_order_id']);
+        }
+    }
+
+    /**
+     * Confirma um pedido na plataforma e marca confirmado localmente — só se ainda
+     * estiver em 'placed' (evita reconfirmar). Best-effort: não interrompe a ingestão.
+     */
+    private static function confirmOne(string $platform, array $channel, string $orderId): void
+    {
         $cur = Db::queryOne('SELECT status FROM delivery_orders WHERE platform = ? AND platform_order_id = ?', [$platform, $orderId]);
         if (($cur['status'] ?? null) !== 'placed') {
             return;
@@ -170,6 +199,27 @@ final class IngestService
         } catch (\Throwable $e) {
             self::log("auto-confirm FALHOU ({$platform} {$orderId}): " . $e->getMessage());
             error_log('[delivery] auto-confirm falhou (' . $platform . ' ' . $orderId . '): ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Conclusão automática (homologação): move 'dispatched' → 'concluded' após
+     * DELIVERY_AUTO_CONCLUDE_MIN minutos. É LOCAL (não chama a plataforma). 0 = off.
+     * Em produção fica off — o evento CONCLUDED real do iFood conclui o pedido.
+     */
+    private static function autoConcludeSweep(): void
+    {
+        $min = Env::int('DELIVERY_AUTO_CONCLUDE_MIN', 0);
+        if ($min <= 0) {
+            return;
+        }
+        $n = Db::execute(
+            "UPDATE delivery_orders SET status = 'concluded', concluded_at = COALESCE(concluded_at, NOW())
+              WHERE status = 'dispatched' AND dispatched_at < (NOW() - INTERVAL ? MINUTE)",
+            [$min]
+        );
+        if ($n > 0) {
+            self::log("auto-conclude: {$n} pedido(s) despachado(s) há >{$min}min marcados como concluídos");
         }
     }
 

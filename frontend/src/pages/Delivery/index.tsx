@@ -87,7 +87,38 @@ export function Delivery() {
           })}
         </div>
       )}
+
+      {data && <CancelledStrip orders={data.filter((o) => o.status === 'cancelled')} />}
     </div>
+  );
+}
+
+/** Faixa recolhível abaixo das colunas com os pedidos cancelados recentes. */
+function CancelledStrip({ orders }: { orders: DeliveryOrder[] }) {
+  if (orders.length === 0) return null;
+  return (
+    <details className="mt-6 rounded-xl border border-slate-200 bg-white p-3">
+      <summary className="cursor-pointer select-none text-sm font-semibold text-slate-700">
+        Cancelados <span className="ml-1 rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">{orders.length}</span>
+      </summary>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {orders.map((o) => {
+          const p = PLATFORM_META[o.platform] ?? { label: o.platform, cls: 'bg-slate-100 text-slate-700' };
+          return (
+            <Link
+              key={o.id}
+              to={`/delivery/${o.id}`}
+              className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50"
+            >
+              <span className={`rounded px-1.5 py-0.5 font-bold ${p.cls}`}>{p.label}</span>
+              <span className="font-medium text-slate-700">#{o.display_id ?? o.id}</span>
+              <span className="max-w-[10rem] truncate">{o.customer_name ?? 'Cliente'}</span>
+              <span>{brl(o.customer_paid)}</span>
+            </Link>
+          );
+        })}
+      </div>
+    </details>
   );
 }
 

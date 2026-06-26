@@ -159,6 +159,15 @@ final class IfoodClient
         if (self::mock()) {
             return;
         }
+        // Antes de "pronto", inicia o preparo (best-effort): alguns pedidos exigem
+        // PREPARATION_STARTED antes de READY_TO_PICKUP. Ignora se já iniciado/recusado.
+        if ($command === 'ready') {
+            HttpClient::request(
+                'POST',
+                self::base() . '/order/v1.0/orders/' . rawurlencode($orderId) . '/startPreparation',
+                self::auth($channel)
+            );
+        }
         // requestCancellation EXIGE corpo { reason, cancellationCode } com um código
         // válido para AQUELE pedido (varia por pedido). Os demais comandos não têm corpo.
         $body = $command === 'cancel' ? self::cancellationBody($channel, $orderId) : null;
