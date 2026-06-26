@@ -213,10 +213,11 @@ final class IngestService
         if ($min <= 0) {
             return;
         }
+        // $min é inteiro saneado (Env::int); inline evita placeholder em INTERVAL (gotcha do MySQL).
         $n = Db::execute(
             "UPDATE delivery_orders SET status = 'concluded', concluded_at = COALESCE(concluded_at, NOW())
-              WHERE status = 'dispatched' AND dispatched_at < (NOW() - INTERVAL ? MINUTE)",
-            [$min]
+              WHERE status = 'dispatched' AND dispatched_at < (NOW() - INTERVAL {$min} MINUTE)",
+            []
         );
         if ($n > 0) {
             self::log("auto-conclude: {$n} pedido(s) despachado(s) há >{$min}min marcados como concluídos");

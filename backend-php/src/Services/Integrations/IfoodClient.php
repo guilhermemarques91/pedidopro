@@ -165,21 +165,29 @@ final class IfoodClient
             HttpClient::request(
                 'POST',
                 self::base() . '/order/v1.0/orders/' . rawurlencode($orderId) . '/startPreparation',
-                self::auth($channel)
+                self::auth($channel),
+                null,
+                10
             );
         }
         // requestCancellation EXIGE corpo { reason, cancellationCode } com um código
         // válido para AQUELE pedido (varia por pedido). Os demais comandos não têm corpo.
         $body = $command === 'cancel' ? self::cancellationBody($channel, $orderId) : null;
 
+        // Timeout curto: falha rápido com erro legível em vez de estourar o gateway (502 cru).
         $r = HttpClient::request(
             'POST',
             self::base() . '/order/v1.0/orders/' . rawurlencode($orderId) . '/' . $action,
             self::auth($channel),
-            $body
+            $body,
+            12
         );
+        if ($r['status'] === 0) {
+            // cURL falhou (timeout/conexão) — NÃO marca como sucesso.
+            throw new HttpError(502, "iFood não respondeu a tempo ('{$command}'): " . ($r['error'] ?: 'timeout/conexão'));
+        }
         if ($r['status'] >= 400) {
-            $detail = $r['data']['error']['message'] ?? $r['data']['message'] ?? '';
+            $detail = $r['data']['error']['message'] ?? $r['data']['message'] ?? (is_string($r['raw'] ?? null) ? substr((string) $r['raw'], 0, 200) : '');
             throw new HttpError(502, "Falha ao enviar '{$command}' ao iFood (HTTP {$r['status']})" . ($detail !== '' ? ": {$detail}" : '.'));
         }
     }
