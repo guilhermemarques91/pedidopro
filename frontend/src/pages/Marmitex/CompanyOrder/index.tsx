@@ -7,7 +7,7 @@ import { useAuth } from '../../../store/auth.store';
 import type { MarmitexCompany } from '../../../types';
 import { PageHeader } from '../../../components/PageHeader';
 import { Button, Card, Field, Select, Spinner, ErrorBox, EmptyState } from '../../../components/ui';
-import { brl } from '../../../utils/format';
+import { brl, parseSides } from '../../../utils/format';
 
 interface Line {
   key: string;
@@ -60,7 +60,7 @@ export function CompanyOrder() {
         person_name: m.person_name ?? '',
         size_id: m.size_id ? String(m.size_id) : '',
         protein_id: m.protein_id ? String(m.protein_id) : '',
-        side_ids: (m.sides_json ?? []).map((s) => s.id),
+        side_ids: parseSides(m.sides_json).map((s) => s.id),
         observation: m.observation ?? '',
       })));
     } else {

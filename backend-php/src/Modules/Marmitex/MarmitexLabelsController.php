@@ -33,6 +33,11 @@ final class MarmitexLabelsController
               ORDER BY COALESCE(m.person_name, ""), m.id',
             [$companyId, $date]
         );
+        foreach ($marmitas as &$m) {
+            // MySQL/PDO devolve colunas JSON como string; decodifica para o frontend.
+            $m['sides_json'] = $m['sides_json'] ? json_decode($m['sides_json'], true) : [];
+        }
+        unset($m);
         Http::json([
             'company' => Db::queryOne('SELECT id, name FROM marmitex_companies WHERE id = ?', [$companyId]),
             'date' => $date,

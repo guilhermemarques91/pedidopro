@@ -331,7 +331,8 @@ export interface Marmita {
   size_name: string;
   protein_id: number | null;
   protein_name: string | null;
-  sides_json: MarmitaSide[] | null;
+  // Backend decodifica para array, mas tolera string (coluna JSON crua) por robustez.
+  sides_json: MarmitaSide[] | string | null;
   observation: string | null;
   unit_price: string;
   billed_invoice_id: number | null;

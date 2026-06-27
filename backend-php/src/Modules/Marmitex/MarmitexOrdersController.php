@@ -141,7 +141,13 @@ final class MarmitexOrdersController
         if (!$order) {
             throw HttpError::notFound('Pedido não encontrado');
         }
-        $order['marmitas'] = Db::query('SELECT * FROM marmitex_marmitas WHERE order_id = ? ORDER BY id', [$id]);
+        $marmitas = Db::query('SELECT * FROM marmitex_marmitas WHERE order_id = ? ORDER BY id', [$id]);
+        foreach ($marmitas as &$m) {
+            // MySQL/PDO devolve colunas JSON como string; decodifica para o frontend.
+            $m['sides_json'] = $m['sides_json'] ? json_decode($m['sides_json'], true) : [];
+        }
+        unset($m);
+        $order['marmitas'] = $marmitas;
         return $order;
     }
 
