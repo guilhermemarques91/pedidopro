@@ -5,6 +5,7 @@ import { Printer } from 'lucide-react';
 import { marmitexApi } from '../../../services/resources';
 import { apiError } from '../../../services/api';
 import { Spinner, ErrorBox } from '../../../components/ui';
+import { parseSides } from '../../../utils/format';
 
 /**
  * Impressão direta de etiquetas Pimaco 6080 (= Avery 5160): Carta, 3 colunas × 10
@@ -89,7 +90,7 @@ export function LabelsPrint() {
       ) : (
         <div className="labels-sheet bg-white">
           {data.marmitas.map((m) => {
-            const sides = (m.sides_json ?? []).map((s) => s.name).join(', ');
+            const sides = parseSides(m.sides_json).map((s) => s.name).join(', ');
             return (
               <div key={m.id} className="label">
                 {m.person_name && <div className="name">{m.person_name}</div>}

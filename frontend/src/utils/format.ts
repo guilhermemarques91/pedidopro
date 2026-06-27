@@ -1,3 +1,17 @@
+/** Normaliza sides_json (pode vir como array já decodificado ou string JSON crua). */
+export function parseSides(v: unknown): { id: number; name: string }[] {
+  if (Array.isArray(v)) return v as { id: number; name: string }[];
+  if (typeof v === 'string' && v.trim()) {
+    try {
+      const parsed = JSON.parse(v);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 /** Formata número/string como moeda BRL. */
 export function brl(value: number | string | null | undefined): string {
   if (value === null || value === undefined || value === '') return '—';
