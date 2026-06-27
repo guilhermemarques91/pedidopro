@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import {
   LayoutDashboard, Tags, Truck, Package, Combine, FileSpreadsheet,
   ClipboardList, ShoppingCart, LogOut, Inbox, ListChecks, Users, Menu, X,
-  Bike, Plug,
+  Bike, Plug, UtensilsCrossed, Building2, BookOpen, FileText, Receipt,
 } from 'lucide-react';
 import { useAuth } from '../store/auth.store';
 import { inboxApi } from '../services/resources';
@@ -33,6 +33,13 @@ const navGroups: NavGroup[] = [
     { to: '/items', label: 'Itens', icon: Package, roles: ['admin', 'buyer'] },
     { to: '/products', label: 'Produtos', icon: Combine, roles: ['admin', 'buyer'] },
     { to: '/import', label: 'Importação', icon: FileSpreadsheet, roles: ['admin', 'buyer'] },
+  ] },
+  { title: 'Marmitex', items: [
+    { to: '/marmitex', label: 'Pedido do dia', icon: UtensilsCrossed, roles: ['admin', 'company'], end: true },
+    { to: '/marmitex/companies', label: 'Empresas', icon: Building2, roles: ['admin'] },
+    { to: '/marmitex/catalog', label: 'Cardápio', icon: BookOpen, roles: ['admin'] },
+    { to: '/marmitex/report', label: 'Relatório / NF-e', icon: FileText, roles: ['admin'] },
+    { to: '/marmitex/invoices', label: 'Faturamentos', icon: Receipt, roles: ['admin'] },
   ] },
   { title: 'Integrações', items: [
     { to: '/integrations', label: 'Canais (iFood/99Food)', icon: Plug, roles: ['admin'] },

@@ -10,7 +10,7 @@ use App\Core\Request;
 
 final class AuthController
 {
-    private const PUBLIC_COLS = 'id, name, email, role, active, created_at';
+    private const PUBLIC_COLS = 'id, name, email, role, active, company_id, created_at';
 
     public static function login(Request $req): void
     {
@@ -24,7 +24,8 @@ final class AuthController
             throw HttpError::unauthorized('Credenciais inválidas');
         }
 
-        $token = Auth::sign((int) $user['id'], $user['email'], $user['role']);
+        $companyId = isset($user['company_id']) && $user['company_id'] !== null ? (int) $user['company_id'] : null;
+        $token = Auth::sign((int) $user['id'], $user['email'], $user['role'], $companyId);
         unset($user['password_hash']);
         Http::json(['token' => $token, 'user' => $user]);
     }

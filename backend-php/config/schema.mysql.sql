@@ -6,6 +6,14 @@
 SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
 
+DROP TABLE IF EXISTS marmitex_marmitas;
+DROP TABLE IF EXISTS marmitex_orders;
+DROP TABLE IF EXISTS marmitex_invoices;
+DROP TABLE IF EXISTS marmitex_sizes;
+DROP TABLE IF EXISTS marmitex_proteins;
+DROP TABLE IF EXISTS marmitex_sides;
+DROP TABLE IF EXISTS marmitex_observations;
+DROP TABLE IF EXISTS marmitex_companies;
 DROP TABLE IF EXISTS inbox_prices;
 DROP TABLE IF EXISTS imports;
 DROP TABLE IF EXISTS order_approvals;
@@ -29,6 +37,7 @@ CREATE TABLE users (
   password_hash TEXT NOT NULL,
   role          VARCHAR(20) NOT NULL,
   active        TINYINT(1) NOT NULL DEFAULT 1,
+  company_id    INT NULL,                         -- vínculo do login da empresa-cliente (módulo Marmitex)
   created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -249,5 +258,107 @@ CREATE TABLE inbox_prices (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 CREATE INDEX idx_inbox_status ON inbox_prices(status, supplier_id);
 CREATE INDEX idx_inbox_msgkey ON inbox_prices(message_key);
+
+-- ===== Módulo Marmitex (catering B2B) =====
+CREATE TABLE marmitex_companies (
+  id                INT AUTO_INCREMENT PRIMARY KEY,
+  name              VARCHAR(150) NOT NULL,
+  cnpj              VARCHAR(20),
+  contact_name      VARCHAR(150),
+  phone             VARCHAR(30),
+  email             VARCHAR(150),
+  notes             TEXT,
+  order_cutoff_time TIME NULL,
+  active            TINYINT(1) NOT NULL DEFAULT 1,
+  created_by        INT,
+  created_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+ALTER TABLE users ADD CONSTRAINT fk_users_company FOREIGN KEY (company_id) REFERENCES marmitex_companies(id) ON DELETE SET NULL;
+
+CREATE TABLE marmitex_sizes (
+  id         INT AUTO_INCREMENT PRIMARY KEY,
+  name       VARCHAR(80) NOT NULL,
+  price      DECIMAL(12,2) NOT NULL DEFAULT 0,
+  sort_order INT NOT NULL DEFAULT 0,
+  active     TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE marmitex_proteins (
+  id         INT AUTO_INCREMENT PRIMARY KEY,
+  name       VARCHAR(120) NOT NULL,
+  sort_order INT NOT NULL DEFAULT 0,
+  active     TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE marmitex_sides (
+  id         INT AUTO_INCREMENT PRIMARY KEY,
+  name       VARCHAR(120) NOT NULL,
+  sort_order INT NOT NULL DEFAULT 0,
+  active     TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE marmitex_observations (
+  id         INT AUTO_INCREMENT PRIMARY KEY,
+  name       VARCHAR(150) NOT NULL,
+  sort_order INT NOT NULL DEFAULT 0,
+  active     TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE marmitex_invoices (
+  id            INT AUTO_INCREMENT PRIMARY KEY,
+  company_id    INT NOT NULL,
+  period_start  DATE NOT NULL,
+  period_end    DATE NOT NULL,
+  status        VARCHAR(20) NOT NULL DEFAULT 'closed',
+  total_amount  DECIMAL(12,2) NOT NULL DEFAULT 0,
+  marmita_count INT NOT NULL DEFAULT 0,
+  report_json   JSON,
+  created_by    INT,
+  created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_marmitex_invoices_company (company_id),
+  CONSTRAINT fk_marmitex_invoices_company FOREIGN KEY (company_id) REFERENCES marmitex_companies(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE marmitex_orders (
+  id           INT AUTO_INCREMENT PRIMARY KEY,
+  company_id   INT NOT NULL,
+  service_date DATE NOT NULL,
+  status       VARCHAR(20) NOT NULL DEFAULT 'submitted',
+  notes        TEXT,
+  created_by   INT,
+  created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_marmitex_order_day (company_id, service_date),
+  CONSTRAINT fk_marmitex_orders_company FOREIGN KEY (company_id) REFERENCES marmitex_companies(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE marmitex_marmitas (
+  id                INT AUTO_INCREMENT PRIMARY KEY,
+  order_id          INT NOT NULL,
+  company_id        INT NOT NULL,
+  service_date      DATE NOT NULL,
+  person_name       VARCHAR(150),
+  size_id           INT,
+  size_name         VARCHAR(80) NOT NULL,
+  protein_id        INT,
+  protein_name      VARCHAR(120),
+  sides_json        JSON,
+  observation       VARCHAR(255),
+  unit_price        DECIMAL(12,2) NOT NULL DEFAULT 0,
+  billed_invoice_id INT NULL,
+  created_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_marmitas_company_date (company_id, service_date),
+  KEY idx_marmitas_billed (billed_invoice_id),
+  KEY idx_marmitas_order (order_id),
+  CONSTRAINT fk_marmitas_order   FOREIGN KEY (order_id)          REFERENCES marmitex_orders(id)    ON DELETE CASCADE,
+  CONSTRAINT fk_marmitas_size    FOREIGN KEY (size_id)           REFERENCES marmitex_sizes(id)     ON DELETE SET NULL,
+  CONSTRAINT fk_marmitas_protein FOREIGN KEY (protein_id)        REFERENCES marmitex_proteins(id)  ON DELETE SET NULL,
+  CONSTRAINT fk_marmitas_invoice FOREIGN KEY (billed_invoice_id) REFERENCES marmitex_invoices(id)  ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 SET FOREIGN_KEY_CHECKS = 1;

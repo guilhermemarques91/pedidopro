@@ -19,6 +19,12 @@ import { UsersPage } from './pages/Users';
 import { Delivery } from './pages/Delivery';
 import { DeliveryOrderDetailPage } from './pages/Delivery/OrderDetail';
 import { Integrations } from './pages/Integrations';
+import { CompanyOrder } from './pages/Marmitex/CompanyOrder';
+import { MarmitexCompanies } from './pages/Marmitex/Companies';
+import { MarmitexCatalogPage } from './pages/Marmitex/Catalog';
+import { MarmitexReportPage } from './pages/Marmitex/Report';
+import { MarmitexInvoices } from './pages/Marmitex/Invoices';
+import { LabelsPrint } from './pages/Marmitex/LabelsPrint';
 import { JSX } from 'react';
 
 function Protected({ children }: { children: JSX.Element }) {
@@ -26,10 +32,25 @@ function Protected({ children }: { children: JSX.Element }) {
   return token ? children : <Navigate to="/login" replace />;
 }
 
+/** Home por papel: empresa-cliente cai na própria área; staff no dashboard. */
+function RoleHome() {
+  const role = useAuth((s) => s.user?.role);
+  return role === 'company' ? <Navigate to="/marmitex" replace /> : <Dashboard />;
+}
+
 export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      {/* Impressão de etiquetas: rota isolada (sem o chrome do app) para o window.print(). */}
+      <Route
+        path="/marmitex/labels/print"
+        element={
+          <Protected>
+            <LabelsPrint />
+          </Protected>
+        }
+      />
       <Route
         path="/"
         element={
@@ -38,7 +59,12 @@ export default function App() {
           </Protected>
         }
       >
-        <Route index element={<Dashboard />} />
+        <Route index element={<RoleHome />} />
+        <Route path="marmitex" element={<CompanyOrder />} />
+        <Route path="marmitex/companies" element={<MarmitexCompanies />} />
+        <Route path="marmitex/catalog" element={<MarmitexCatalogPage />} />
+        <Route path="marmitex/report" element={<MarmitexReportPage />} />
+        <Route path="marmitex/invoices" element={<MarmitexInvoices />} />
         <Route path="delivery" element={<Delivery />} />
         <Route path="delivery/:id" element={<DeliveryOrderDetailPage />} />
         <Route path="integrations" element={<Integrations />} />

@@ -9,12 +9,16 @@ use App\Core\Request;
 
 final class UsersController
 {
-    private const PUBLIC_COLS = 'id, name, email, role, active, created_at';
-    private const ROLES = ['admin', 'buyer', 'approver', 'requester'];
+    private const PUBLIC_COLS = 'id, name, email, role, active, company_id, created_at';
+    private const ROLES = ['admin', 'buyer', 'approver', 'requester', 'company'];
 
     public static function list(Request $req): void
     {
-        Http::json(Db::query('SELECT ' . self::PUBLIC_COLS . ' FROM users ORDER BY name'));
+        Http::json(Db::query(
+            'SELECT u.' . str_replace(', ', ', u.', self::PUBLIC_COLS) . ', mc.name AS company_name
+               FROM users u LEFT JOIN marmitex_companies mc ON mc.id = u.company_id
+              ORDER BY u.name'
+        ));
     }
 
     public static function create(Request $req): void
@@ -24,16 +28,27 @@ final class UsersController
         $email = $in->email('email');
         $password = $in->requireString('password', 6);
         $role = $in->enum('role', self::ROLES, true);
+        // Login de empresa (Marmitex) precisa estar vinculado a uma empresa.
+        $companyId = $role === 'company' ? self::requireCompany($in->integer('company_id')) : null;
 
         if (Db::queryOne('SELECT id FROM users WHERE email = ?', [$email])) {
             throw HttpError::badRequest('Já existe um usuário com este e-mail');
         }
         $hash = password_hash($password, PASSWORD_BCRYPT);
         Db::execute(
-            'INSERT INTO users (name, email, password_hash, role) VALUES (?, ?, ?, ?)',
-            [$name, $email, $hash, $role]
+            'INSERT INTO users (name, email, password_hash, role, company_id) VALUES (?, ?, ?, ?, ?)',
+            [$name, $email, $hash, $role, $companyId]
         );
         Http::json(self::find(Db::lastInsertId()), 201);
+    }
+
+    /** Valida que a empresa informada existe; lança erro caso ausente/inválida. */
+    private static function requireCompany(?int $companyId): int
+    {
+        if (!$companyId || !Db::queryOne('SELECT id FROM marmitex_companies WHERE id = ?', [$companyId])) {
+            throw HttpError::badRequest('Selecione a empresa do login (módulo Marmitex)');
+        }
+        return $companyId;
     }
 
     public static function update(Request $req): void
@@ -56,6 +71,12 @@ final class UsersController
             }
             $fields[] = 'role = ?';
             $values[] = $role;
+            // Vínculo com empresa acompanha o papel: company exige empresa; demais zeram.
+            $fields[] = 'company_id = ?';
+            $values[] = $role === 'company' ? self::requireCompany($in->integer('company_id')) : null;
+        } elseif ($in->has('company_id')) {
+            $fields[] = 'company_id = ?';
+            $values[] = $in->integer('company_id');
         }
         if ($in->has('password') && $in->string('password') !== null) {
             $fields[] = 'password_hash = ?';

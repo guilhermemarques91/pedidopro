@@ -1,6 +1,6 @@
 // Tipos compartilhados — espelham as respostas da API do backend.
 
-export type UserRole = 'admin' | 'buyer' | 'approver' | 'requester';
+export type UserRole = 'admin' | 'buyer' | 'approver' | 'requester' | 'company';
 
 export interface User {
   id: number;
@@ -8,6 +8,8 @@ export interface User {
   email: string;
   role: UserRole;
   active: boolean;
+  company_id: number | null;
+  company_name?: string | null;
   created_at: string;
 }
 
@@ -277,4 +279,112 @@ export interface Channel {
   active: boolean;
   auto_confirm: boolean;
   created_at: string;
+}
+
+// ---- Marmitex (catering B2B) ----
+export interface MarmitexCompany {
+  id: number;
+  name: string;
+  cnpj: string | null;
+  contact_name: string | null;
+  phone: string | null;
+  email: string | null;
+  notes: string | null;
+  order_cutoff_time: string | null; // 'HH:MM:SS'
+  active: boolean;
+  pending_count?: number;
+  created_at: string;
+}
+
+export interface MarmitexSize {
+  id: number;
+  name: string;
+  price: string;
+  sort_order: number;
+  active: boolean;
+}
+export interface MarmitexOption {
+  id: number;
+  name: string;
+  sort_order: number;
+  active: boolean;
+}
+export interface MarmitexCatalog {
+  sizes: MarmitexSize[];
+  proteins: MarmitexOption[];
+  sides: MarmitexOption[];
+  observations: MarmitexOption[];
+}
+export type CatalogType = 'sizes' | 'proteins' | 'sides' | 'observations';
+
+export interface MarmitaSide {
+  id: number;
+  name: string;
+}
+export interface Marmita {
+  id: number;
+  order_id: number;
+  company_id: number;
+  service_date: string;
+  person_name: string | null;
+  size_id: number | null;
+  size_name: string;
+  protein_id: number | null;
+  protein_name: string | null;
+  sides_json: MarmitaSide[] | null;
+  observation: string | null;
+  unit_price: string;
+  billed_invoice_id: number | null;
+}
+
+export interface MarmitexOrder {
+  id: number;
+  company_id: number;
+  company_name?: string;
+  service_date: string;
+  status: 'submitted' | 'cancelled';
+  notes: string | null;
+  marmita_count?: number;
+  total_amount?: string;
+  billed_count?: number;
+  order_cutoff_time?: string | null;
+  created_at: string;
+}
+export interface MarmitexOrderDetail extends MarmitexOrder {
+  marmitas: Marmita[];
+}
+
+export interface MarmitexReportRow {
+  size_name: string;
+  protein_name: string | null;
+  unit_price: string;
+  quantity: string;
+  line_total: string;
+}
+export interface MarmitexReport {
+  company: { id: number; name: string; cnpj: string | null } | null;
+  period: { start: string | null; end: string | null };
+  rows: MarmitexReportRow[];
+  grand_total: number;
+  marmita_count: number;
+}
+
+export interface MarmitexInvoice {
+  id: number;
+  company_id: number;
+  company_name?: string;
+  cnpj?: string | null;
+  period_start: string;
+  period_end: string;
+  status: 'closed' | 'cancelled';
+  total_amount: string;
+  marmita_count: number;
+  report_json: string | null;
+  created_at: string;
+}
+
+export interface MarmitexLabelData {
+  company: { id: number; name: string } | null;
+  date: string;
+  marmitas: Pick<Marmita, 'id' | 'person_name' | 'size_name' | 'protein_name' | 'sides_json' | 'observation'>[];
 }

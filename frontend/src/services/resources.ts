@@ -3,6 +3,8 @@ import type {
   Category, Supplier, Item, Product, Quotation, QuotationDetail, ComparisonRow,
   Order, OrderDetail, User, UserRole, PurchaseRequest, RequestDetail,
   DeliveryOrder, DeliveryOrderDetail, DeliveryStatus, DeliveryPlatform, Channel,
+  MarmitexCompany, MarmitexCatalog, CatalogType, MarmitexOrder, MarmitexOrderDetail,
+  MarmitexReport, MarmitexInvoice, MarmitexLabelData,
 } from '../types';
 
 // ---- Categories ----
@@ -136,9 +138,9 @@ export interface InboxRow {
 // ---- Users (gestão de acesso — admin) ----
 export const usersApi = {
   list: () => api.get<User[]>('/users').then((r) => r.data),
-  create: (body: { name: string; email: string; password: string; role: UserRole }) =>
+  create: (body: { name: string; email: string; password: string; role: UserRole; company_id?: number | null }) =>
     api.post<User>('/users', body).then((r) => r.data),
-  update: (id: number, body: { name?: string; role?: UserRole; password?: string }) =>
+  update: (id: number, body: { name?: string; role?: UserRole; password?: string; company_id?: number | null }) =>
     api.put<User>(`/users/${id}`, body).then((r) => r.data),
   setActive: (id: number, active: boolean) =>
     api.patch<User>(`/users/${id}/active`, { active }).then((r) => r.data),
@@ -220,4 +222,57 @@ export const inboxApi = {
   approve: (ids: number[], quotationId: number) =>
     api.post<{ approved: number; added: number }>('/inbox/approve', { ids, quotation_id: quotationId }).then((r) => r.data),
   discard: (ids: number[]) => api.post<{ discarded: number }>('/inbox/discard', { ids }).then((r) => r.data),
+};
+
+// ---- Marmitex (catering B2B) ----
+export interface MarmitaInput {
+  person_name?: string | null;
+  size_id: number;
+  protein_id?: number | null;
+  side_ids?: number[];
+  observation?: string | null;
+}
+export interface SaveOrderBody {
+  company_id?: number;
+  service_date: string;
+  notes?: string | null;
+  marmitas: MarmitaInput[];
+}
+export interface CatalogItemBody { name?: string; price?: number; sort_order?: number; active?: boolean }
+
+export const marmitexApi = {
+  catalog: () => api.get<MarmitexCatalog>('/marmitex/catalog').then((r) => r.data),
+  catalogCreate: (type: CatalogType, body: CatalogItemBody) =>
+    api.post(`/marmitex/catalog/${type}`, body).then((r) => r.data),
+  catalogUpdate: (type: CatalogType, id: number, body: CatalogItemBody) =>
+    api.put(`/marmitex/catalog/${type}/${id}`, body).then((r) => r.data),
+  catalogRemove: (type: CatalogType, id: number) =>
+    api.delete(`/marmitex/catalog/${type}/${id}`).then((r) => r.data),
+
+  companies: {
+    list: () => api.get<MarmitexCompany[]>('/marmitex/companies').then((r) => r.data),
+    get: (id: number) => api.get<MarmitexCompany>(`/marmitex/companies/${id}`).then((r) => r.data),
+    create: (body: Partial<MarmitexCompany>) => api.post<MarmitexCompany>('/marmitex/companies', body).then((r) => r.data),
+    update: (id: number, body: Partial<MarmitexCompany>) => api.put<MarmitexCompany>(`/marmitex/companies/${id}`, body).then((r) => r.data),
+  },
+
+  orders: {
+    list: (params: { company_id?: number; date?: string } = {}) =>
+      api.get<MarmitexOrder[]>('/marmitex/orders', { params }).then((r) => r.data),
+    get: (id: number) => api.get<MarmitexOrderDetail>(`/marmitex/orders/${id}`).then((r) => r.data),
+    save: (body: SaveOrderBody) => api.post<MarmitexOrderDetail>('/marmitex/orders', body).then((r) => r.data),
+    remove: (id: number) => api.delete(`/marmitex/orders/${id}`).then((r) => r.data),
+  },
+
+  labels: (params: { date: string; company_id?: number }) =>
+    api.get<MarmitexLabelData>('/marmitex/labels', { params }).then((r) => r.data),
+
+  report: (params: { company_id: number; start?: string; end?: string }) =>
+    api.get<MarmitexReport>('/marmitex/report', { params }).then((r) => r.data),
+  closeReport: (body: { company_id: number; start: string; end: string }) =>
+    api.post<MarmitexInvoice>('/marmitex/report/close', body).then((r) => r.data),
+  invoices: (companyId?: number) =>
+    api.get<MarmitexInvoice[]>('/marmitex/invoices', { params: companyId ? { company_id: companyId } : {} }).then((r) => r.data),
+  invoice: (id: number) => api.get<MarmitexInvoice>(`/marmitex/invoices/${id}`).then((r) => r.data),
+  cancelInvoice: (id: number) => api.post<MarmitexInvoice>(`/marmitex/invoices/${id}/cancel`).then((r) => r.data),
 };

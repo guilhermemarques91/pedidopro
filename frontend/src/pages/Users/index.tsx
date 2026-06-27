@@ -1,7 +1,7 @@
 import { FormEvent, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Pencil, Lock, Unlock, Trash2 } from 'lucide-react';
-import { usersApi } from '../../services/resources';
+import { usersApi, marmitexApi } from '../../services/resources';
 import { apiError } from '../../services/api';
 import { useAuth } from '../../store/auth.store';
 import type { User, UserRole } from '../../types';
@@ -13,6 +13,7 @@ const roleLabel: Record<string, string> = {
   requester: 'Funcionário',
   buyer: 'Comprador',
   approver: 'Aprovador',
+  company: 'Empresa',
 };
 
 export function UsersPage() {
@@ -97,16 +98,25 @@ function UserForm({ user, onClose }: { user: User | null; onClose: () => void })
   const [email, setEmail] = useState(user?.email ?? '');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<UserRole>(user?.role ?? 'requester');
+  const [companyId, setCompanyId] = useState<number | null>(user?.company_id ?? null);
   const [error, setError] = useState('');
+
+  // Empresas para vincular o login (carregadas só quando o papel é 'company').
+  const companies = useQuery({
+    queryKey: ['marmitex-companies'],
+    queryFn: marmitexApi.companies.list,
+    enabled: role === 'company',
+  });
 
   const save = useMutation({
     mutationFn: () => {
       if (user) {
-        const body: { name?: string; role?: UserRole; password?: string } = { name, role };
+        const body: { name?: string; role?: UserRole; password?: string; company_id?: number | null } = { name, role };
+        if (role === 'company') body.company_id = companyId;
         if (password.trim()) body.password = password.trim();
         return usersApi.update(user.id, body);
       }
-      return usersApi.create({ name, email, password, role });
+      return usersApi.create({ name, email, password, role, company_id: role === 'company' ? companyId : null });
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['users'] }); onClose(); },
     onError: (e) => setError(apiError(e)),
@@ -115,6 +125,7 @@ function UserForm({ user, onClose }: { user: User | null; onClose: () => void })
   function submit(e: FormEvent) {
     e.preventDefault();
     setError('');
+    if (role === 'company' && !companyId) { setError('Selecione a empresa vinculada ao login.'); return; }
     save.mutate();
   }
 
@@ -130,8 +141,17 @@ function UserForm({ user, onClose }: { user: User | null; onClose: () => void })
           <Select value={role} onChange={(e) => setRole(e.target.value as UserRole)}>
             <option value="requester">Funcionário (só cria listas de compra)</option>
             <option value="admin">Administrador (acesso total)</option>
+            <option value="company">Empresa (envia pedidos de marmitex)</option>
           </Select>
         </Field>
+        {role === 'company' && (
+          <Field label="Empresa vinculada">
+            <Select value={companyId ?? ''} onChange={(e) => setCompanyId(e.target.value ? Number(e.target.value) : null)}>
+              <option value="">Selecione…</option>
+              {companies.data?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </Select>
+          </Field>
+        )}
         <Field label={user ? 'Nova senha (deixe em branco para manter)' : 'Senha'}>
           <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required={!user} placeholder={user ? '••••••' : ''} />
         </Field>
