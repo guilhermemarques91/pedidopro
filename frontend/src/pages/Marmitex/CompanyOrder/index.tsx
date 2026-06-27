@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2, Printer, Save, UtensilsCrossed } from 'lucide-react';
+import { Plus, Trash2, Printer, Save, UtensilsCrossed, Download, Upload } from 'lucide-react';
 import { marmitexApi, MarmitaInput } from '../../../services/resources';
 import { apiError } from '../../../services/api';
 import { useAuth } from '../../../store/auth.store';
@@ -32,6 +32,8 @@ export function CompanyOrder() {
   const [lines, setLines] = useState<Line[]>([newLine()]);
   const [msg, setMsg] = useState('');
   const [error, setError] = useState('');
+  const [importErrors, setImportErrors] = useState<{ row: number; messages: string[] }[]>([]);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const catalogQuery = useQuery({ queryKey: ['marmitex-catalog'], queryFn: marmitexApi.catalog });
   const adminCompanies = useQuery({ queryKey: ['marmitex-companies'], queryFn: marmitexApi.companies.list, enabled: !isCompany });
@@ -68,6 +70,7 @@ export function CompanyOrder() {
     }
     setMsg('');
     setError('');
+    setImportErrors([]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orderQuery.data, companyId, date]);
 
@@ -124,6 +127,45 @@ export function CompanyOrder() {
     window.open(`/marmitex/labels/print?${params.toString()}`, '_blank');
   }
 
+  const downloadTemplate = useMutation({
+    mutationFn: () => marmitexApi.orderTemplate(),
+    onSuccess: (blob) => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'modelo-pedido-marmitex.xlsx';
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    },
+    onError: (e) => setError(apiError(e)),
+  });
+
+  const importMut = useMutation({
+    mutationFn: (file: File) => marmitexApi.importSheet(file),
+    onSuccess: (res) => {
+      setImportErrors(res.errors);
+      setMsg(''); setError('');
+      if (res.marmitas.length) {
+        setLines(res.marmitas.map((m) => ({
+          key: `l${keySeq++}`,
+          person_name: m.person_name ?? '',
+          size_id: String(m.size_id),
+          protein_id: m.protein_id ? String(m.protein_id) : '',
+          side_ids: m.side_ids ?? [],
+          observation: m.observation ?? '',
+        })));
+      } else if (!res.errors.length) {
+        setError('A planilha não tinha nenhuma marmita preenchida.');
+      }
+    },
+    onError: (e) => setError(apiError(e)),
+  });
+
+  function onFilePicked(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (file) importMut.mutate(file);
+  }
+
   if (catalogQuery.isLoading) return <Spinner />;
 
   return (
@@ -163,10 +205,29 @@ export function CompanyOrder() {
         {company?.order_cutoff_time && (
           <p className="mt-3 text-xs text-slate-500">Horário-limite para alterações: <b>{company.order_cutoff_time.slice(0, 5)}</b> do dia do consumo.</p>
         )}
+        <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-200 pt-3">
+          <span className="text-sm text-slate-500">Ou lance por planilha:</span>
+          <Button variant="secondary" onClick={() => downloadTemplate.mutate()} disabled={downloadTemplate.isPending}>
+            <Download size={16} /> Baixar modelo
+          </Button>
+          <Button variant="secondary" onClick={() => fileRef.current?.click()} disabled={!companyId || importMut.isPending || billed}>
+            <Upload size={16} /> {importMut.isPending ? 'Importando…' : 'Importar planilha'}
+          </Button>
+          <input ref={fileRef} type="file" accept=".xlsx" onChange={onFilePicked} className="hidden" />
+          <span className="w-full text-xs text-slate-400 sm:w-auto">Importar substitui as marmitas abaixo; revise e clique em <b>Salvar pedido</b>.</span>
+        </div>
       </Card>
 
       {msg && <div className="mb-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{msg}</div>}
       {error && <div className="mb-4"><ErrorBox message={error} /></div>}
+      {importErrors.length > 0 && (
+        <div className="mb-4 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <p className="font-medium">Algumas linhas da planilha foram ignoradas (corrija na planilha ou ajuste manualmente):</p>
+          <ul className="mt-1 list-disc pl-5">
+            {importErrors.map((er) => <li key={er.row}>Linha {er.row}: {er.messages.join('; ')}</li>)}
+          </ul>
+        </div>
+      )}
       {billed && <div className="mb-4 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-700">Este pedido já foi faturado e não pode mais ser alterado.</div>}
 
       {/* Sugestões de observações para o datalist compartilhado */}
