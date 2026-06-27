@@ -23,6 +23,7 @@ use App\Modules\Marmitex\MarmitexCompaniesController;
 use App\Modules\Marmitex\MarmitexOrdersController;
 use App\Modules\Marmitex\MarmitexReportController;
 use App\Modules\Marmitex\MarmitexLabelsController;
+use App\Modules\Marmitex\MarmitexSheetController;
 
 /** Registro central das rotas (espelha as rotas do backend Node). */
 final class Routes
@@ -176,6 +177,9 @@ final class Routes
         $r->put('/marmitex/companies/:id', [MarmitexCompaniesController::class, 'update'], self::ADMIN);
 
         // Pedidos do dia (empresa) — escopados pelo token; admin pode filtrar por empresa.
+        // Planilha-modelo + importação (rotas específicas antes de /:id).
+        $r->get('/marmitex/orders/template', [MarmitexSheetController::class, 'template'], self::COMPANY);
+        $r->post('/marmitex/orders/import', [MarmitexSheetController::class, 'import'], self::COMPANY);
         $r->get('/marmitex/orders', [MarmitexOrdersController::class, 'list'], self::COMPANY);
         $r->get('/marmitex/orders/:id', [MarmitexOrdersController::class, 'getById'], self::COMPANY);
         $r->post('/marmitex/orders', [MarmitexOrdersController::class, 'save'], self::COMPANY);

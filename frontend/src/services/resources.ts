@@ -267,6 +267,14 @@ export const marmitexApi = {
   labels: (params: { date: string; company_id?: number }) =>
     api.get<MarmitexLabelData>('/marmitex/labels', { params }).then((r) => r.data),
 
+  orderTemplate: () => api.get('/marmitex/orders/template', { responseType: 'blob' }).then((r) => r.data as Blob),
+  importSheet: (file: File) => {
+    const fd = new FormData(); fd.append('file', file);
+    return api.post<{ marmitas: MarmitaInput[]; errors: { row: number; messages: string[] }[]; imported: number }>(
+      '/marmitex/orders/import', fd,
+    ).then((r) => r.data);
+  },
+
   report: (params: { company_id: number; start?: string; end?: string }) =>
     api.get<MarmitexReport>('/marmitex/report', { params }).then((r) => r.data),
   closeReport: (body: { company_id: number; start: string; end: string }) =>
