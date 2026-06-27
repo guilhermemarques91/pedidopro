@@ -18,6 +18,11 @@ use App\Modules\Import\ImportController;
 use App\Modules\Whatsapp\WhatsappController;
 use App\Modules\Webhooks\WebhooksController;
 use App\Modules\Delivery\DeliveryController;
+use App\Modules\Marmitex\MarmitexCatalogController;
+use App\Modules\Marmitex\MarmitexCompaniesController;
+use App\Modules\Marmitex\MarmitexOrdersController;
+use App\Modules\Marmitex\MarmitexReportController;
+use App\Modules\Marmitex\MarmitexLabelsController;
 
 /** Registro central das rotas (espelha as rotas do backend Node). */
 final class Routes
@@ -29,6 +34,7 @@ final class Routes
     private const APPROVERS = ['admin', 'approver'];
     private const REQUESTERS = ['admin', 'buyer', 'requester'];
     private const DELIVERY = ['admin', 'buyer', 'approver']; // operadores do painel de delivery
+    private const COMPANY = ['admin', 'company']; // dono + login da empresa-cliente (Marmitex)
 
     public static function register(Router $r): void
     {
@@ -155,5 +161,34 @@ final class Routes
         $r->post('/delivery/channels', [DeliveryController::class, 'createChannel'], self::ADMIN);
         $r->put('/delivery/channels/:id', [DeliveryController::class, 'updateChannel'], self::ADMIN);
         $r->post('/delivery/channels/:id/test', [DeliveryController::class, 'testChannel'], self::ADMIN);
+
+        // ===== Marmitex (catering B2B) =====
+        // Catálogo: leitura liberada à empresa (monta o formulário); escrita só admin.
+        $r->get('/marmitex/catalog', [MarmitexCatalogController::class, 'catalog'], self::COMPANY);
+        $r->post('/marmitex/catalog/:type', [MarmitexCatalogController::class, 'create'], self::ADMIN);
+        $r->put('/marmitex/catalog/:type/:id', [MarmitexCatalogController::class, 'update'], self::ADMIN);
+        $r->delete('/marmitex/catalog/:type/:id', [MarmitexCatalogController::class, 'remove'], self::ADMIN);
+
+        // Empresas-cliente: CRUD admin; a empresa só lê a própria.
+        $r->get('/marmitex/companies', [MarmitexCompaniesController::class, 'list'], self::ADMIN);
+        $r->post('/marmitex/companies', [MarmitexCompaniesController::class, 'create'], self::ADMIN);
+        $r->get('/marmitex/companies/:id', [MarmitexCompaniesController::class, 'getById'], self::COMPANY);
+        $r->put('/marmitex/companies/:id', [MarmitexCompaniesController::class, 'update'], self::ADMIN);
+
+        // Pedidos do dia (empresa) — escopados pelo token; admin pode filtrar por empresa.
+        $r->get('/marmitex/orders', [MarmitexOrdersController::class, 'list'], self::COMPANY);
+        $r->get('/marmitex/orders/:id', [MarmitexOrdersController::class, 'getById'], self::COMPANY);
+        $r->post('/marmitex/orders', [MarmitexOrdersController::class, 'save'], self::COMPANY);
+        $r->delete('/marmitex/orders/:id', [MarmitexOrdersController::class, 'remove'], self::COMPANY);
+
+        // Etiquetas (dados planos para impressão).
+        $r->get('/marmitex/labels', [MarmitexLabelsController::class, 'labels'], self::COMPANY);
+
+        // Relatório / faturamento — admin.
+        $r->get('/marmitex/report', [MarmitexReportController::class, 'report'], self::ADMIN);
+        $r->post('/marmitex/report/close', [MarmitexReportController::class, 'close'], self::ADMIN);
+        $r->get('/marmitex/invoices', [MarmitexReportController::class, 'invoices'], self::ADMIN);
+        $r->get('/marmitex/invoices/:id', [MarmitexReportController::class, 'getInvoice'], self::ADMIN);
+        $r->post('/marmitex/invoices/:id/cancel', [MarmitexReportController::class, 'cancelInvoice'], self::ADMIN);
     }
 }

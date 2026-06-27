@@ -19,7 +19,9 @@ export function Login() {
     setLoading(true);
     try {
       await login(email, password);
-      navigate('/');
+      // Login de empresa cai direto na própria área; staff vai ao dashboard.
+      const role = useAuth.getState().user?.role;
+      navigate(role === 'company' ? '/marmitex' : '/');
     } catch (err) {
       setError(apiError(err, 'Falha ao entrar'));
     } finally {

@@ -9,7 +9,7 @@ final class Request
     public array $params = [];
     /** @var array<string,mixed> */
     public array $body = [];
-    /** @var array{id:int,email:string,role:string}|null */
+    /** @var array{id:int,email:string,role:string,company_id:?int}|null */
     public ?array $user = null;
 
     public static function capture(): self
@@ -67,6 +67,18 @@ final class Request
     public function isAdmin(): bool
     {
         return $this->role() === 'admin';
+    }
+
+    public function isCompany(): bool
+    {
+        return $this->role() === 'company';
+    }
+
+    /** Empresa-cliente vinculada ao login (apenas para role 'company'); null para staff. */
+    public function companyId(): ?int
+    {
+        $v = $this->user['company_id'] ?? null;
+        return $v === null ? null : (int) $v;
     }
 
     /** @return array{name:string,type:string,tmp_name:string,size:int}|null */

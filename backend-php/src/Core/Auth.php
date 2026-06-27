@@ -18,7 +18,7 @@ final class Auth
         return $s;
     }
 
-    public static function sign(int $id, string $email, string $role): string
+    public static function sign(int $id, string $email, string $role, ?int $companyId = null): string
     {
         $days = Env::int('JWT_EXPIRES_DAYS', 7);
         $now = time();
@@ -27,6 +27,7 @@ final class Auth
             'id' => $id,
             'email' => $email,
             'role' => $role,
+            'company_id' => $companyId, // null para staff; preenchido p/ login de empresa (Marmitex)
             'iat' => $now,
             'exp' => $now + $days * 86400,
         ]));
@@ -35,8 +36,8 @@ final class Auth
     }
 
     /**
-     * Lê o header Authorization, valida o token e retorna { id, email, role }.
-     * @return array{id:int,email:string,role:string}
+     * Lê o header Authorization, valida o token e retorna { id, email, role, company_id }.
+     * @return array{id:int,email:string,role:string,company_id:?int}
      */
     public static function authenticate(): array
     {
@@ -52,6 +53,8 @@ final class Auth
             'id' => (int) ($claims['id'] ?? 0),
             'email' => (string) ($claims['email'] ?? ''),
             'role' => (string) ($claims['role'] ?? ''),
+            'company_id' => isset($claims['company_id']) && $claims['company_id'] !== null
+                ? (int) $claims['company_id'] : null,
         ];
     }
 
