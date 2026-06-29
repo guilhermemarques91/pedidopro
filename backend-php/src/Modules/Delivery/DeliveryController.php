@@ -8,6 +8,8 @@ use App\Core\Http;
 use App\Core\HttpError;
 use App\Core\Request;
 use App\Services\Integrations\IngestService;
+use App\Services\Integrations\IfoodClient;
+use App\Services\Integrations\NineNineClient;
 
 /**
  * Painel unificado de pedidos de delivery (iFood + 99Food): listar, detalhar,
@@ -101,6 +103,54 @@ final class DeliveryController
         }
         $data = $client::tracking($channel, (string) $order['platform_order_id']);
         Http::json($data ?? ['available' => false]);
+    }
+
+    // ---- alertas (solicitações de cancelamento do cliente) ----
+
+    public static function listAlerts(Request $req): void
+    {
+        Http::json(Db::query(
+            "SELECT a.*, o.display_id, o.customer_name, o.customer_paid
+               FROM delivery_alerts a
+               LEFT JOIN delivery_orders o ON o.id = a.order_id
+              WHERE a.status = 'pending'
+              ORDER BY a.created_at DESC"
+        ));
+    }
+
+    public static function acceptAlert(Request $req): void { self::resolveAlert($req, true); }
+    public static function rejectAlert(Request $req): void { self::resolveAlert($req, false); }
+
+    private static function resolveAlert(Request $req, bool $accept): void
+    {
+        $id = $req->intParam('id');
+        $a = Db::queryOne('SELECT * FROM delivery_alerts WHERE id = ?', [$id]);
+        if (!$a) {
+            throw HttpError::notFound('Alerta não encontrado');
+        }
+        if ($a['status'] !== 'pending') {
+            throw HttpError::badRequest('Este alerta já foi resolvido');
+        }
+        $platform = (string) $a['platform'];
+        $reason = $req->input()->string('reason') ?? '';
+
+        $order = Db::queryOne('SELECT * FROM delivery_orders WHERE platform = ? AND platform_order_id = ?', [$platform, $a['platform_order_id']]);
+        $channel = $order ? self::channelFor($order) : IngestService::findChannel($platform);
+        if (!$channel) {
+            throw HttpError::badRequest('Nenhum canal ativo para esta plataforma');
+        }
+
+        if ($platform === '99food') {
+            NineNineClient::resolveCancellation($channel, (string) $a['platform_order_id'], (string) $a['external_id'], $accept, $reason);
+        } else {
+            IfoodClient::resolveDispute($channel, (string) $a['external_id'], $accept, $reason);
+        }
+
+        Db::execute(
+            'UPDATE delivery_alerts SET status = ?, resolved_at = NOW() WHERE id = ?',
+            [$accept ? 'accepted' : 'rejected', $id]
+        );
+        Http::json(['ok' => true, 'status' => $accept ? 'accepted' : 'rejected']);
     }
 
     // ---- canais (integrações) ----

@@ -195,4 +195,25 @@ final class NineNineClient
             'name' => (string) ($shop['name'] ?? 'Loja'),
         ]];
     }
+
+    /**
+     * Aceita/recusa um pedido de cancelamento do cliente.
+     * POST /v1/order/apply/cancel { auth_token, order_id, apply_id, agree, reason }.
+     */
+    public static function resolveCancellation(array $channel, string $orderId, string $applyId, bool $agree, string $reason = ''): void
+    {
+        if (self::mock()) {
+            return;
+        }
+        $r = self::call('POST', '/v1/order/apply/cancel', [], [
+            'auth_token' => self::token($channel),
+            'order_id' => (int) $orderId,
+            'apply_id' => (int) $applyId,
+            'agree' => $agree,
+            'reason' => $reason !== '' ? $reason : ($agree ? 'Aceito pela loja' : 'Recusado pela loja'),
+        ]);
+        if (!$r['ok']) {
+            throw new HttpError(502, "Falha ao resolver cancelamento no 99Food (errno {$r['errno']}: {$r['errmsg']}).");
+        }
+    }
 }

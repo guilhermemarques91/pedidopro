@@ -4,7 +4,7 @@ import { Bike, Store, Clock, ExternalLink, RefreshCw } from 'lucide-react';
 import { deliveryApi } from '../../services/resources';
 import { apiError } from '../../services/api';
 import { useAuth } from '../../store/auth.store';
-import type { DeliveryOrder, DeliveryStatus } from '../../types';
+import type { DeliveryOrder, DeliveryStatus, DeliveryAlert } from '../../types';
 import { PageHeader } from '../../components/PageHeader';
 import { Button, Card, Spinner, ErrorBox, EmptyState } from '../../components/ui';
 import { brl } from '../../utils/format';
@@ -39,6 +39,15 @@ export function Delivery() {
   const dispatch = useMutation({ mutationFn: deliveryApi.dispatch, onSuccess: invalidate });
   const cancel = useMutation({ mutationFn: deliveryApi.cancel, onSuccess: invalidate });
   const busy = confirm.isPending || ready.isPending || dispatch.isPending || cancel.isPending;
+
+  // Solicitações de cancelamento do cliente (alertas acionáveis).
+  const { data: alerts } = useQuery({ queryKey: ['delivery-alerts'], queryFn: deliveryApi.alerts, refetchInterval: 15_000 });
+  const invalidateAlerts = () => {
+    qc.invalidateQueries({ queryKey: ['delivery-alerts'] });
+    qc.invalidateQueries({ queryKey: ['delivery-orders'] });
+  };
+  const acceptAlert = useMutation({ mutationFn: deliveryApi.acceptAlert, onSuccess: invalidateAlerts });
+  const rejectAlert = useMutation({ mutationFn: deliveryApi.rejectAlert, onSuccess: invalidateAlerts });
 
   return (
     <div>
@@ -88,7 +97,51 @@ export function Delivery() {
         </div>
       )}
 
+      {alerts && alerts.length > 0 && (
+        <AlertsStrip
+          alerts={alerts}
+          busy={acceptAlert.isPending || rejectAlert.isPending}
+          onAccept={(id) => acceptAlert.mutate(id)}
+          onReject={(id) => rejectAlert.mutate(id)}
+        />
+      )}
+
       {data && <CancelledStrip orders={data.filter((o) => o.status === 'cancelled')} />}
+    </div>
+  );
+}
+
+/** Solicitações de cancelamento do cliente que precisam de Aceitar/Recusar. */
+function AlertsStrip({
+  alerts, busy, onAccept, onReject,
+}: {
+  alerts: DeliveryAlert[];
+  busy: boolean;
+  onAccept: (id: number) => void;
+  onReject: (id: number) => void;
+}) {
+  return (
+    <div className="mt-6 rounded-xl border border-amber-300 bg-amber-50 p-4">
+      <h3 className="mb-3 text-sm font-semibold text-amber-800">
+        Solicitações de cancelamento <span className="ml-1 rounded-full bg-amber-200 px-2 py-0.5 text-xs">{alerts.length}</span>
+      </h3>
+      <div className="space-y-2">
+        {alerts.map((a) => {
+          const p = PLATFORM_META[a.platform] ?? { label: a.platform, cls: 'bg-slate-100 text-slate-700' };
+          return (
+            <div key={a.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm">
+              <span className={`rounded px-1.5 py-0.5 text-xs font-bold ${p.cls}`}>{p.label}</span>
+              <span className="font-medium text-slate-700">#{a.display_id ?? a.platform_order_id}</span>
+              <span className="text-slate-600">{a.customer_name ?? 'Cliente'}</span>
+              {a.reason && <span className="text-xs text-slate-400">{a.reason}</span>}
+              <div className="ml-auto flex gap-2">
+                <Button className="px-3 py-1.5 text-xs" disabled={busy} onClick={() => { if (window.confirm('Aceitar o cancelamento deste pedido?')) onAccept(a.id); }}>Aceitar</Button>
+                <Button variant="secondary" className="px-3 py-1.5 text-xs" disabled={busy} onClick={() => onReject(a.id)}>Recusar</Button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

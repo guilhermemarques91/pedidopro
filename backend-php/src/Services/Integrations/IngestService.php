@@ -101,6 +101,9 @@ final class IngestService
 
         self::upsert($platform, $channel, $normalized, $fullOrder ?? $event);
 
+        // Solicitação de cancelamento do cliente (best-effort; não interrompe a ingestão).
+        self::detectCancellationAlert($platform, $event, $orderId);
+
         // Aceite automático: confirma pedidos novos assim que chegam, se o canal pedir.
         if (($normalized['order']['status'] ?? null) === 'placed') {
             self::maybeAutoConfirm($platform, $channel, $orderId);
@@ -221,6 +224,45 @@ final class IngestService
         );
         if ($n > 0) {
             self::log("auto-conclude: {$n} pedido(s) despachado(s) há >{$min}min marcados como concluídos");
+        }
+    }
+
+    /**
+     * Detecta pedido de cancelamento do cliente no evento e registra um alerta pendente.
+     * 99Food: `apply_id` no callback. iFood: id de disputa/handshake (a validar com evento real).
+     * Best-effort: nunca lança (não interrompe a ingestão).
+     */
+    private static function detectCancellationAlert(string $platform, array $event, string $orderId): void
+    {
+        try {
+            $externalId = null;
+            $reason = null;
+            if ($platform === '99food') {
+                $externalId = $event['apply_id'] ?? ($event['data']['apply_id'] ?? null);
+                $reason = $event['reason'] ?? ($event['data']['reason'] ?? null);
+            } else { // ifood — marcadores de disputa/handshake
+                $code = strtoupper((string) ($event['fullCode'] ?? $event['code'] ?? ''));
+                $externalId = $event['disputeId']
+                    ?? ($event['metadata']['disputeId'] ?? null)
+                    ?? ($event['handshake']['disputeId'] ?? null);
+                if ($externalId === null && in_array($code, ['HANDSHAKE_DISPUTE', 'CANCELLATION_REQUESTED'], true)) {
+                    $externalId = $event['id'] ?? null;
+                }
+                $reason = $event['metadata']['reason'] ?? null;
+            }
+            if ($externalId === null) {
+                return;
+            }
+            $orderRow = Db::queryOne('SELECT id FROM delivery_orders WHERE platform = ? AND platform_order_id = ?', [$platform, $orderId]);
+            Db::execute(
+                "INSERT INTO delivery_alerts (order_id, platform, platform_order_id, type, external_id, status, reason, payload)
+                 VALUES (?, ?, ?, 'cancellation_request', ?, 'pending', ?, ?)
+                 ON DUPLICATE KEY UPDATE order_id = VALUES(order_id), reason = COALESCE(VALUES(reason), reason)",
+                [$orderRow['id'] ?? null, $platform, $orderId, (string) $externalId, $reason, json_encode($event, JSON_UNESCAPED_UNICODE)]
+            );
+            self::log("alerta de cancelamento ({$platform} pedido {$orderId} ext {$externalId})");
+        } catch (\Throwable $e) {
+            error_log('[delivery] detectCancellationAlert: ' . $e->getMessage());
         }
     }
 

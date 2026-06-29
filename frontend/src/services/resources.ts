@@ -2,7 +2,7 @@ import { api } from './api';
 import type {
   Category, Supplier, Item, Product, Quotation, QuotationDetail, ComparisonRow,
   Order, OrderDetail, User, UserRole, PurchaseRequest, RequestDetail,
-  DeliveryOrder, DeliveryOrderDetail, DeliveryStatus, DeliveryPlatform, Channel,
+  DeliveryOrder, DeliveryOrderDetail, DeliveryStatus, DeliveryPlatform, Channel, DeliveryAlert,
   MarmitexCompany, MarmitexCatalog, CatalogType, MarmitexOrder, MarmitexOrderDetail,
   MarmitexReport, MarmitexInvoice, MarmitexLabelData,
 } from '../types';
@@ -203,6 +203,9 @@ export const deliveryApi = {
   cancel: (id: number) => api.post<DeliveryOrderDetail>(`/delivery/orders/${id}/cancel`).then((r) => r.data),
   tracking: (id: number) => api.get<Record<string, unknown>>(`/delivery/orders/${id}/tracking`).then((r) => r.data),
   sync: () => api.post<{ ok: boolean; channels: { channel: string; platform: string; ingested: number; duplicated: number }[] }>('/delivery/sync').then((r) => r.data),
+  alerts: () => api.get<DeliveryAlert[]>('/delivery/alerts').then((r) => r.data),
+  acceptAlert: (id: number) => api.post(`/delivery/alerts/${id}/accept`).then((r) => r.data),
+  rejectAlert: (id: number) => api.post(`/delivery/alerts/${id}/reject`).then((r) => r.data),
 };
 
 export const channelsApi = {

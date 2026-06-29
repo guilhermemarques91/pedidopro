@@ -268,6 +268,22 @@ export interface DeliveryOrderDetail extends DeliveryOrder {
   items: DeliveryOrderItem[];
 }
 
+export interface DeliveryAlert {
+  id: number;
+  order_id: number | null;
+  platform: DeliveryPlatform;
+  platform_order_id: string;
+  type: string;
+  external_id: string | null;
+  status: 'pending' | 'accepted' | 'rejected' | 'expired';
+  reason: string | null;
+  created_at: string;
+  // join com delivery_orders
+  display_id: string | null;
+  customer_name: string | null;
+  customer_paid: string | null;
+}
+
 export interface Channel {
   id: number;
   platform: DeliveryPlatform;

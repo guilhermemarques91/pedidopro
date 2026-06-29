@@ -157,6 +157,10 @@ final class Routes
         $r->post('/delivery/orders/:id/ready', [DeliveryController::class, 'ready'], self::DELIVERY);
         $r->post('/delivery/orders/:id/dispatch', [DeliveryController::class, 'dispatch'], self::DELIVERY);
         $r->post('/delivery/orders/:id/cancel', [DeliveryController::class, 'cancel'], self::DELIVERY);
+        // Alertas — solicitações de cancelamento do cliente
+        $r->get('/delivery/alerts', [DeliveryController::class, 'listAlerts'], self::DELIVERY);
+        $r->post('/delivery/alerts/:id/accept', [DeliveryController::class, 'acceptAlert'], self::DELIVERY);
+        $r->post('/delivery/alerts/:id/reject', [DeliveryController::class, 'rejectAlert'], self::DELIVERY);
         // Integrações (canais) — admin
         $r->get('/delivery/channels', [DeliveryController::class, 'listChannels'], self::ADMIN);
         $r->post('/delivery/channels', [DeliveryController::class, 'createChannel'], self::ADMIN);

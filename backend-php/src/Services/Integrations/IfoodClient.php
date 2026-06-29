@@ -207,6 +207,32 @@ final class IfoodClient
         return ['reason' => $desc, 'cancellationCode' => $code];
     }
 
+    /**
+     * Aceita/recusa um pedido de cancelamento do cliente (plataforma de negociação/handshake).
+     * NOTA: caminho a CONFIRMAR na doc do iFood — provável `/order/v1.0/disputes/{id}/{accept|reject}`.
+     */
+    public static function resolveDispute(array $channel, string $disputeId, bool $accept, string $reason = ''): void
+    {
+        if (self::mock()) {
+            return;
+        }
+        $action = $accept ? 'accept' : 'reject';
+        $r = HttpClient::request(
+            'POST',
+            self::base() . '/order/v1.0/disputes/' . rawurlencode($disputeId) . '/' . $action,
+            self::auth($channel),
+            $reason !== '' ? ['reason' => $reason] : null,
+            12
+        );
+        if ($r['status'] === 0) {
+            throw new HttpError(502, "iFood não respondeu (cancelamento {$action}).");
+        }
+        if ($r['status'] >= 400) {
+            $detail = $r['data']['error']['message'] ?? $r['data']['message'] ?? '';
+            throw new HttpError(502, "Falha ao resolver cancelamento no iFood (HTTP {$r['status']})" . ($detail !== '' ? ": {$detail}" : '.'));
+        }
+    }
+
     /** GET /order/v1.0/orders/{id}/tracking — posição/ETA do entregador (entrega própria). */
     public static function tracking(array $channel, string $orderId): ?array
     {
