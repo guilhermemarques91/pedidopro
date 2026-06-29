@@ -167,14 +167,15 @@ final class DeliveryController
         $platform = $in->enum('platform', ['ifood', '99food'], true);
         $name = $in->requireString('name', 1, 150);
         $id = Db::insertReturning(
-            'INSERT INTO channels (platform, name, merchant_id, client_id, client_secret, webhook_secret, active, auto_confirm, extra)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            'INSERT INTO channels (platform, name, merchant_id, client_id, client_secret, webhook_secret, active, auto_confirm, commission_rate, extra)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             [
                 $platform, $name,
                 $in->string('merchant_id'), $in->string('client_id'),
                 $in->string('client_secret'), $in->string('webhook_secret'),
                 $in->boolean('active', true) ? 1 : 0,
                 $in->boolean('auto_confirm', false) ? 1 : 0,
+                (float) ($in->number('commission_rate') ?? 0),
                 $in->has('extra') ? json_encode($in->raw('extra'), JSON_UNESCAPED_UNICODE) : null,
             ],
             'channels'
@@ -211,6 +212,10 @@ final class DeliveryController
         if ($in->has('auto_confirm')) {
             $fields[] = 'auto_confirm = ?';
             $values[] = $in->boolean('auto_confirm', false) ? 1 : 0;
+        }
+        if ($in->has('commission_rate')) {
+            $fields[] = 'commission_rate = ?';
+            $values[] = (float) ($in->number('commission_rate') ?? 0);
         }
         if (!$fields) {
             throw HttpError::badRequest('Nada para atualizar');

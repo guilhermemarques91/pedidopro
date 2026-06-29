@@ -2,7 +2,7 @@ import { api } from './api';
 import type {
   Category, Supplier, Item, Product, Quotation, QuotationDetail, ComparisonRow,
   Order, OrderDetail, User, UserRole, PurchaseRequest, RequestDetail,
-  DeliveryOrder, DeliveryOrderDetail, DeliveryStatus, DeliveryPlatform, Channel, DeliveryAlert,
+  DeliveryOrder, DeliveryOrderDetail, DeliveryStatus, DeliveryPlatform, Channel, DeliveryAlert, ReportSummary,
   MarmitexCompany, MarmitexCatalog, CatalogType, MarmitexOrder, MarmitexOrderDetail,
   MarmitexReport, MarmitexInvoice, MarmitexLabelData,
 } from '../types';
@@ -191,7 +191,14 @@ export interface ChannelInput {
   webhook_secret?: string | null;
   active?: boolean;
   auto_confirm?: boolean;
+  commission_rate?: number;
 }
+
+export interface ReportFilters { from?: string; to?: string; platform?: DeliveryPlatform }
+export const reportsApi = {
+  summary: (f: ReportFilters = {}) =>
+    api.get<ReportSummary>('/delivery/reports/summary', { params: f }).then((r) => r.data),
+};
 
 export const deliveryApi = {
   list: (f: DeliveryFilters = {}) =>

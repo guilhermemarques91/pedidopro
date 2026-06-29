@@ -18,6 +18,7 @@ use App\Modules\Import\ImportController;
 use App\Modules\Whatsapp\WhatsappController;
 use App\Modules\Webhooks\WebhooksController;
 use App\Modules\Delivery\DeliveryController;
+use App\Modules\Delivery\ReportsController;
 use App\Modules\Marmitex\MarmitexCatalogController;
 use App\Modules\Marmitex\MarmitexCompaniesController;
 use App\Modules\Marmitex\MarmitexOrdersController;
@@ -158,6 +159,8 @@ final class Routes
         $r->post('/delivery/orders/:id/dispatch', [DeliveryController::class, 'dispatch'], self::DELIVERY);
         $r->post('/delivery/orders/:id/cancel', [DeliveryController::class, 'cancel'], self::DELIVERY);
         // Alertas — solicitações de cancelamento do cliente
+        // Relatórios operacionais
+        $r->get('/delivery/reports/summary', [ReportsController::class, 'summary'], self::DELIVERY);
         $r->get('/delivery/alerts', [DeliveryController::class, 'listAlerts'], self::DELIVERY);
         $r->post('/delivery/alerts/:id/accept', [DeliveryController::class, 'acceptAlert'], self::DELIVERY);
         $r->post('/delivery/alerts/:id/reject', [DeliveryController::class, 'rejectAlert'], self::DELIVERY);

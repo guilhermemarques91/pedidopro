@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import {
   LayoutDashboard, Tags, Truck, Package, Combine, FileSpreadsheet,
   ClipboardList, ShoppingCart, LogOut, Inbox, ListChecks, Users, Menu, X,
-  Bike, Plug, UtensilsCrossed, Building2, BookOpen, FileText, Receipt,
+  Bike, Plug, UtensilsCrossed, Building2, BookOpen, FileText, Receipt, BarChart3,
 } from 'lucide-react';
 import { useAuth } from '../store/auth.store';
 import { inboxApi } from '../services/resources';
@@ -20,6 +20,7 @@ const navGroups: NavGroup[] = [
   { items: [{ to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true }] },
   { title: 'Delivery', items: [
     { to: '/delivery', label: 'Painel de Pedidos', icon: Bike, roles: ['admin', 'buyer', 'approver'] },
+    { to: '/relatorios', label: 'Relatórios', icon: BarChart3, roles: ['admin', 'buyer', 'approver'] },
   ] },
   { title: 'Compras', items: [
     { to: '/requests', label: 'Lista de compras', icon: ListChecks },

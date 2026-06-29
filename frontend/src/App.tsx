@@ -19,6 +19,7 @@ import { UsersPage } from './pages/Users';
 import { Delivery } from './pages/Delivery';
 import { DeliveryOrderDetailPage } from './pages/Delivery/OrderDetail';
 import { Integrations } from './pages/Integrations';
+import { Reports } from './pages/Reports';
 import { CompanyOrder } from './pages/Marmitex/CompanyOrder';
 import { MarmitexCompanies } from './pages/Marmitex/Companies';
 import { MarmitexCatalogPage } from './pages/Marmitex/Catalog';
@@ -67,6 +68,7 @@ export default function App() {
         <Route path="marmitex/invoices" element={<MarmitexInvoices />} />
         <Route path="delivery" element={<Delivery />} />
         <Route path="delivery/:id" element={<DeliveryOrderDetailPage />} />
+        <Route path="relatorios" element={<Reports />} />
         <Route path="integrations" element={<Integrations />} />
         <Route path="requests" element={<Requests />} />
         <Route path="requests/:id" element={<RequestDetailPage />} />

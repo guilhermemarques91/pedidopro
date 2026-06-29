@@ -294,7 +294,32 @@ export interface Channel {
   has_client_secret: boolean;
   active: boolean;
   auto_confirm: boolean;
+  commission_rate: number | string;
   created_at: string;
+}
+
+// ---- Relatórios de delivery ----
+export interface ReportPlatformRow {
+  platform: DeliveryPlatform;
+  orders: number;
+  items_amount: number;
+  delivery_fee: number;
+  own_delivery_fee: number;
+  discount_merchant: number;
+  discount_platform: number;
+  customer_paid: number;
+  commission_est: number;
+  margin_est: number;
+  avg_ticket: number;
+}
+export interface ReportSummary {
+  from: string;
+  to: string;
+  platform: string | null;
+  totals: Omit<ReportPlatformRow, 'platform' | 'avg_ticket'>;
+  by_platform: ReportPlatformRow[];
+  customers: { new: number; recurring: number };
+  top_regions: { region: string; orders: number }[];
 }
 
 // ---- Marmitex (catering B2B) ----

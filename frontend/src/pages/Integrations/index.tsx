@@ -6,6 +6,7 @@ import { apiError } from '../../services/api';
 import type { Channel, DeliveryPlatform } from '../../types';
 import { PageHeader } from '../../components/PageHeader';
 import { Button, Card, Field, Input, Select, Modal, Spinner, ErrorBox, EmptyState } from '../../components/ui';
+import { parseNum } from '../../utils/format';
 
 const PLATFORMS: { value: DeliveryPlatform; label: string }[] = [
   { value: 'ifood', label: 'iFood' },
@@ -112,6 +113,7 @@ function ChannelForm({ channel, onClose }: { channel: Channel | null; onClose: (
   const [webhookSecret, setWebhookSecret] = useState(channel?.webhook_secret ?? '');
   const [active, setActive] = useState(channel?.active ?? true);
   const [autoConfirm, setAutoConfirm] = useState(channel?.auto_confirm ?? false);
+  const [commissionRate, setCommissionRate] = useState(channel ? String(channel.commission_rate ?? '') : '');
   const [err, setErr] = useState('');
 
   const save = useMutation({
@@ -131,6 +133,7 @@ function ChannelForm({ channel, onClose }: { channel: Channel | null; onClose: (
       webhook_secret: webhookSecret || null,
       active,
       auto_confirm: autoConfirm,
+      commission_rate: parseNum(commissionRate) ?? 0,
     };
     if (clientSecret) body.client_secret = clientSecret; // só envia se preenchido (preserva o atual)
     save.mutate(body);
@@ -156,6 +159,9 @@ function ChannelForm({ channel, onClose }: { channel: Channel | null; onClose: (
         {platform !== '99food' && (
           <Field label="Webhook secret"><Input value={webhookSecret} onChange={(e) => setWebhookSecret(e.target.value)} /></Field>
         )}
+        <Field label="Comissão da plataforma (%) — usada p/ estimar a margem nos relatórios">
+          <Input value={commissionRate} onChange={(e) => setCommissionRate(e.target.value)} placeholder="Ex.: 23" inputMode="decimal" />
+        </Field>
         <p className="rounded-lg bg-slate-50 p-2 text-xs text-slate-500">
           {platform === '99food'
             ? 'Callback (no portal 99Food): https://pedidos.guimarques.dev.br/api/webhooks/99food'
