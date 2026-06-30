@@ -1,5 +1,5 @@
 import { ReactNode, ButtonHTMLAttributes, InputHTMLAttributes, SelectHTMLAttributes, useEffect, useRef, useState } from 'react';
-import { MoreVertical } from 'lucide-react';
+import { MoreVertical, Plus } from 'lucide-react';
 
 type Variant = 'primary' | 'secondary' | 'danger' | 'ghost';
 
@@ -45,15 +45,16 @@ export function Select({ className = '', children, ...props }: SelectHTMLAttribu
 
 export interface ComboOption { value: string; label: string; hint?: string }
 
-/** Select com filtro por texto digitado. */
+/** Select com filtro por texto digitado. Com `onCreate`, permite criar um item pelo texto buscado. */
 export function Combobox({
-  options, value, onChange, placeholder = 'Buscar…', disabled = false,
+  options, value, onChange, placeholder = 'Buscar…', disabled = false, onCreate,
 }: {
   options: ComboOption[];
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
   disabled?: boolean;
+  onCreate?: (label: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -74,6 +75,8 @@ export function Combobox({
   const filtered = q
     ? options.filter((o) => o.label.toLowerCase().includes(q) || o.hint?.toLowerCase().includes(q))
     : options;
+  // Oferece criar quando há texto digitado sem correspondência exata de nome.
+  const canCreate = !!onCreate && q.length > 0 && !options.some((o) => o.label.toLowerCase() === q);
 
   return (
     <div className="relative" ref={ref}>
@@ -103,7 +106,7 @@ export function Combobox({
             />
           </div>
           <ul className="max-h-52 overflow-y-auto pb-1">
-            {filtered.length === 0 && <li className="px-3 py-2 text-sm text-slate-400">Nada encontrado</li>}
+            {filtered.length === 0 && !canCreate && <li className="px-3 py-2 text-sm text-slate-400">Nada encontrado</li>}
             {filtered.map((o) => (
               <li key={o.value}>
                 <button
@@ -116,6 +119,17 @@ export function Combobox({
                 </button>
               </li>
             ))}
+            {canCreate && (
+              <li className="border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => { onCreate!(search.trim()); setSearch(''); setOpen(false); }}
+                  className="flex w-full items-center gap-1.5 px-3 py-2 text-left text-sm font-medium text-emerald-700 hover:bg-emerald-50"
+                >
+                  <Plus size={15} /> Criar “{search.trim()}”
+                </button>
+              </li>
+            )}
           </ul>
         </div>
       )}

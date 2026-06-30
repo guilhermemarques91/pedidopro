@@ -67,6 +67,8 @@ final class Routes
         $r->post('/items', [ItemsController::class, 'create'], self::WRITERS);
         $r->put('/items/:id', [ItemsController::class, 'update'], self::WRITERS);
         $r->delete('/items/:id', [ItemsController::class, 'remove'], self::ADMIN);
+        $r->post('/items/:id/suppliers', [ItemsController::class, 'linkSupplier'], self::WRITERS);
+        $r->delete('/items/:id/suppliers/:supplierId', [ItemsController::class, 'unlinkSupplier'], self::WRITERS);
 
         // Products (rotas específicas antes de /:id)
         $r->get('/products', [ProductsController::class, 'list'], self::ANY);

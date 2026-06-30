@@ -2,12 +2,13 @@ import { FormEvent, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2 } from 'lucide-react';
-import { ordersApi, suppliersApi, itemsApi, CreateOrderBody } from '../../services/resources';
+import { ordersApi, suppliersApi, itemsApi } from '../../services/resources';
+import { buildOrderItemOptions, resolveOrderItemId } from '../../services/resolveOrderItem';
 import { apiError } from '../../services/api';
 import { useAuth } from '../../store/auth.store';
-import { brl, date, parseNum } from '../../utils/format';
+import { brl, date, parseNum, numToInput } from '../../utils/format';
 import { PageHeader } from '../../components/PageHeader';
-import { Button, Card, Field, Input, Select, Modal, Spinner, ErrorBox, EmptyState, Badge } from '../../components/ui';
+import { Button, Card, Field, Input, Select, Combobox, Modal, Spinner, ErrorBox, EmptyState, Badge, ComboOption } from '../../components/ui';
 
 const STATUS = ['', 'draft', 'pending_approval', 'approved', 'sent', 'received', 'cancelled'];
 
@@ -90,48 +91,68 @@ export function Orders() {
   );
 }
 
-interface Line { item_id: string; quantity: string; unit_price: string }
+interface Line { sel: string; quantity: string; unit_price: string }
 
 function OrderForm({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
   const { data: suppliers } = useQuery({ queryKey: ['suppliers'], queryFn: suppliersApi.list });
   const [supplierId, setSupplierId] = useState('');
-  const { data: items } = useQuery({
-    queryKey: ['items', supplierId ? Number(supplierId) : undefined],
-    queryFn: () => itemsApi.list(supplierId ? Number(supplierId) : undefined),
-    enabled: !!supplierId,
+  const sid = supplierId ? Number(supplierId) : undefined;
+  const { data: supplierItems } = useQuery({
+    queryKey: ['items', sid],
+    queryFn: () => itemsApi.list(sid),
+    enabled: !!sid,
   });
-  const [lines, setLines] = useState<Line[]>([{ item_id: '', quantity: '1', unit_price: '' }]);
+  const { data: allItems } = useQuery({
+    queryKey: ['items', undefined],
+    queryFn: () => itemsApi.list(),
+    enabled: !!sid,
+  });
+  const { options, priceByValue } = buildOrderItemOptions(supplierItems, allItems);
+  const [created, setCreated] = useState<ComboOption[]>([]);
+  const itemOptions = [...options, ...created].sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'));
+  const [lines, setLines] = useState<Line[]>([{ sel: '', quantity: '1', unit_price: '' }]);
   const [notes, setNotes] = useState('');
   const [error, setError] = useState('');
 
   const create = useMutation({
-    mutationFn: (body: CreateOrderBody) => ordersApi.create(body),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['orders'] }); onClose(); },
+    mutationFn: async () => {
+      const active = lines.filter((l) => l.sel);
+      const items: { item_id: number; quantity: number; unit_price: number }[] = [];
+      for (const l of active) {
+        const price = parseNum(l.unit_price) ?? 0;
+        const item_id = await resolveOrderItemId(l.sel, { supplierId: Number(supplierId), price });
+        items.push({ item_id, quantity: parseNum(l.quantity) ?? 0, unit_price: price });
+      }
+      return ordersApi.create({ supplier_id: Number(supplierId), notes: notes || undefined, items });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['orders'] });
+      qc.invalidateQueries({ queryKey: ['items'] });
+      onClose();
+    },
     onError: (e) => setError(apiError(e)),
   });
 
   function setLine(i: number, patch: Partial<Line>) {
     setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
   }
-  function pickItem(i: number, itemId: string) {
-    const it = items?.find((x) => x.id === Number(itemId));
-    setLine(i, { item_id: itemId, unit_price: it?.base_price ?? '' });
+  function pickItem(i: number, value: string) {
+    const price = priceByValue.get(value);
+    setLine(i, { sel: value, unit_price: price != null ? numToInput(price) : '' });
+  }
+  function createItem(i: number, name: string) {
+    const v = `new:${name}`;
+    setCreated((c) => (c.some((o) => o.value === v) ? c : [...c, { value: v, label: name, hint: 'novo item' }]));
+    setLine(i, { sel: v });
   }
 
   function submit(e: FormEvent) {
     e.preventDefault();
     setError('');
-    const parsedItems = lines
-      .filter((l) => l.item_id)
-      .map((l) => ({
-        item_id: Number(l.item_id),
-        quantity: parseNum(l.quantity) ?? 0,
-        unit_price: parseNum(l.unit_price) ?? 0,
-      }));
     if (!supplierId) { setError('Selecione o fornecedor'); return; }
-    if (parsedItems.length === 0) { setError('Adicione ao menos um item'); return; }
-    create.mutate({ supplier_id: Number(supplierId), notes: notes || undefined, items: parsedItems });
+    if (!lines.some((l) => l.sel)) { setError('Adicione ao menos um item'); return; }
+    create.mutate();
   }
 
   return (
@@ -139,7 +160,7 @@ function OrderForm({ onClose }: { onClose: () => void }) {
       <form onSubmit={submit} className="space-y-4">
         {error && <ErrorBox message={error} />}
         <Field label="Fornecedor">
-          <Select value={supplierId} onChange={(e) => { setSupplierId(e.target.value); setLines([{ item_id: '', quantity: '1', unit_price: '' }]); }} required>
+          <Select value={supplierId} onChange={(e) => { setSupplierId(e.target.value); setCreated([]); setLines([{ sel: '', quantity: '1', unit_price: '' }]); }} required>
             <option value="">— selecione —</option>
             {suppliers?.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </Select>
@@ -156,17 +177,23 @@ function OrderForm({ onClose }: { onClose: () => void }) {
           <div className="mt-1 space-y-2">
             {lines.map((l, i) => (
               <div key={i} className="grid grid-cols-12 items-center gap-2">
-                <Select value={l.item_id} onChange={(e) => pickItem(i, e.target.value)} disabled={!supplierId} className="col-span-6">
-                  <option value="">— item —</option>
-                  {items?.map((it) => <option key={it.id} value={it.id}>{it.name}</option>)}
-                </Select>
+                <div className="col-span-6">
+                  <Combobox
+                    options={itemOptions}
+                    value={l.sel}
+                    onChange={(v) => pickItem(i, v)}
+                    onCreate={(name) => createItem(i, name)}
+                    disabled={!supplierId}
+                    placeholder="Buscar item ou criar…"
+                  />
+                </div>
                 <Input value={l.quantity} onChange={(e) => setLine(i, { quantity: e.target.value })} placeholder="Qtd" className="col-span-2" />
                 <Input value={l.unit_price} onChange={(e) => setLine(i, { unit_price: e.target.value })} placeholder="Preço" className="col-span-3" />
                 <button type="button" onClick={() => setLines((ls) => ls.filter((_, idx) => idx !== i))} className="col-span-1 flex justify-center text-slate-400 hover:text-red-600"><Trash2 size={16} /></button>
               </div>
             ))}
           </div>
-          <button type="button" onClick={() => setLines((ls) => [...ls, { item_id: '', quantity: '1', unit_price: '' }])} className="mt-2 text-sm text-emerald-600 hover:underline">+ adicionar linha</button>
+          <button type="button" onClick={() => setLines((ls) => [...ls, { sel: '', quantity: '1', unit_price: '' }])} className="mt-2 text-sm text-emerald-600 hover:underline">+ adicionar linha</button>
         </div>
 
         <Field label="Observações (opcional)"><Input value={notes} onChange={(e) => setNotes(e.target.value)} /></Field>

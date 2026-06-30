@@ -120,15 +120,17 @@ function RequestForm({ onClose, editId }: { onClose: () => void; editId?: number
     ...(unmapped ?? []).map((it) => ({ value: `i:${it.id}`, label: it.name, hint: it.supplier_name })),
   ].sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'));
 
+  // Itens criados manualmente nesta sessão (não estão no catálogo): viram opções selecionáveis.
+  const [created, setCreated] = useState<ComboOption[]>([]);
+  const catalogWithCreated = [...catalog, ...created].sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'));
+
   // Unidade padrão de compra por opção do catálogo (produto → oferta mais barata; item → unidade do item).
   const unitByValue = new Map<string, string>();
   (products ?? []).forEach((p) => unitByValue.set(`p:${p.id}`, p.default_unit || 'un'));
   (unmapped ?? []).forEach((it) => unitByValue.set(`i:${it.id}`, it.unit || 'un'));
 
   // Sub-form da linha atual.
-  const [mode, setMode] = useState<'product' | 'free'>('product');
   const [catalogSel, setCatalogSel] = useState('');
-  const [freeText, setFreeText] = useState('');
   const [quantity, setQuantity] = useState('1');
   const [unit, setUnit] = useState('un');
 
@@ -160,23 +162,19 @@ function RequestForm({ onClose, editId }: { onClose: () => void; editId?: number
 
   function addLine() {
     setError('');
-    if (mode === 'free') {
-      if (!freeText.trim()) { setError('Digite o nome do item'); return; }
-      setLines((ls) => [...ls, { key: Date.now(), productId: '', sourceItemId: '', freeText: freeText.trim(), quantity, unit }]);
-    } else {
-      if (!catalogSel) { setError('Escolha um produto ou item'); return; }
-      const opt = catalog.find((o) => o.value === catalogSel);
-      const [kind, idStr] = catalogSel.split(':');
-      // Produto canônico → product_id. Item ainda não agrupado → guarda a referência do item (source) + nome p/ exibir.
-      setLines((ls) => [...ls, {
-        key: Date.now(),
-        productId: kind === 'p' ? idStr : '',
-        sourceItemId: kind === 'i' ? idStr : '',
-        freeText: kind === 'p' ? '' : (opt?.label ?? ''),
-        quantity, unit,
-      }]);
-    }
-    setCatalogSel(''); setFreeText(''); setQuantity('1'); setUnit('un');
+    if (!catalogSel) { setError('Escolha ou crie um item'); return; }
+    const opt = catalogWithCreated.find((o) => o.value === catalogSel);
+    const [kind, idStr] = catalogSel.split(':');
+    // Produto canônico → product_id. Item não agrupado → referência do item (source) + nome.
+    // Item criado manualmente (new:) → fora do catálogo (free_text).
+    setLines((ls) => [...ls, {
+      key: Date.now(),
+      productId: kind === 'p' ? idStr : '',
+      sourceItemId: kind === 'i' ? idStr : '',
+      freeText: kind === 'p' ? '' : (opt?.label ?? ''),
+      quantity, unit,
+    }]);
+    setCatalogSel(''); setQuantity('1'); setUnit('un');
   }
 
   function nameOf(l: Draft): string {
@@ -212,22 +210,19 @@ function RequestForm({ onClose, editId }: { onClose: () => void; editId?: number
           </Card>
         )}
 
-        {/* Adicionar item */}
+        {/* Adicionar item — campo único: busca no catálogo ou cria item novo. */}
         <Card className="space-y-3 bg-slate-50">
-          <div className="flex gap-2 text-sm">
-            <button onClick={() => setMode('product')} className={`rounded-lg px-3 py-1 font-medium ${mode === 'product' ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600'}`}>Do catálogo</button>
-            <button onClick={() => setMode('free')} className={`rounded-lg px-3 py-1 font-medium ${mode === 'free' ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600'}`}>+ outro item</button>
-          </div>
-          {mode === 'product' ? (
-            <Combobox
-              options={catalog}
-              value={catalogSel}
-              onChange={(v) => { setCatalogSel(v); setUnit(unitByValue.get(v) || 'un'); }}
-              placeholder="— selecione o produto ou item —"
-            />
-          ) : (
-            <Input value={freeText} onChange={(e) => setFreeText(e.target.value)} placeholder="Nome do item (ex.: Cebola)" />
-          )}
+          <Combobox
+            options={catalogWithCreated}
+            value={catalogSel}
+            onChange={(v) => { setCatalogSel(v); setUnit(unitByValue.get(v) || 'un'); }}
+            onCreate={(name) => {
+              const v = `new:${name}`;
+              setCreated((c) => (c.some((o) => o.value === v) ? c : [...c, { value: v, label: name, hint: 'novo item' }]));
+              setCatalogSel(v); setUnit('un');
+            }}
+            placeholder="Buscar item ou criar novo…"
+          />
           <div className="flex gap-2">
             <Input value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="Qtd" className="w-24" />
             <Input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="un/kg/cx" className="w-28" />

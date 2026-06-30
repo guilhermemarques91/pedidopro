@@ -76,7 +76,10 @@ export function Items() {
                     <p className="font-medium text-slate-800">{it.name}</p>
                     {it.product_name && <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">{it.product_name}</span>}
                   </div>
-                  <p className="mt-1 text-xs text-slate-500">{it.supplier_name}</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {it.supplier_name}
+                    {it.supplier_count != null && it.supplier_count > 1 && <span className="ml-1 text-emerald-600">+{it.supplier_count - 1}</span>}
+                  </p>
                   <p className="mt-2 text-sm text-slate-600">{brl(it.base_price)} <span className="text-xs text-slate-400">/ {it.unit}</span></p>
                 </div>
                 <ActionMenu actions={actionsFor(it)} />
@@ -106,7 +109,12 @@ export function Items() {
                         ? <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">{it.product_name}</span>
                         : <span className="text-xs text-slate-300">—</span>}
                     </td>
-                    <td className="px-5 py-3 text-slate-600">{it.supplier_name}</td>
+                    <td className="px-5 py-3 text-slate-600">
+                      {it.supplier_name}
+                      {it.supplier_count != null && it.supplier_count > 1 && (
+                        <span className="ml-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-xs font-medium text-emerald-700">+{it.supplier_count - 1}</span>
+                      )}
+                    </td>
                     <td className="px-5 py-3 text-slate-600">{it.unit}</td>
                     <td className="px-5 py-3 text-right text-slate-600">{brl(it.base_price)}</td>
                     <td className="px-5 py-3 text-right">
@@ -138,6 +146,37 @@ function ItemForm({ item, defaultSupplier, onClose }: { item: Item | null; defau
   const [newProduct, setNewProduct] = useState('');
   const [error, setError] = useState('');
 
+  // Em edição: carrega o item completo (com a lista de fornecedores vinculados).
+  const { data: full } = useQuery({
+    queryKey: ['item', item?.id],
+    queryFn: () => itemsApi.get(item!.id),
+    enabled: !!item,
+  });
+  const links = full?.suppliers ?? [];
+  const [linkSupplierId, setLinkSupplierId] = useState('');
+  const [linkPrice, setLinkPrice] = useState('');
+
+  const link = useMutation({
+    mutationFn: () => itemsApi.linkSupplier(item!.id, {
+      supplier_id: Number(linkSupplierId),
+      base_price: parseNum(linkPrice),
+    }),
+    onSuccess: () => {
+      setLinkSupplierId(''); setLinkPrice('');
+      qc.invalidateQueries({ queryKey: ['item', item!.id] });
+      qc.invalidateQueries({ queryKey: ['items'] });
+    },
+    onError: (e) => setError(apiError(e)),
+  });
+  const unlink = useMutation({
+    mutationFn: (supplierId: number) => itemsApi.unlinkSupplier(item!.id, supplierId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['item', item!.id] });
+      qc.invalidateQueries({ queryKey: ['items'] });
+    },
+    onError: (e) => setError(apiError(e)),
+  });
+
   const save = useMutation({
     mutationFn: async (body: Partial<Item>) => {
       // "+ novo produto": cria antes e usa o id.
@@ -155,6 +194,7 @@ function ItemForm({ item, defaultSupplier, onClose }: { item: Item | null; defau
       qc.invalidateQueries({ queryKey: ['items'] });
       qc.invalidateQueries({ queryKey: ['products'] });
       qc.invalidateQueries({ queryKey: ['unmapped'] });
+      if (item) qc.invalidateQueries({ queryKey: ['item', item.id] });
       onClose();
     },
     onError: (e) => setError(apiError(e)),
@@ -198,6 +238,44 @@ function ItemForm({ item, defaultSupplier, onClose }: { item: Item | null; defau
           </Select>
         </Field>
         {productId === 'new' && <Input value={newProduct} onChange={(e) => setNewProduct(e.target.value)} placeholder="Nome do produto (ex.: Acém)" />}
+
+        {item && (
+          <div className="rounded-lg border border-slate-200 p-3">
+            <p className="mb-2 text-sm font-medium text-slate-700">Fornecedores deste item</p>
+            <ul className="space-y-1">
+              {links.map((l) => {
+                const isOrigin = l.supplier_id === item.supplier_id;
+                return (
+                  <li key={l.supplier_id} className="flex items-center justify-between text-sm">
+                    <span className="text-slate-700">
+                      {l.supplier_name}
+                      {isOrigin && <span className="ml-2 text-xs text-slate-400">(origem)</span>}
+                      {l.base_price != null && <span className="ml-2 text-xs text-slate-400">{brl(l.base_price)}</span>}
+                    </span>
+                    {!isOrigin && (
+                      <button type="button" onClick={() => unlink.mutate(l.supplier_id)} disabled={unlink.isPending} className="text-slate-300 hover:text-red-600" title="Remover vínculo">
+                        <Trash2 size={15} />
+                      </button>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+            <div className="mt-3 flex gap-2">
+              <Select value={linkSupplierId} onChange={(e) => setLinkSupplierId(e.target.value)} className="flex-1">
+                <option value="">— vincular fornecedor —</option>
+                {suppliers?.filter((s) => !links.some((l) => l.supplier_id === s.id)).map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </Select>
+              <Input value={linkPrice} onChange={(e) => setLinkPrice(e.target.value)} placeholder="Preço" className="w-24" />
+              <Button type="button" variant="secondary" disabled={!linkSupplierId || link.isPending} onClick={() => link.mutate()}>
+                <Plus size={15} /> Vincular
+              </Button>
+            </div>
+          </div>
+        )}
+
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button>
           <Button type="submit" disabled={save.isPending}>Salvar</Button>
