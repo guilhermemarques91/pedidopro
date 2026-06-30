@@ -53,11 +53,11 @@ final class OrdersController
             throw HttpError::badRequest('Fornecedor não existe ou está inativo');
         }
         foreach ($items as $it) {
-            $item = Db::queryOne('SELECT supplier_id FROM items WHERE id = ?', [$it['item_id']]);
+            $item = Db::queryOne('SELECT id FROM items WHERE id = ?', [$it['item_id']]);
             if (!$item) {
                 throw HttpError::badRequest("Item {$it['item_id']} não existe");
             }
-            if ((int) $item['supplier_id'] !== $supplierId) {
+            if (!self::itemAvailableForSupplier((int) $it['item_id'], $supplierId)) {
                 throw HttpError::badRequest("Item {$it['item_id']} não pertence ao fornecedor informado");
             }
         }
@@ -100,11 +100,11 @@ final class OrdersController
         self::assertDraft($o);
         $items = self::parseItems([$req->body]);
         $it = $items[0];
-        $item = Db::queryOne('SELECT supplier_id FROM items WHERE id = ?', [$it['item_id']]);
+        $item = Db::queryOne('SELECT id FROM items WHERE id = ?', [$it['item_id']]);
         if (!$item) {
             throw HttpError::badRequest('Item não existe');
         }
-        if ((int) $item['supplier_id'] !== (int) $o['supplier_id']) {
+        if (!self::itemAvailableForSupplier((int) $it['item_id'], (int) $o['supplier_id'])) {
             throw HttpError::badRequest('Item não pertence ao fornecedor do pedido');
         }
         Db::transaction(function (PDO $pdo) use ($orderId, $it) {
@@ -332,12 +332,31 @@ final class OrdersController
 
     private static function items(int $orderId): array
     {
+        // supplier_code do fornecedor do pedido (vínculo) com fallback p/ o do item.
         return Db::query(
-            'SELECT oi.*, i.name AS item_name, i.unit, i.supplier_code
-               FROM order_items oi JOIN items i ON i.id = oi.item_id
+            'SELECT oi.*, i.name AS item_name, i.unit,
+                    COALESCE(x.supplier_code, i.supplier_code) AS supplier_code
+               FROM order_items oi
+               JOIN items i ON i.id = oi.item_id
+               JOIN orders o ON o.id = oi.order_id
+               LEFT JOIN item_suppliers x ON x.item_id = oi.item_id AND x.supplier_id = o.supplier_id
               WHERE oi.order_id = ? ORDER BY i.name',
             [$orderId]
         );
+    }
+
+    /** Item disponível ao fornecedor = item de origem OU vínculo ativo em item_suppliers. */
+    private static function itemAvailableForSupplier(int $itemId, int $supplierId): bool
+    {
+        $row = Db::queryOne(
+            'SELECT 1 FROM items i
+              WHERE i.id = ?
+                AND (i.supplier_id = ?
+                     OR EXISTS (SELECT 1 FROM item_suppliers x
+                                 WHERE x.item_id = i.id AND x.supplier_id = ? AND x.active = 1))',
+            [$itemId, $supplierId, $supplierId]
+        );
+        return $row !== null;
     }
 
     private static function assertDraft(array $o): void

@@ -51,6 +51,13 @@ export interface Product {
   created_at: string;
 }
 
+export interface ItemSupplierLink {
+  supplier_id: number;
+  supplier_name: string;
+  supplier_code: string | null;
+  base_price: string | null;
+}
+
 export interface Item {
   id: number;
   supplier_id: number;
@@ -65,6 +72,8 @@ export interface Item {
   base_price: string | null;
   active: boolean;
   created_at: string;
+  supplier_count?: number;
+  suppliers?: ItemSupplierLink[];
 }
 
 export type QuotationStatus = 'draft' | 'active' | 'closed';

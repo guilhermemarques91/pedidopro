@@ -3,11 +3,12 @@ import { useParams, Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Send, Check, X, PackageCheck, Ban, MessageCircle, Plus, Trash2, Copy } from 'lucide-react';
 import { ordersApi, itemsApi } from '../../services/resources';
+import { buildOrderItemOptions, resolveOrderItemId } from '../../services/resolveOrderItem';
 import { apiError } from '../../services/api';
 import { useAuth } from '../../store/auth.store';
 import { brl, datetime, parseNum, numToInput } from '../../utils/format';
 import type { OrderItem } from '../../types';
-import { Button, Card, Spinner, ErrorBox, Badge, Input, Select } from '../../components/ui';
+import { Button, Card, Spinner, ErrorBox, Badge, Input, Combobox, ComboOption } from '../../components/ui';
 
 export function OrderDetailPage() {
   const { id } = useParams();
@@ -249,39 +250,54 @@ function EditableItemRow({ oid, item, onChanged }: { oid: number; item: OrderIte
 
 /** Formulário para adicionar um item ao pedido (fornecedor fixo do pedido). */
 function AddItemRow({ oid, supplierId, onChanged }: { oid: number; supplierId: number; onChanged: () => void }) {
-  const { data: items } = useQuery({ queryKey: ['items', supplierId], queryFn: () => itemsApi.list(supplierId) });
-  const [itemId, setItemId] = useState('');
+  const qc = useQueryClient();
+  const { data: supplierItems } = useQuery({ queryKey: ['items', supplierId], queryFn: () => itemsApi.list(supplierId) });
+  const { data: allItems } = useQuery({ queryKey: ['items', undefined], queryFn: () => itemsApi.list() });
+  const { options, priceByValue } = buildOrderItemOptions(supplierItems, allItems);
+  const [created, setCreated] = useState<ComboOption[]>([]);
+  const itemOptions = [...options, ...created].sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'));
+  const [sel, setSel] = useState('');
   const [qty, setQty] = useState('1');
   const [price, setPrice] = useState('');
   const [error, setError] = useState('');
 
   const add = useMutation({
-    mutationFn: () => ordersApi.addItem(oid, {
-      item_id: Number(itemId), quantity: parseNum(qty) ?? 0, unit_price: parseNum(price) ?? 0,
-    }),
-    onSuccess: () => { setItemId(''); setQty('1'); setPrice(''); setError(''); onChanged(); },
+    mutationFn: async () => {
+      const p = parseNum(price) ?? 0;
+      const item_id = await resolveOrderItemId(sel, { supplierId, price: p });
+      return ordersApi.addItem(oid, { item_id, quantity: parseNum(qty) ?? 0, unit_price: p });
+    },
+    onSuccess: () => {
+      setSel(''); setCreated([]); setQty('1'); setPrice(''); setError('');
+      qc.invalidateQueries({ queryKey: ['items'] });
+      onChanged();
+    },
     onError: (e) => setError(apiError(e)),
   });
 
-  function pick(id: string) {
-    setItemId(id);
-    const it = items?.find((x) => x.id === Number(id));
-    if (it?.base_price) setPrice(numToInput(it.base_price));
+  function pick(value: string) {
+    setSel(value);
+    const pv = priceByValue.get(value);
+    if (pv != null) setPrice(numToInput(pv));
+  }
+  function createItem(name: string) {
+    const v = `new:${name}`;
+    setCreated((c) => (c.some((o) => o.value === v) ? c : [...c, { value: v, label: name, hint: 'novo item' }]));
+    setSel(v);
   }
 
   return (
     <div className="border-t border-slate-200 p-4">
       {error && <div className="mb-2"><ErrorBox message={error} /></div>}
       <div className="grid grid-cols-12 items-center gap-2">
-        <Select value={itemId} onChange={(e) => pick(e.target.value)} className="col-span-6">
-          <option value="">+ adicionar item…</option>
-          {items?.map((it) => <option key={it.id} value={it.id}>{it.name} ({it.unit})</option>)}
-        </Select>
+        <div className="col-span-6">
+          <Combobox options={itemOptions} value={sel} onChange={pick} onCreate={createItem} placeholder="Buscar item ou criar…" />
+        </div>
         <Input value={qty} onChange={(e) => setQty(e.target.value)} placeholder="Qtd" className="col-span-2" />
         <Input value={price} onChange={(e) => setPrice(e.target.value)} placeholder="Preço" className="col-span-3" />
         <button
-          onClick={() => itemId && add.mutate()}
-          disabled={!itemId || add.isPending}
+          onClick={() => sel && add.mutate()}
+          disabled={!sel || add.isPending}
           className="col-span-1 flex justify-center text-emerald-600 hover:text-emerald-700 disabled:opacity-40"
         >
           <Plus size={18} />

@@ -94,6 +94,22 @@ CREATE TABLE items (
 CREATE INDEX idx_items_supplier ON items(supplier_id);
 CREATE INDEX idx_items_product ON items(product_id);
 
+-- Vínculo item <-> fornecedor (um item pode ser oferecido por vários fornecedores).
+-- items.supplier_id é o fornecedor de origem; aqui ficam origem + extras.
+CREATE TABLE item_suppliers (
+  id            INT AUTO_INCREMENT PRIMARY KEY,
+  item_id       INT NOT NULL,
+  supplier_id   INT NOT NULL,
+  supplier_code VARCHAR(50),
+  base_price    DECIMAL(12,2),
+  active        TINYINT(1) NOT NULL DEFAULT 1,
+  created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_item_supplier (item_id, supplier_id),
+  CONSTRAINT fk_is_item FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE,
+  CONSTRAINT fk_is_supplier FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE INDEX idx_item_suppliers_supplier ON item_suppliers(supplier_id);
+
 CREATE TABLE quotations (
   id         INT AUTO_INCREMENT PRIMARY KEY,
   title      VARCHAR(200) NOT NULL,

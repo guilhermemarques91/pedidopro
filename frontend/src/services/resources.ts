@@ -27,9 +27,14 @@ export const suppliersApi = {
 export const itemsApi = {
   list: (supplierId?: number) =>
     api.get<Item[]>('/items', { params: supplierId ? { supplier_id: supplierId } : {} }).then((r) => r.data),
+  get: (id: number) => api.get<Item>(`/items/${id}`).then((r) => r.data),
   create: (body: Partial<Item>) => api.post<Item>('/items', body).then((r) => r.data),
   update: (id: number, body: Partial<Item>) => api.put<Item>(`/items/${id}`, body).then((r) => r.data),
   remove: (id: number) => api.delete(`/items/${id}`).then((r) => r.data),
+  linkSupplier: (id: number, body: { supplier_id: number; supplier_code?: string | null; base_price?: number | null }) =>
+    api.post<Item>(`/items/${id}/suppliers`, body).then((r) => r.data),
+  unlinkSupplier: (id: number, supplierId: number) =>
+    api.delete<Item>(`/items/${id}/suppliers/${supplierId}`).then((r) => r.data),
 };
 
 // ---- Products (produtos canônicos) ----
