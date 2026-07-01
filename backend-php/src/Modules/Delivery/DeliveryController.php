@@ -222,6 +222,10 @@ final class DeliveryController
         }
         $values[] = $id;
         Db::execute('UPDATE channels SET ' . implode(', ', $fields) . ' WHERE id = ?', $values);
+        // Trocar credenciais/loja invalida o token em cache (senão reusa o token antigo).
+        if ($in->has('client_id') || $in->has('client_secret') || $in->has('merchant_id')) {
+            Db::execute('DELETE FROM channel_tokens WHERE channel_id = ?', [$id]);
+        }
         Http::json(self::maskChannel($id));
     }
 
