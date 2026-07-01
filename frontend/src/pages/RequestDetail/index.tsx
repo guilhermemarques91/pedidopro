@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ShoppingCart, Trophy } from 'lucide-react';
+import { ArrowLeft, ShoppingCart } from 'lucide-react';
 import { requestsApi, suppliersApi, AllocationInput } from '../../services/resources';
 import { apiError } from '../../services/api';
 import { useAuth } from '../../store/auth.store';
 import type { RequestItem, RequestItemOffer } from '../../types';
-import { brl, parseNum, numToInput } from '../../utils/format';
+import { parseNum, numToInput } from '../../utils/format';
 import { PageHeader } from '../../components/PageHeader';
 import { Button, Card, Select, Input, Badge, Spinner, ErrorBox } from '../../components/ui';
 
@@ -168,14 +168,13 @@ export function RequestDetailPage() {
                       ) : (
                         <td className="px-4 py-3 text-right text-slate-500">
                           {it.alloc_supplier_id ? (
-                            <span>{suppliers?.find((s) => s.id === it.alloc_supplier_id)?.name ?? it.alloc_name ?? `Fornecedor ${it.alloc_supplier_id}`} · {brl(it.alloc_price)}</span>
+                            <span>{suppliers?.find((s) => s.id === it.alloc_supplier_id)?.name ?? it.alloc_name ?? `Fornecedor ${it.alloc_supplier_id}`}</span>
                           ) : (() => {
                             const p = principalOffer(it);
                             if (!p) return <span className="text-xs text-slate-400">sem fornecedor cadastrado</span>;
                             return (
                               <span>
                                 <span className="font-medium text-slate-700">{p.supplier_name}</span>
-                                {' · '}{p.base_price != null ? brl(p.base_price) : 'sem preço'}
                                 <span className="ml-1 text-xs text-slate-400">(principal)</span>
                               </span>
                             );
@@ -211,37 +210,66 @@ function AllocCell({
   update: (itemId: number, patch: Partial<Alloc>) => void;
 }) {
   if (!a) return null;
-  const bestPrice = Math.min(...it.offers.filter((o) => o.base_price != null).map((o) => Number(o.base_price)));
   return (
     <div className="space-y-2">
       <Select value={a.source} onChange={(e) => onSource(it, e.target.value)}>
         <option value="">— de onde comprar —</option>
         {it.offers.map((o) => (
           <option key={o.item_id} value={`item:${o.item_id}`}>
-            {o.supplier_name} — {o.base_price != null ? brl(o.base_price) : 'sem preço'}{o.base_price != null && Number(o.base_price) === bestPrice ? ' ★' : ''}
+            {o.supplier_name}
           </option>
         ))}
-        <option value="manual">Outro fornecedor / preço manual…</option>
+        <option value="manual">Outro fornecedor…</option>
       </Select>
 
       {a.source === 'manual' && (
         <div className="flex flex-wrap gap-2">
-          <Select value={a.supplierId} onChange={(e) => update(it.id, { supplierId: e.target.value })} className="max-w-[12rem]">
-            <option value="">— fornecedor —</option>
-            {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </Select>
+          <SupplierSearch
+            id={it.id}
+            suppliers={suppliers}
+            value={a.supplierId}
+            onChange={(supplierId) => update(it.id, { supplierId })}
+          />
           <Input value={a.name} onChange={(e) => update(it.id, { name: e.target.value })} placeholder="Nome no fornecedor" className="max-w-[12rem]" />
           <Input value={a.unit} onChange={(e) => update(it.id, { unit: e.target.value })} placeholder="un" className="w-20" />
         </div>
       )}
-
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-slate-400">Preço unit.:</span>
-        <Input value={a.price} onChange={(e) => update(it.id, { price: e.target.value })} placeholder="0,00" className="w-28" />
-        {a.source.startsWith('item:') && it.offers.some((o) => Number(o.base_price) === bestPrice && `item:${o.item_id}` === a.source) && (
-          <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600"><Trophy size={12} /> melhor preço</span>
-        )}
-      </div>
     </div>
+  );
+}
+
+// Busca de fornecedores cadastrados (autocomplete nativo via datalist).
+function SupplierSearch({
+  id, suppliers, value, onChange,
+}: {
+  id: number;
+  suppliers: { id: number; name: string }[];
+  value: string;
+  onChange: (supplierId: string) => void;
+}) {
+  const selected = suppliers.find((s) => String(s.id) === value);
+  const [text, setText] = useState(selected?.name ?? '');
+  useEffect(() => {
+    setText(suppliers.find((s) => String(s.id) === value)?.name ?? '');
+  }, [value, suppliers]);
+  const listId = `suppliers-${id}`;
+  return (
+    <>
+      <Input
+        list={listId}
+        value={text}
+        onChange={(e) => {
+          const v = e.target.value;
+          setText(v);
+          const match = suppliers.find((s) => s.name.toLowerCase() === v.trim().toLowerCase());
+          onChange(match ? String(match.id) : '');
+        }}
+        placeholder="Buscar fornecedor cadastrado…"
+        className="max-w-[14rem]"
+      />
+      <datalist id={listId}>
+        {suppliers.map((s) => <option key={s.id} value={s.name} />)}
+      </datalist>
+    </>
   );
 }
