@@ -129,7 +129,7 @@ final class IfoodClient
     /** GET /merchant/v1.0/merchants/{id} — detalhes completos da loja. */
     public static function getMerchant(array $channel, string $merchantId): ?array
     {
-        $r = HttpClient::request('GET', self::merchantBase($merchantId), self::auth($channel));
+        $r = HttpClient::request('GET', self::merchantBase($merchantId), self::auth($channel), null, 8);
         self::assertOk($r, 'consultar loja');
         return is_array($r['data']) ? $r['data'] : null;
     }
@@ -137,7 +137,7 @@ final class IfoodClient
     /** GET /merchant/v1.0/merchants/{id}/status — disponibilidade/estado da loja. */
     public static function getMerchantStatus(array $channel, string $merchantId): mixed
     {
-        $r = HttpClient::request('GET', self::merchantBase($merchantId) . '/status', self::auth($channel));
+        $r = HttpClient::request('GET', self::merchantBase($merchantId) . '/status', self::auth($channel), null, 8);
         self::assertOk($r, 'consultar disponibilidade');
         return $r['data'];
     }
@@ -145,7 +145,7 @@ final class IfoodClient
     /** GET .../interruptions — pausas cadastradas. */
     public static function listInterruptions(array $channel, string $merchantId): array
     {
-        $r = HttpClient::request('GET', self::merchantBase($merchantId) . '/interruptions', self::auth($channel));
+        $r = HttpClient::request('GET', self::merchantBase($merchantId) . '/interruptions', self::auth($channel), null, 8);
         self::assertOk($r, 'listar pausas');
         return is_array($r['data']) ? $r['data'] : [];
     }
@@ -170,7 +170,7 @@ final class IfoodClient
     /** GET .../opening-hours — horários de funcionamento. */
     public static function getOpeningHours(array $channel, string $merchantId): mixed
     {
-        $r = HttpClient::request('GET', self::merchantBase($merchantId) . '/opening-hours', self::auth($channel));
+        $r = HttpClient::request('GET', self::merchantBase($merchantId) . '/opening-hours', self::auth($channel), null, 8);
         self::assertOk($r, 'consultar horários');
         return $r['data'];
     }
