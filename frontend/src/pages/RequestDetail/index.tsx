@@ -59,6 +59,16 @@ export function RequestDetailPage() {
 
   const allocatable = isAdmin && (data?.status === 'submitted' || data?.status === 'allocated');
 
+  const submit = useMutation({
+    mutationFn: () => requestsApi.submit(requestId),
+    onSuccess: () => {
+      setMsg('Lista enviada para aprovação.');
+      qc.invalidateQueries({ queryKey: ['request', requestId] });
+      qc.invalidateQueries({ queryKey: ['requests'] });
+    },
+    onError: (e) => setMsg(apiError(e)),
+  });
+
   const save = useMutation({
     mutationFn: () => requestsApi.saveAllocation(requestId, buildAllocations()),
     onSuccess: () => { setMsg('Alocação salva.'); qc.invalidateQueries({ queryKey: ['request', requestId] }); },
@@ -139,6 +149,13 @@ export function RequestDetailPage() {
               <Link key={oid} to={`/orders/${oid}`}><Button variant="secondary"><ShoppingCart size={15} /> Pedido #{oid}</Button></Link>
             ))}
           </div>
+        </Card>
+      )}
+
+      {data.status === 'draft' && (
+        <Card className="mb-4 flex items-center justify-between border-amber-200 bg-amber-50">
+          <p className="text-sm text-amber-800">Esta lista ainda é um rascunho. Envie para o administrador organizar a compra.</p>
+          <Button disabled={submit.isPending} onClick={() => submit.mutate()}>Enviar para aprovação</Button>
         </Card>
       )}
 
