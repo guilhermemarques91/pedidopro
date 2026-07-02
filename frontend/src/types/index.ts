@@ -307,6 +307,20 @@ export interface Channel {
   created_at: string;
 }
 
+// ---- Loja (módulo Merchant iFood) ----
+export interface Interruption {
+  id: string;
+  description: string;
+  start: string;
+  end: string;
+}
+export interface OpeningShift {
+  id?: string;
+  dayOfWeek: string; // MONDAY..SUNDAY
+  start: string;     // 'HH:mm:ss'
+  duration: number;  // minutos
+}
+
 // ---- Relatórios de delivery ----
 export interface ReportPlatformRow {
   platform: DeliveryPlatform;

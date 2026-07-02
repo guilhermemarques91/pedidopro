@@ -3,6 +3,7 @@ import type {
   Category, Supplier, Item, Product, Quotation, QuotationDetail, ComparisonRow,
   Order, OrderDetail, User, UserRole, PurchaseRequest, RequestDetail,
   DeliveryOrder, DeliveryOrderDetail, DeliveryStatus, DeliveryPlatform, Channel, DeliveryAlert, ReportSummary,
+  Interruption, OpeningShift,
   MarmitexCompany, MarmitexCatalog, CatalogType, MarmitexOrder, MarmitexOrderDetail,
   MarmitexReport, MarmitexInvoice, MarmitexLabelData,
 } from '../types';
@@ -203,6 +204,20 @@ export interface ReportFilters { from?: string; to?: string; platform?: Delivery
 export const reportsApi = {
   summary: (f: ReportFilters = {}) =>
     api.get<ReportSummary>('/delivery/reports/summary', { params: f }).then((r) => r.data),
+};
+
+// ---- Loja (módulo Merchant iFood) ----
+export const merchantApi = {
+  details: (channelId: number) => api.get<Record<string, unknown>>(`/delivery/merchant/${channelId}/details`).then((r) => r.data),
+  status: (channelId: number) => api.get<unknown>(`/delivery/merchant/${channelId}/status`).then((r) => r.data),
+  interruptions: (channelId: number) => api.get<Interruption[]>(`/delivery/merchant/${channelId}/interruptions`).then((r) => r.data),
+  createInterruption: (channelId: number, body: { description: string; start: string; end: string }) =>
+    api.post(`/delivery/merchant/${channelId}/interruptions`, body).then((r) => r.data),
+  deleteInterruption: (channelId: number, id: string) =>
+    api.delete(`/delivery/merchant/${channelId}/interruptions/${id}`).then((r) => r.data),
+  openingHours: (channelId: number) => api.get<{ shifts?: OpeningShift[] }>(`/delivery/merchant/${channelId}/opening-hours`).then((r) => r.data),
+  setOpeningHours: (channelId: number, shifts: OpeningShift[]) =>
+    api.put(`/delivery/merchant/${channelId}/opening-hours`, { shifts }).then((r) => r.data),
 };
 
 export const deliveryApi = {

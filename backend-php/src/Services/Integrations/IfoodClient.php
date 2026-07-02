@@ -107,6 +107,81 @@ final class IfoodClient
         ], $r['data']);
     }
 
+    // ---- Módulo Merchant (gestão da loja: detalhes, disponibilidade, pausas, horários) ----
+
+    private static function merchantBase(string $merchantId): string
+    {
+        return self::base() . '/merchant/v1.0/merchants/' . rawurlencode($merchantId);
+    }
+
+    /** Lança HttpError legível quando a resposta do iFood falha. */
+    private static function assertOk(array $r, string $what): void
+    {
+        if ($r['status'] === 0) {
+            throw new HttpError(502, "iFood não respondeu ({$what}).");
+        }
+        if ($r['status'] >= 400) {
+            $detail = $r['data']['error']['message'] ?? $r['data']['message'] ?? (is_string($r['raw'] ?? null) ? substr((string) $r['raw'], 0, 200) : '');
+            throw new HttpError(502, "Falha em {$what} no iFood (HTTP {$r['status']})" . ($detail !== '' ? ": {$detail}" : '.'));
+        }
+    }
+
+    /** GET /merchant/v1.0/merchants/{id} — detalhes completos da loja. */
+    public static function getMerchant(array $channel, string $merchantId): ?array
+    {
+        $r = HttpClient::request('GET', self::merchantBase($merchantId), self::auth($channel));
+        self::assertOk($r, 'consultar loja');
+        return is_array($r['data']) ? $r['data'] : null;
+    }
+
+    /** GET /merchant/v1.0/merchants/{id}/status — disponibilidade/estado da loja. */
+    public static function getMerchantStatus(array $channel, string $merchantId): mixed
+    {
+        $r = HttpClient::request('GET', self::merchantBase($merchantId) . '/status', self::auth($channel));
+        self::assertOk($r, 'consultar disponibilidade');
+        return $r['data'];
+    }
+
+    /** GET .../interruptions — pausas cadastradas. */
+    public static function listInterruptions(array $channel, string $merchantId): array
+    {
+        $r = HttpClient::request('GET', self::merchantBase($merchantId) . '/interruptions', self::auth($channel));
+        self::assertOk($r, 'listar pausas');
+        return is_array($r['data']) ? $r['data'] : [];
+    }
+
+    /** POST .../interruptions — cria uma pausa. $body: { description, start, end } (ISO 8601). */
+    public static function createInterruption(array $channel, string $merchantId, array $body): mixed
+    {
+        $r = HttpClient::request('POST', self::merchantBase($merchantId) . '/interruptions', self::auth($channel), $body, 15);
+        self::assertOk($r, 'criar pausa');
+        return $r['data'];
+    }
+
+    /** DELETE .../interruptions/{id} — remove uma pausa. */
+    public static function deleteInterruption(array $channel, string $merchantId, string $interruptionId): void
+    {
+        $r = HttpClient::request('DELETE', self::merchantBase($merchantId) . '/interruptions/' . rawurlencode($interruptionId), self::auth($channel), null, 15);
+        if ($r['status'] !== 404) { // 404 = já removida
+            self::assertOk($r, 'remover pausa');
+        }
+    }
+
+    /** GET .../opening-hours — horários de funcionamento. */
+    public static function getOpeningHours(array $channel, string $merchantId): mixed
+    {
+        $r = HttpClient::request('GET', self::merchantBase($merchantId) . '/opening-hours', self::auth($channel));
+        self::assertOk($r, 'consultar horários');
+        return $r['data'];
+    }
+
+    /** PUT .../opening-hours — define os horários. $shifts: [{ dayOfWeek, start(HH:mm:ss), duration(min) }]. */
+    public static function setOpeningHours(array $channel, string $merchantId, array $shifts): void
+    {
+        $r = HttpClient::request('PUT', self::merchantBase($merchantId) . '/opening-hours', self::auth($channel), ['shifts' => $shifts], 15);
+        self::assertOk($r, 'salvar horários');
+    }
+
     /**
      * GET /events/v1.0/events:polling — eventos sem ACK do merchant do canal.
      * @return array<int,array<string,mixed>>

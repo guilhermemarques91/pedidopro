@@ -19,6 +19,7 @@ use App\Modules\Whatsapp\WhatsappController;
 use App\Modules\Webhooks\WebhooksController;
 use App\Modules\Delivery\DeliveryController;
 use App\Modules\Delivery\ReportsController;
+use App\Modules\Delivery\MerchantController;
 use App\Modules\Marmitex\MarmitexCatalogController;
 use App\Modules\Marmitex\MarmitexCompaniesController;
 use App\Modules\Marmitex\MarmitexOrdersController;
@@ -163,6 +164,14 @@ final class Routes
         // Alertas — solicitações de cancelamento do cliente
         // Relatórios operacionais
         $r->get('/delivery/reports/summary', [ReportsController::class, 'summary'], self::DELIVERY);
+        // Loja (módulo Merchant iFood): detalhes, disponibilidade, pausas, horários
+        $r->get('/delivery/merchant/:channelId/details', [MerchantController::class, 'details'], self::DELIVERY);
+        $r->get('/delivery/merchant/:channelId/status', [MerchantController::class, 'status'], self::DELIVERY);
+        $r->get('/delivery/merchant/:channelId/interruptions', [MerchantController::class, 'listInterruptions'], self::DELIVERY);
+        $r->post('/delivery/merchant/:channelId/interruptions', [MerchantController::class, 'createInterruption'], self::DELIVERY);
+        $r->delete('/delivery/merchant/:channelId/interruptions/:id', [MerchantController::class, 'deleteInterruption'], self::DELIVERY);
+        $r->get('/delivery/merchant/:channelId/opening-hours', [MerchantController::class, 'openingHours'], self::DELIVERY);
+        $r->put('/delivery/merchant/:channelId/opening-hours', [MerchantController::class, 'setOpeningHours'], self::DELIVERY);
         $r->get('/delivery/alerts', [DeliveryController::class, 'listAlerts'], self::DELIVERY);
         $r->post('/delivery/alerts/:id/accept', [DeliveryController::class, 'acceptAlert'], self::DELIVERY);
         $r->post('/delivery/alerts/:id/reject', [DeliveryController::class, 'rejectAlert'], self::DELIVERY);
