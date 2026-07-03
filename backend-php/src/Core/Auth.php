@@ -18,7 +18,7 @@ final class Auth
         return $s;
     }
 
-    public static function sign(int $id, string $email, string $role, ?int $companyId = null): string
+    public static function sign(int $id, string $email, string $role, ?int $companyId = null, int $orgId = 1): string
     {
         $days = Env::int('JWT_EXPIRES_DAYS', 7);
         $now = time();
@@ -28,6 +28,7 @@ final class Auth
             'email' => $email,
             'role' => $role,
             'company_id' => $companyId, // null para staff; preenchido p/ login de empresa (Marmitex)
+            'org_id' => $orgId,         // tenant do ERP (organização dona dos dados); 1 = org padrão
             'iat' => $now,
             'exp' => $now + $days * 86400,
         ]));
@@ -36,8 +37,8 @@ final class Auth
     }
 
     /**
-     * Lê o header Authorization, valida o token e retorna { id, email, role, company_id }.
-     * @return array{id:int,email:string,role:string,company_id:?int}
+     * Lê o header Authorization, valida o token e retorna { id, email, role, company_id, org_id }.
+     * @return array{id:int,email:string,role:string,company_id:?int,org_id:int}
      */
     public static function authenticate(): array
     {
@@ -55,6 +56,9 @@ final class Auth
             'role' => (string) ($claims['role'] ?? ''),
             'company_id' => isset($claims['company_id']) && $claims['company_id'] !== null
                 ? (int) $claims['company_id'] : null,
+            // Tokens antigos (pré-multi-tenant) não têm org_id → org padrão (1).
+            'org_id' => isset($claims['org_id']) && $claims['org_id'] !== null
+                ? (int) $claims['org_id'] : 1,
         ];
     }
 

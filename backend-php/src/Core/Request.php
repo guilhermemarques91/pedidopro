@@ -9,7 +9,7 @@ final class Request
     public array $params = [];
     /** @var array<string,mixed> */
     public array $body = [];
-    /** @var array{id:int,email:string,role:string,company_id:?int}|null */
+    /** @var array{id:int,email:string,role:string,company_id:?int,org_id:int}|null */
     public ?array $user = null;
 
     public static function capture(): self
@@ -79,6 +79,15 @@ final class Request
     {
         $v = $this->user['company_id'] ?? null;
         return $v === null ? null : (int) $v;
+    }
+
+    /**
+     * Organização (tenant do ERP) dona dos dados do login. Default 1 (org padrão).
+     * Use para escopar leituras/escritas por org quando o multi-tenant for ligado.
+     */
+    public function orgId(): int
+    {
+        return (int) ($this->user['org_id'] ?? 1);
     }
 
     /** @return array{name:string,type:string,tmp_name:string,size:int}|null */
