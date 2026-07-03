@@ -1,0 +1,8 @@
+# Mantém o contexto de build enxuto (evita copiar dependências e artefatos grandes).
+.git
+**/node_modules
+frontend/dist
+backend-php/vendor
+**/.env
+*.log
+backend/node_modules

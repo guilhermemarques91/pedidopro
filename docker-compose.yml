@@ -1,0 +1,58 @@
+# PedidoPro — stack local para rodar na rede (LAN), multiplataforma (Zorin/Windows).
+#
+#   docker compose up -d --build      # sobe app + banco
+#   docker compose exec app php /var/www/html/api/config/seed.php   # cria admin inicial
+#
+# Acesso: http://127.0.0.1:${APP_PORT:-8090}  (ou http://IP-do-servidor:PORTA na LAN)
+
+# Nome fixo do projeto: o stack é o mesmo independentemente da pasta de onde se roda
+# (ex.: rodar a partir do worktree D:\pedidos-erp).
+name: pedidopro-erp
+
+services:
+  db:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASS:-root_pedidopro}
+      MYSQL_DATABASE: ${DB_NAME:-pedidopro}
+      MYSQL_USER: ${DB_USER:-pedidopro}
+      MYSQL_PASSWORD: ${DB_PASS:-pedidopro}
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./backend-php/config:/opt/dbsrc:ro          # schema + migrations (fonte do init)
+      - ./docker/db-init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "${DB_PORT_HOST:-3307}:3306"                # opcional: inspecionar o banco de fora
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${DB_ROOT_PASS:-root_pedidopro}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  app:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+      DB_PORT: "3306"
+      DB_NAME: ${DB_NAME:-pedidopro}
+      DB_USER: ${DB_USER:-pedidopro}
+      DB_PASS: ${DB_PASS:-pedidopro}
+      JWT_SECRET: ${JWT_SECRET:-troque-esta-chave-por-uma-bem-grande-0123456789}
+      JWT_EXPIRES_DAYS: "7"
+      APP_ENV: ${APP_ENV:-production}
+      # Sem internet no bootstrap: não chamar plataformas externas (iFood/99Food).
+      INTEGRATIONS_MOCK: ${INTEGRATIONS_MOCK:-1}
+      CORS_ORIGINS: ""
+    ports:
+      # 8090 por padrão: a 8080 costuma estar ocupada pela Evolution API (WhatsApp) neste PC.
+      - "${APP_PORT:-8090}:80"
+
+volumes:
+  db_data:

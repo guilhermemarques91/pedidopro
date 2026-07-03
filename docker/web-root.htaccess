@@ -1,0 +1,13 @@
+# Webroot do container (frontend SPA). A API vive em /api e tem seu próprio .htaccess.
+RewriteEngine On
+
+# /api é tratado pelo .htaccess da subpasta (não reescrever aqui).
+RewriteRule ^api(/|$) - [L]
+
+# Arquivos e diretórios reais (assets do build) servem direto.
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+
+# Qualquer outra rota → SPA (React Router resolve no cliente).
+RewriteRule ^ index.html [L]
