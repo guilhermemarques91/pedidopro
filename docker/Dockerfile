@@ -38,8 +38,14 @@ COPY --from=vendor /app/vendor/ /var/www/html/api/vendor/
 COPY --from=frontend /app/dist/ /var/www/html/
 COPY docker/web-root.htaccess /var/www/html/.htaccess
 
+# Entrypoint: aplica migrations pendentes (config/migrate.php) e sobe o Apache.
+COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
 RUN chown -R www-data:www-data /var/www/html
 
 # Healthcheck simples: a API responde em /api/health.
-HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=5 \
+HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=5 \
     CMD php -r '$c=@file_get_contents("http://127.0.0.1/api/health");exit($c && strpos($c,"ok")!==false?0:1);' || exit 1
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

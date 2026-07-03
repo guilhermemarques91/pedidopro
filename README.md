@@ -1,63 +1,56 @@
 # PedidoPro
 
-App de gestão de pedidos a fornecedores — comparação de preços, geração de pedidos, aprovação e envio por WhatsApp.
+App de gestão de pedidos a fornecedores — comparação de preços, geração de pedidos, aprovação e envio por WhatsApp. Em evolução para um ERP local abrangente (ver [docker/README.md](docker/README.md)).
 
-**Stack:** Node.js + Express + TypeScript · React + Vite + TailwindCSS · PostgreSQL · Evolution API (WhatsApp) · Claude API (extração de preços).
+**Stack:** PHP 8.3 (puro + PDO) · MySQL 8 · React + Vite + TailwindCSS · Evolution API (WhatsApp) · Ollama/Claude (extração de preços).
 
 ## Estrutura
 
 ```
-backend/    API REST (Express + TypeScript, SQL puro com pg)
-frontend/   SPA React (Vite + Tailwind 4)
+backend-php/   API REST (PHP puro + PDO, front controller em index.php)
+frontend/      SPA React (Vite + Tailwind 4)
+backend/       API Node/TS LEGADA (substituída por backend-php/ — mantida só como referência)
+docker/        Runtime local (Compose: app PHP/Apache + MySQL)
 ```
 
-## Setup local (Windows)
+## Setup local (Docker — recomendado)
 
-### Pré-requisitos
-- Node.js 20+
-- PostgreSQL 14+ rodando localmente
+Sobe API PHP + MySQL num container só, igual em Windows (Docker Desktop) e Zorin/Linux. As migrations rodam sozinhas no boot ([backend-php/config/migrate.php](backend-php/config/migrate.php), via [docker/entrypoint.sh](docker/entrypoint.sh)).
 
-### 1. Banco de dados
 ```powershell
-# Cria o banco e aplica o schema
-& "C:\Program Files\PostgreSQL\14\bin\psql.exe" -U postgres -h localhost -c "CREATE DATABASE pedidopro_dev"
-& "C:\Program Files\PostgreSQL\14\bin\psql.exe" -U postgres -h localhost -d pedidopro_dev -f backend/src/config/schema.sql
+docker compose up -d --build                                            # sobe app + banco
+docker compose exec app php /var/www/html/api/config/seed.php           # cria admin inicial (1ª vez)
 ```
 
-### 2. Backend
-```powershell
-cd backend
-copy ..\.env.example .env   # preencha os valores (DATABASE_URL, JWT_SECRET, etc.)
-npm install
-npm run seed                # cria usuário admin de teste
-npm run dev                 # http://localhost:3001
-```
+- App/API: `http://127.0.0.1:8090` (API em `/api`). No Windows use `127.0.0.1`, não `localhost`.
+- Admin padrão: `admin@pedidopro.local` / `admin123` (troque após logar).
+- Detalhes (migrations, backup, acesso remoto): [docker/README.md](docker/README.md).
 
-Usuário admin padrão (dev): `admin@pedidopro.local` / `admin123`
+## Frontend em dev (Vite)
 
-### 3. Frontend
 ```powershell
 cd frontend
 npm install
 npm run dev                 # http://localhost:5173
 ```
 
+O Vite faz proxy de `/api` para o backend PHP em `http://127.0.0.1:8090` (ver [frontend/vite.config.ts](frontend/vite.config.ts)). Para apontar a outra porta/host: `API_PROXY_TARGET=http://127.0.0.1:PORTA npm run dev`. Ou seja, **suba o Docker antes** para o login/API funcionarem.
+
 ## Variáveis de ambiente
 
-Veja [.env.example](.env.example). Obrigatórias: `DATABASE_URL`, `JWT_SECRET`, `EVOLUTION_API_URL`, `EVOLUTION_API_KEY`, `ANTHROPIC_API_KEY`.
+Backend: [backend-php/.env.example](backend-php/.env.example) (no Docker os valores vêm do [docker-compose.yml](docker-compose.yml)). O [.env.example](.env.example) da raiz é do backend Node legado.
 
 ## Módulos da API
 
 | Endpoint base | Módulo | Status |
 |---|---|---|
 | `/api/auth` | Autenticação (JWT) | ✅ |
-| `/api/categories` | Categorias | ✅ |
-| `/api/suppliers` | Fornecedores | ✅ |
+| `/api/categories` · `/api/suppliers` · `/api/items` · `/api/products` | Cadastros | ✅ |
+| `/api/quotations` · `/api/orders` · `/api/requests` | Cotações, pedidos + aprovação, requisições | ✅ |
+| `/api/import` | Importação de NF-e (xlsx) | ✅ |
 | `/api/whatsapp` | Integração Evolution API | ✅ (aguarda config Evolution) |
-| `/api/items` | Itens por fornecedor | ⏳ |
-| `/api/import` | Importação de planilhas | ⏳ |
-| `/api/quotations` | Cotações | ⏳ |
-| `/api/orders` | Pedidos + aprovação | ⏳ |
+| `/api/delivery` · `/api/channels` | Delivery (iFood + 99Food) + Merchant | ✅ |
+| `/api/marmitex` | Catering B2B (marmitex) | ✅ |
 
 ## Deploy
 

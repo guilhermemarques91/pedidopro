@@ -42,14 +42,30 @@ docker compose exec db mysql -upedidopro -p pedidopro   # abrir o MySQL
 
 ## Como o banco é inicializado
 
-No **primeiro** boot (volume vazio), o container do MySQL aplica
-`backend-php/config/schema.mysql.sql` e depois as migrations de
-`backend-php/config/migrations/` em ordem, via `docker/db-init/10-apply.sh`.
-Para reaplicar do zero: `docker compose down -v && docker compose up -d`.
+Duas etapas, com responsabilidades separadas:
 
-> Este é o bootstrap inicial. O roadmap (Etapa 0) substitui isto por um runner de
-> migrations no lado da aplicação (tabela `schema_migrations`) para aplicar
-> incrementos em bancos já existentes sem recriar tudo.
+1. **Schema base** — no **primeiro** boot (volume vazio), o container do MySQL
+   aplica `backend-php/config/schema.mysql.sql` via `docker/db-init/10-apply.sh`.
+   (Esse container é a imagem `mysql`, sem PHP — por isso só cuida do schema.)
+2. **Migrations** — a cada boot, o container do **app** roda o runner
+   `backend-php/config/migrate.php` (via `docker/entrypoint.sh`, antes do Apache).
+   Cada migration de `backend-php/config/migrations/` roda **uma vez**, na ordem,
+   registrada na tabela `schema_migrations`.
+
+O runner "adota" o baseline: o schema consolidado já embute várias migrations
+(001-003, 005_marmitex, 007_item_suppliers), então na primeira execução ele
+marca essas como aplicadas (e sonda as tabelas de delivery, cobrindo volumes
+legados) e aplica só o que falta. Comandos úteis:
+
+```bash
+docker compose exec app php /var/www/html/api/config/migrate.php            # aplica pendentes
+docker compose exec app php /var/www/html/api/config/migrate.php --status   # aplicadas x pendentes
+docker compose exec app php /var/www/html/api/config/migrate.php --baseline # adoção manual (não roda DDL)
+```
+
+Nova migration = adicionar `NNN_descricao.sql` em `backend-php/config/migrations/`
+(número maior que o último) e reiniciar o app (`docker compose up -d`) ou rodar o
+comando acima. Para reaplicar tudo do zero: `docker compose down -v && docker compose up -d`.
 
 ## Backup (esboço — Etapa 0B)
 
