@@ -61,9 +61,11 @@ final class NineNineClient
         }
         $r = HttpClient::request($method, $url, ['Accept: application/json'], $body);
         $data = is_array($r['data']) ? $r['data'] : [];
-        $errno = (int) ($data['errno'] ?? ($r['status'] >= 400 ? -1 : 0));
+        // status 0 = falha de cURL (timeout/conexão): NÃO pode contar como sucesso.
+        $httpOk = $r['status'] >= 200 && $r['status'] < 400;
+        $errno = (int) ($data['errno'] ?? ($httpOk ? 0 : -1));
         return [
-            'ok' => $r['status'] < 400 && $errno === 0,
+            'ok' => $httpOk && $errno === 0,
             'errno' => $errno,
             'errmsg' => (string) ($data['errmsg'] ?? $r['error'] ?? ''),
             'data' => $data['data'] ?? null,
@@ -90,7 +92,7 @@ final class NineNineClient
             $token = self::fetchToken($channel);
         }
         if ($token === null) {
-            throw new HttpError(502, 'Falha ao obter auth_token do 99Food (confira app_id/app_secret/app_shop_id e o vínculo da loja).');
+            throw HttpError::unprocessable('Falha ao obter auth_token do 99Food (confira app_id/app_secret/app_shop_id e o vínculo da loja).');
         }
         return $token;
     }
@@ -165,7 +167,10 @@ final class NineNineClient
         };
 
         if (!$r['ok']) {
-            throw new HttpError(502, "Falha ao enviar '{$command}' ao 99Food (errno {$r['errno']}: {$r['errmsg']}).");
+            $msg = $r['errmsg'] !== '' ? $r['errmsg'] : 'sem resposta da API';
+            // 422 (não 5xx): a HostGator troca o corpo de respostas 5xx pela página de
+            // erro dela, escondendo esta mensagem do frontend. 422 passa o JSON intacto.
+            throw HttpError::unprocessable("Falha ao enviar '{$command}' ao 99Food (errno {$r['errno']}: {$msg}).");
         }
     }
 
@@ -213,7 +218,7 @@ final class NineNineClient
             'reason' => $reason !== '' ? $reason : ($agree ? 'Aceito pela loja' : 'Recusado pela loja'),
         ]);
         if (!$r['ok']) {
-            throw new HttpError(502, "Falha ao resolver cancelamento no 99Food (errno {$r['errno']}: {$r['errmsg']}).");
+            throw HttpError::unprocessable("Falha ao resolver cancelamento no 99Food (errno {$r['errno']}: {$r['errmsg']}).");
         }
     }
 }
