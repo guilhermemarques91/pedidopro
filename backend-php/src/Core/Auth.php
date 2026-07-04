@@ -18,7 +18,7 @@ final class Auth
         return $s;
     }
 
-    public static function sign(int $id, string $email, string $role, ?int $companyId = null, int $orgId = 1): string
+    public static function sign(int $id, ?string $email, string $role, ?int $companyId = null, int $orgId = 1): string
     {
         $days = Env::int('JWT_EXPIRES_DAYS', 7);
         $now = time();

@@ -5,38 +5,56 @@ import type { User } from '../types';
 interface AuthState {
   token: string | null;
   user: User | null;
-  login: (email: string, password: string) => Promise<void>;
+  permissions: string[];
+  login: (username: string, password: string) => Promise<void>;
   logout: () => void;
   hasRole: (...roles: User['role'][]) => boolean;
+  /** O usuário logado tem esta permissão? (admin já vem com todas do backend) */
+  can: (perm: string) => boolean;
 }
 
 function loadUser(): User | null {
   const raw = localStorage.getItem('pedidopro_user');
   return raw ? (JSON.parse(raw) as User) : null;
 }
+function loadPerms(): string[] {
+  try {
+    const raw = localStorage.getItem('pedidopro_permissions');
+    return raw ? (JSON.parse(raw) as string[]) : [];
+  } catch {
+    return [];
+  }
+}
 
 export const useAuth = create<AuthState>((set, get) => ({
   token: localStorage.getItem('pedidopro_token'),
   user: loadUser(),
+  permissions: loadPerms(),
 
-  async login(email, password) {
-    const { data } = await api.post<{ token: string; user: User }>('/auth/login', {
-      email,
+  async login(username, password) {
+    const { data } = await api.post<{ token: string; user: User; permissions: string[] }>('/auth/login', {
+      username,
       password,
     });
     localStorage.setItem('pedidopro_token', data.token);
     localStorage.setItem('pedidopro_user', JSON.stringify(data.user));
-    set({ token: data.token, user: data.user });
+    localStorage.setItem('pedidopro_permissions', JSON.stringify(data.permissions ?? []));
+    set({ token: data.token, user: data.user, permissions: data.permissions ?? [] });
   },
 
   logout() {
     localStorage.removeItem('pedidopro_token');
     localStorage.removeItem('pedidopro_user');
-    set({ token: null, user: null });
+    localStorage.removeItem('pedidopro_permissions');
+    set({ token: null, user: null, permissions: [] });
   },
 
   hasRole(...roles) {
     const role = get().user?.role;
     return role ? roles.includes(role) : false;
+  },
+
+  can(perm) {
+    return get().permissions.includes(perm);
   },
 }));

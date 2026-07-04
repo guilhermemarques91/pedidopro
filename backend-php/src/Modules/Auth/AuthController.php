@@ -11,16 +11,20 @@ use App\Core\Request;
 
 final class AuthController
 {
-    private const PUBLIC_COLS = 'id, name, email, role, active, company_id, org_id, created_at';
+    private const PUBLIC_COLS = 'id, name, username, email, role, active, company_id, org_id, created_at';
 
     public static function login(Request $req): void
     {
         $in = $req->input();
-        $email = $in->email('email');
+        // Credencial = username; aceita 'email' por compatibilidade com clientes antigos.
+        $username = $in->string('username') ?? $in->string('email');
+        if ($username === null) {
+            throw HttpError::badRequest("Campo 'username' é obrigatório");
+        }
         $password = $in->requireString('password');
 
-        $user = Db::queryOne('SELECT * FROM users WHERE email = ?', [$email]);
-        // Mensagem genérica para não revelar se o e-mail existe.
+        $user = Db::queryOne('SELECT * FROM users WHERE username = ?', [$username]);
+        // Mensagem genérica para não revelar se o usuário existe.
         if (!$user || !$user['active'] || !password_verify($password, $user['password_hash'])) {
             throw HttpError::unauthorized('Credenciais inválidas');
         }

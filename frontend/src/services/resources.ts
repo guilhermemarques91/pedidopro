@@ -144,7 +144,7 @@ export interface InboxRow {
 // ---- Users (gestão de acesso — admin) ----
 export const usersApi = {
   list: () => api.get<User[]>('/users').then((r) => r.data),
-  create: (body: { name: string; email: string; password: string; role: UserRole; company_id?: number | null; permissions?: string[] | null }) =>
+  create: (body: { name: string; username: string; password: string; role: UserRole; email?: string | null; company_id?: number | null; permissions?: string[] | null }) =>
     api.post<User>('/users', body).then((r) => r.data),
   update: (id: number, body: { name?: string; role?: UserRole; password?: string; company_id?: number | null; permissions?: string[] | null }) =>
     api.put<User>(`/users/${id}`, body).then((r) => r.data),

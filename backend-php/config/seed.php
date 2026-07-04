@@ -26,19 +26,19 @@ spl_autoload_register(function (string $class) use ($root): void {
 });
 Env::load($root . '/.env');
 
-$admin = ['name' => 'Administrador', 'email' => 'admin@pedidopro.local', 'password' => 'admin123', 'role' => 'admin'];
+$admin = ['name' => 'Administrador', 'username' => 'admin', 'password' => 'admin123', 'role' => 'admin'];
 
-$existing = Db::queryOne('SELECT id FROM users WHERE email = ?', [$admin['email']]);
+$existing = Db::queryOne('SELECT id FROM users WHERE username = ?', [$admin['username']]);
 if ($existing) {
-    echo "Usuário {$admin['email']} já existe (id {$existing['id']}). Nada a fazer.\n";
+    echo "Usuário {$admin['username']} já existe (id {$existing['id']}). Nada a fazer.\n";
     exit;
 }
 
 $hash = password_hash($admin['password'], PASSWORD_BCRYPT);
 Db::execute(
-    'INSERT INTO users (name, email, password_hash, role) VALUES (?, ?, ?, ?)',
-    [$admin['name'], $admin['email'], $hash, $admin['role']]
+    'INSERT INTO users (name, username, password_hash, role) VALUES (?, ?, ?, ?)',
+    [$admin['name'], $admin['username'], $hash, $admin['role']]
 );
 echo "Usuário admin criado (id " . Db::lastInsertId() . "):\n";
-echo "  email: {$admin['email']}\n";
+echo "  usuário: {$admin['username']}\n";
 echo "  senha: {$admin['password']}\n";

@@ -1,1 +1,15 @@
 @import "tailwindcss";
+
+/* Tabelas roláveis horizontalmente em telas estreitas (celular): evita que o
+   conteúdo estoure o quadro e gere rolagem horizontal na página inteira.
+   Só afeta < 640px e NÃO reexibe tabelas já ocultas no mobile — a classe
+   utilitária `.hidden` (usada nas telas que trocam tabela por cards) tem
+   precedência sobre este seletor de elemento. */
+@media (max-width: 639px) {
+  main table {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+}

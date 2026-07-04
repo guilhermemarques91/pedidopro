@@ -9,7 +9,6 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../store/auth.store';
 import { inboxApi } from '../services/resources';
-import type { UserRole } from '../types';
 import { APP_NAME, Logo } from '../config/brand';
 
 type NavItem = {
@@ -17,46 +16,46 @@ type NavItem = {
   label: string;
   icon: typeof LayoutDashboard;
   end?: boolean;
-  roles?: UserRole[];
+  perm?: string;
   children?: NavItem[];
 };
 type NavGroup = { title?: string; items: NavItem[] };
 
-// `roles` ausente = visível a todos os papéis autenticados.
-// Menu agrupado por área. Grupos com título recolhem (accordion) e o menu
-// inteiro pode virar um trilho só de ícones (ver estado `collapsed`).
+// `perm` ausente = visível a todos os autenticados. Cada item exige a permissão
+// que a tela realmente usa (ver App\Core\Permissions no backend). Menu agrupado por
+// área; grupos com título recolhem (accordion) e o menu pode virar trilho de ícones.
 const navGroups: NavGroup[] = [
   { items: [{ to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true }] },
   { title: 'Delivery', items: [
-    { to: '/delivery', label: 'Painel de Pedidos', icon: Bike, roles: ['admin', 'buyer', 'approver'] },
-    { to: '/relatorios', label: 'Relatórios', icon: BarChart3, roles: ['admin', 'buyer', 'approver'] },
-    { to: '/loja', label: 'Loja (iFood)', icon: StoreIcon, roles: ['admin', 'buyer'] },
-    { to: '/integrations', label: 'Integrações', icon: Plug, roles: ['admin'] },
+    { to: '/delivery', label: 'Painel de Pedidos', icon: Bike, perm: 'delivery:operate' },
+    { to: '/relatorios', label: 'Relatórios', icon: BarChart3, perm: 'delivery:operate' },
+    { to: '/loja', label: 'Loja (iFood)', icon: StoreIcon, perm: 'delivery:operate' },
+    { to: '/integrations', label: 'Integrações', icon: Plug, perm: 'delivery:admin' },
   ] },
   { title: 'Compras', items: [
-    { to: '/inbox', label: 'Caixa de entrada', icon: Inbox, roles: ['admin', 'buyer'] },
-    { to: '/quotations', label: 'Cotações', icon: ClipboardList, roles: ['admin', 'buyer'] },
-    { to: '/requests', label: 'Lista de compras', icon: ListChecks },
-    { to: '/orders', label: 'Pedidos a fornecedores', icon: ShoppingCart, roles: ['admin', 'buyer', 'approver'] },
+    { to: '/inbox', label: 'Caixa de entrada', icon: Inbox, perm: 'compras:write' },
+    { to: '/quotations', label: 'Cotações', icon: ClipboardList, perm: 'compras:write' },
+    { to: '/requests', label: 'Lista de compras', icon: ListChecks, perm: 'compras:requests' },
+    { to: '/orders', label: 'Pedidos a fornecedores', icon: ShoppingCart, perm: 'compras:read' },
   ] },
   { title: 'Clientes Empresariais', items: [
-    { to: '/marmitex/companies', label: 'Empresas/Clientes', icon: Building2, roles: ['admin'] },
-    { to: '/marmitex/catalog', label: 'Cardápio', icon: BookOpen, roles: ['admin'] },
-    { to: '/marmitex', label: 'Pedidos do dia', icon: UtensilsCrossed, roles: ['admin', 'company'], end: true },
-    { to: '/marmitex/report', label: 'Relatório / NF-e', icon: FileText, roles: ['admin'] },
-    { to: '/marmitex/invoices', label: 'Faturamentos', icon: Receipt, roles: ['admin'] },
+    { to: '/marmitex/companies', label: 'Empresas/Clientes', icon: Building2, perm: 'marmitex:admin' },
+    { to: '/marmitex/catalog', label: 'Cardápio', icon: BookOpen, perm: 'marmitex:admin' },
+    { to: '/marmitex', label: 'Pedidos do dia', icon: UtensilsCrossed, perm: 'marmitex:order', end: true },
+    { to: '/marmitex/report', label: 'Relatório / NF-e', icon: FileText, perm: 'marmitex:admin' },
+    { to: '/marmitex/invoices', label: 'Faturamentos', icon: Receipt, perm: 'marmitex:admin' },
   ] },
   { title: 'Cadastros', items: [
-    { to: '/suppliers', label: 'Fornecedores', icon: Truck, roles: ['admin', 'buyer'] },
-    { to: '/categories', label: 'Categorias', icon: Tags, roles: ['admin', 'buyer'] },
-    { to: '/items', label: 'Itens/Produtos', icon: Package, roles: ['admin', 'buyer'], children: [
-      { to: '/items', label: 'Itens', icon: Package, roles: ['admin', 'buyer'], end: true },
-      { to: '/products', label: 'Produtos', icon: Package, roles: ['admin', 'buyer'] },
+    { to: '/suppliers', label: 'Fornecedores', icon: Truck, perm: 'compras:write' },
+    { to: '/categories', label: 'Categorias', icon: Tags, perm: 'compras:write' },
+    { to: '/items', label: 'Itens/Produtos', icon: Package, perm: 'compras:write', children: [
+      { to: '/items', label: 'Itens', icon: Package, perm: 'compras:write', end: true },
+      { to: '/products', label: 'Produtos', icon: Package, perm: 'compras:write' },
     ] },
-    { to: '/import', label: 'Importação', icon: FileSpreadsheet, roles: ['admin', 'buyer'] },
+    { to: '/import', label: 'Importação', icon: FileSpreadsheet, perm: 'compras:write' },
   ] },
   { title: 'Admin', items: [
-    { to: '/users', label: 'Usuários', icon: Users, roles: ['admin'] },
+    { to: '/users', label: 'Usuários', icon: Users, perm: 'users:manage' },
   ] },
 ];
 
@@ -79,11 +78,11 @@ function saveJSON(key: string, value: unknown) {
 const GROUPS_KEY = 'sidebar:groups';
 const COLLAPSED_KEY = 'sidebar:collapsed';
 
-/** Item folha ou pai visível para o papel do usuário (filtra `children` recursivamente). */
-function filterItem(item: NavItem, role?: UserRole): NavItem | null {
-  const visibleSelf = !item.roles || (role && item.roles.includes(role));
+/** Item folha ou pai visível dadas as permissões (filtra `children` recursivamente). */
+function filterItem(item: NavItem, can: (perm: string) => boolean): NavItem | null {
+  const visibleSelf = !item.perm || can(item.perm);
   if (item.children) {
-    const kids = item.children.map((c) => filterItem(c, role)).filter(Boolean) as NavItem[];
+    const kids = item.children.map((c) => filterItem(c, can)).filter(Boolean) as NavItem[];
     if (kids.length === 0) return null;
     return { ...item, children: kids };
   }
@@ -92,6 +91,8 @@ function filterItem(item: NavItem, role?: UserRole): NavItem | null {
 
 export function Layout() {
   const { user, logout } = useAuth();
+  const permissions = useAuth((s) => s.permissions);
+  const can = (perm: string) => permissions.includes(perm);
   const navigate = useNavigate();
   const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -100,7 +101,7 @@ export function Layout() {
   const [openSubs, setOpenSubs] = useState<Record<string, boolean>>({});
 
   const visibleGroups = navGroups
-    .map((g) => ({ ...g, items: g.items.map((n) => filterItem(n, user?.role)).filter(Boolean) as NavItem[] }))
+    .map((g) => ({ ...g, items: g.items.map((n) => filterItem(n, can)).filter(Boolean) as NavItem[] }))
     .filter((g) => g.items.length > 0);
 
   // Contagem de pendentes na caixa de entrada (atualiza a cada 60s).

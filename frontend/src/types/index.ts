@@ -6,7 +6,8 @@ export type UserRole = string;
 export interface User {
   id: number;
   name: string;
-  email: string;
+  username: string;
+  email?: string | null;
   role: UserRole;
   active: boolean;
   company_id: number | null;

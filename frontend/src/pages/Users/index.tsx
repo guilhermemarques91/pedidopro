@@ -106,12 +106,12 @@ export function UsersPage() {
       {data && (data.length === 0 ? (
         <EmptyState message="Nenhum usuário." />
       ) : (
-        <Card className="p-0">
-          <table className="w-full text-sm">
+        <Card className="overflow-x-auto p-0">
+          <table className="w-full min-w-[36rem] text-sm">
             <thead className="border-b border-slate-200 text-left text-slate-500">
               <tr>
                 <th className="px-5 py-3 font-medium">Nome</th>
-                <th className="px-5 py-3 font-medium">E-mail</th>
+                <th className="px-5 py-3 font-medium">Usuário</th>
                 <th className="px-5 py-3 font-medium">Papel</th>
                 <th className="px-5 py-3 font-medium">Acesso</th>
                 <th className="px-5 py-3" />
@@ -121,7 +121,7 @@ export function UsersPage() {
               {data.map((u) => (
                 <tr key={u.id} className="border-b border-slate-100 last:border-0">
                   <td className="px-5 py-3 font-medium text-slate-800">{u.name}{u.id === me?.id && <span className="ml-2 text-xs text-slate-400">(você)</span>}</td>
-                  <td className="px-5 py-3 text-slate-600">{u.email}</td>
+                  <td className="px-5 py-3 text-slate-600">{u.username}</td>
                   <td className="px-5 py-3 text-slate-600">
                     {roleLabel[u.role] ?? u.role}
                     {u.permissions != null && <span className="ml-2 rounded bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-700">personalizado</span>}
@@ -158,7 +158,7 @@ export function UsersPage() {
 function UserForm({ user, roles, onClose }: { user: User | null; roles: Role[]; onClose: () => void }) {
   const qc = useQueryClient();
   const [name, setName] = useState(user?.name ?? '');
-  const [email, setEmail] = useState(user?.email ?? '');
+  const [username, setUsername] = useState(user?.username ?? '');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<string>(user?.role ?? 'requester');
   const [companyId, setCompanyId] = useState<number | null>(user?.company_id ?? null);
@@ -204,7 +204,7 @@ function UserForm({ user, roles, onClose }: { user: User | null; roles: Role[]; 
         if (password.trim()) body.password = password.trim();
         return usersApi.update(user.id, body);
       }
-      return usersApi.create({ name, email, password, role, company_id: isCompany ? companyId : null, permissions });
+      return usersApi.create({ name, username, password, role, company_id: isCompany ? companyId : null, permissions });
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['users'] }); onClose(); },
     onError: (e) => setError(apiError(e)),
@@ -222,8 +222,8 @@ function UserForm({ user, roles, onClose }: { user: User | null; roles: Role[]; 
       <form onSubmit={submit} className="space-y-4">
         {error && <ErrorBox message={error} />}
         <Field label="Nome"><Input value={name} onChange={(e) => setName(e.target.value)} required autoFocus /></Field>
-        <Field label="E-mail">
-          <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required disabled={!!user} />
+        <Field label="Usuário (login)">
+          <Input value={username} onChange={(e) => setUsername(e.target.value)} required disabled={!!user} autoCapitalize="none" autoCorrect="off" placeholder="ex.: joao, caixa1" />
         </Field>
         <Field label="Papel">
           <Select value={role} onChange={(e) => changeRole(e.target.value)}>

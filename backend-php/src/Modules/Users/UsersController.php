@@ -10,7 +10,7 @@ use App\Core\Request;
 
 final class UsersController
 {
-    private const PUBLIC_COLS = 'id, name, email, role, active, company_id, permissions_json, created_at';
+    private const PUBLIC_COLS = 'id, name, username, email, role, active, company_id, permissions_json, created_at';
 
     public static function list(Request $req): void
     {
@@ -28,22 +28,34 @@ final class UsersController
     {
         $in = $req->input();
         $name = $in->requireString('name');
-        $email = $in->email('email');
+        $username = self::normalizeUsername($in->requireString('username', 3, 80));
+        $email = $in->string('email'); // opcional
         $password = $in->requireString('password', 6);
         $role = self::requireRole($in->string('role'), $req->orgId());
         // Login de empresa (Marmitex) precisa estar vinculado a uma empresa.
         $companyId = $role === 'company' ? self::requireCompany($in->integer('company_id')) : null;
         $permissions = self::permissionsInput($in, $role);
 
-        if (Db::queryOne('SELECT id FROM users WHERE email = ?', [$email])) {
-            throw HttpError::badRequest('Já existe um usuário com este e-mail');
+        if (Db::queryOne('SELECT id FROM users WHERE username = ?', [$username])) {
+            throw HttpError::badRequest('Já existe um usuário com este nome de usuário');
         }
         $hash = password_hash($password, PASSWORD_BCRYPT);
         Db::execute(
-            'INSERT INTO users (name, email, password_hash, role, company_id, org_id, permissions_json) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            [$name, $email, $hash, $role, $companyId, $req->orgId(), $permissions]
+            'INSERT INTO users (name, username, email, password_hash, role, company_id, org_id, permissions_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [$name, $username, $email, $hash, $role, $companyId, $req->orgId(), $permissions]
         );
         Http::json(self::find(Db::lastInsertId()), 201);
+    }
+
+    /** Normaliza o username: minúsculas, sem espaços, só letras/dígitos/._- */
+    private static function normalizeUsername(string $raw): string
+    {
+        $u = strtolower(trim($raw));
+        $u = preg_replace('/\s+/', '', $u) ?? $u;
+        if (!preg_match('/^[a-z0-9._-]{3,80}$/', $u)) {
+            throw HttpError::badRequest('Nome de usuário inválido (use letras, números, ponto, hífen ou _)');
+        }
+        return $u;
     }
 
     /** Valida que o papel existe (na org); devolve a `key`. */

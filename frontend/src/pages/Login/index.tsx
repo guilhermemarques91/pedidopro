@@ -8,7 +8,7 @@ import { APP_NAME, APP_TAGLINE, Logo } from '../../config/brand';
 export function Login() {
   const login = useAuth((s) => s.login);
   const navigate = useNavigate();
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -18,7 +18,7 @@ export function Login() {
     setError('');
     setLoading(true);
     try {
-      await login(email, password);
+      await login(username, password);
       // Login de empresa cai direto na própria área; staff vai ao dashboard.
       const role = useAuth.getState().user?.role;
       navigate(role === 'company' ? '/marmitex' : '/');
@@ -39,8 +39,8 @@ export function Login() {
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && <ErrorBox message={error} />}
-          <Field label="E-mail">
-            <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
+          <Field label="Usuário">
+            <Input type="text" autoCapitalize="none" autoCorrect="off" value={username} onChange={(e) => setUsername(e.target.value)} required autoFocus />
           </Field>
           <Field label="Senha">
             <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
