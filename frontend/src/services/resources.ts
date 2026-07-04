@@ -1,7 +1,7 @@
 import { api } from './api';
 import type {
   Category, Supplier, Item, Product, Quotation, QuotationDetail, ComparisonRow,
-  Order, OrderDetail, User, UserRole, PurchaseRequest, RequestDetail,
+  Order, OrderDetail, User, UserRole, Role, PermissionCatalog, PurchaseRequest, RequestDetail,
   DeliveryOrder, DeliveryOrderDetail, DeliveryStatus, DeliveryPlatform, Channel, DeliveryAlert, ReportSummary,
   Interruption, OpeningShift,
   MarmitexCompany, MarmitexCatalog, CatalogType, MarmitexOrder, MarmitexOrderDetail,
@@ -144,13 +144,24 @@ export interface InboxRow {
 // ---- Users (gestão de acesso — admin) ----
 export const usersApi = {
   list: () => api.get<User[]>('/users').then((r) => r.data),
-  create: (body: { name: string; email: string; password: string; role: UserRole; company_id?: number | null }) =>
+  create: (body: { name: string; email: string; password: string; role: UserRole; company_id?: number | null; permissions?: string[] | null }) =>
     api.post<User>('/users', body).then((r) => r.data),
-  update: (id: number, body: { name?: string; role?: UserRole; password?: string; company_id?: number | null }) =>
+  update: (id: number, body: { name?: string; role?: UserRole; password?: string; company_id?: number | null; permissions?: string[] | null }) =>
     api.put<User>(`/users/${id}`, body).then((r) => r.data),
   setActive: (id: number, active: boolean) =>
     api.patch<User>(`/users/${id}/active`, { active }).then((r) => r.data),
   remove: (id: number) => api.delete(`/users/${id}`).then((r) => r.data),
+};
+
+// ---- Papéis (roles) + catálogo de permissões ----
+export const rolesApi = {
+  list: () => api.get<Role[]>('/roles').then((r) => r.data),
+  catalog: () => api.get<{ catalog: PermissionCatalog }>('/permissions/catalog').then((r) => r.data.catalog),
+  create: (body: { label: string; permissions: string[] }) =>
+    api.post<Role>('/roles', body).then((r) => r.data),
+  update: (id: number, body: { label?: string; permissions?: string[] }) =>
+    api.put<Role>(`/roles/${id}`, body).then((r) => r.data),
+  remove: (id: number) => api.delete(`/roles/${id}`).then((r) => r.data),
 };
 
 // ---- Requests (listas de compra) ----

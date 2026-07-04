@@ -5,20 +5,23 @@ namespace App\Modules\Users;
 use App\Core\Db;
 use App\Core\Http;
 use App\Core\HttpError;
+use App\Core\Permissions;
 use App\Core\Request;
 
 final class UsersController
 {
-    private const PUBLIC_COLS = 'id, name, email, role, active, company_id, created_at';
-    private const ROLES = ['admin', 'buyer', 'approver', 'requester', 'company'];
+    private const PUBLIC_COLS = 'id, name, email, role, active, company_id, permissions_json, created_at';
 
     public static function list(Request $req): void
     {
-        Http::json(Db::query(
+        $rows = Db::query(
             'SELECT u.' . str_replace(', ', ', u.', self::PUBLIC_COLS) . ', mc.name AS company_name
                FROM users u LEFT JOIN marmitex_companies mc ON mc.id = u.company_id
-              ORDER BY u.name'
-        ));
+              WHERE u.org_id = ?
+              ORDER BY u.name',
+            [$req->orgId()]
+        );
+        Http::json(array_map([self::class, 'shape'], $rows));
     }
 
     public static function create(Request $req): void
@@ -27,19 +30,45 @@ final class UsersController
         $name = $in->requireString('name');
         $email = $in->email('email');
         $password = $in->requireString('password', 6);
-        $role = $in->enum('role', self::ROLES, true);
+        $role = self::requireRole($in->string('role'), $req->orgId());
         // Login de empresa (Marmitex) precisa estar vinculado a uma empresa.
         $companyId = $role === 'company' ? self::requireCompany($in->integer('company_id')) : null;
+        $permissions = self::permissionsInput($in, $role);
 
         if (Db::queryOne('SELECT id FROM users WHERE email = ?', [$email])) {
             throw HttpError::badRequest('Já existe um usuário com este e-mail');
         }
         $hash = password_hash($password, PASSWORD_BCRYPT);
         Db::execute(
-            'INSERT INTO users (name, email, password_hash, role, company_id) VALUES (?, ?, ?, ?, ?)',
-            [$name, $email, $hash, $role, $companyId]
+            'INSERT INTO users (name, email, password_hash, role, company_id, org_id, permissions_json) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [$name, $email, $hash, $role, $companyId, $req->orgId(), $permissions]
         );
         Http::json(self::find(Db::lastInsertId()), 201);
+    }
+
+    /** Valida que o papel existe (na org); devolve a `key`. */
+    private static function requireRole(?string $key, int $orgId): string
+    {
+        if (!$key || !Db::queryOne('SELECT id FROM roles WHERE `key` = ? AND org_id = ?', [$key, $orgId])) {
+            throw HttpError::badRequest('Papel inválido');
+        }
+        return $key;
+    }
+
+    /**
+     * Override de permissões do usuário. Retorna JSON (string) para gravar, ou null
+     * (= herda do papel). Ignorado para admin (superusuário).
+     */
+    private static function permissionsInput($in, string $role): ?string
+    {
+        if ($role === 'admin' || !$in->has('permissions')) {
+            return null;
+        }
+        $raw = $in->raw('permissions');
+        if ($raw === null) {
+            return null; // explicitamente "usar o papel"
+        }
+        return json_encode(Permissions::sanitize($in->array('permissions')));
     }
 
     /** Valida que a empresa informada existe; lança erro caso ausente/inválida. */
@@ -54,7 +83,8 @@ final class UsersController
     public static function update(Request $req): void
     {
         $id = $req->intParam('id');
-        self::find($id);
+        // Papel efetivo após a edição (usado p/ validar permissões e vínculo de empresa).
+        $current = self::find($id);
         $in = $req->input();
 
         $fields = [];
@@ -63,8 +93,9 @@ final class UsersController
             $fields[] = 'name = ?';
             $values[] = $in->requireString('name');
         }
+        $role = $current['role'];
         if ($in->has('role')) {
-            $role = $in->enum('role', self::ROLES, true);
+            $role = self::requireRole($in->string('role'), $req->orgId());
             // Evita lockout: admin não pode rebaixar o próprio papel.
             if ($id === $req->userId() && $role !== 'admin') {
                 throw HttpError::badRequest('Você não pode rebaixar o seu próprio papel');
@@ -77,6 +108,10 @@ final class UsersController
         } elseif ($in->has('company_id')) {
             $fields[] = 'company_id = ?';
             $values[] = $in->integer('company_id');
+        }
+        if ($in->has('permissions')) {
+            $fields[] = 'permissions_json = ?';
+            $values[] = self::permissionsInput($in, $role);
         }
         if ($in->has('password') && $in->string('password') !== null) {
             $fields[] = 'password_hash = ?';
@@ -128,6 +163,23 @@ final class UsersController
         if (!$row) {
             throw HttpError::notFound('Usuário não encontrado');
         }
+        Permissions::forget($id); // invalida cache após escrita
+        return self::shape($row);
+    }
+
+    /**
+     * Normaliza a linha para a API: `permissions` = override (array) ou null (herda
+     * do papel); `effective_permissions` = o que o usuário realmente pode fazer.
+     * @param array<string,mixed> $row
+     * @return array<string,mixed>
+     */
+    private static function shape(array $row): array
+    {
+        $override = isset($row['permissions_json']) && $row['permissions_json'] !== null
+            ? json_decode((string) $row['permissions_json'], true) : null;
+        unset($row['permissions_json']);
+        $row['permissions'] = is_array($override) ? $override : null;
+        $row['effective_permissions'] = Permissions::effectiveForUser((int) $row['id']);
         return $row;
     }
 }

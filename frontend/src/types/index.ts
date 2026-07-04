@@ -1,6 +1,7 @@
 // Tipos compartilhados — espelham as respostas da API do backend.
 
-export type UserRole = 'admin' | 'buyer' | 'approver' | 'requester' | 'company';
+// Papéis são dinâmicos (tabela roles); o valor é a `key` do papel.
+export type UserRole = string;
 
 export interface User {
   id: number;
@@ -10,8 +11,21 @@ export interface User {
   active: boolean;
   company_id: number | null;
   company_name?: string | null;
+  permissions?: string[] | null;      // override individual (null = herda do papel)
+  effective_permissions?: string[];   // o que o usuário realmente pode fazer
   created_at: string;
 }
+
+export interface Role {
+  id: number;
+  key: string;
+  label: string;
+  permissions: string[];
+  is_system: boolean;
+}
+
+/** Catálogo de permissões: módulo → { label, permissões: { chave → label } }. */
+export type PermissionCatalog = Record<string, { label: string; items: Record<string, string> }>;
 
 export interface Category {
   id: number;

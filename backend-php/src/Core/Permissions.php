@@ -5,70 +5,123 @@ namespace App\Core;
 /**
  * Permissões por módulo (Etapa 0 do roadmap ERP).
  *
- * Evolui os guards de papel (admin/buyer/approver/…) para capacidades granulares
- * no formato `modulo:acao` (ex.: `compras:write`, `delivery:operate`). O papel do
- * usuário continua sendo a unidade de atribuição — a MATRIX abaixo diz quais
- * permissões cada papel concede. Quando um módulo novo (estoque/financeiro) chegar,
- * basta declarar as permissões dele aqui e usá-las nos guards de Routes.php.
- *
- * `admin` é superusuário: tem TODAS as permissões (não precisa listar na MATRIX).
+ * Capacidades granulares no formato `modulo:acao`. Os PAPÉIS são dados (tabela
+ * `roles`) e cada usuário pode ter um override (`users.permissions_json`). A
+ * resolução efetiva (papel + override) é feita aqui, lendo do banco e memoizada
+ * por request. `admin` é superusuário: sempre todas as permissões.
  */
 final class Permissions
 {
-    /** Catálogo canônico de permissões, agrupado por módulo (para UI/documentação). */
-    public const ALL = [
-        // Compras & cadastros (fornecedores, itens, produtos, cotações, pedidos, requisições, inbox, import)
-        'compras:read',       // ler cadastros/cotações/pedidos/requisições
-        'compras:write',      // criar/editar fornecedores, itens, produtos, cotações, pedidos, inbox, import
-        'compras:approve',    // aprovar/recusar pedidos
-        'compras:requests',   // criar/enviar/cancelar requisições (listas de compra)
-        'compras:admin',      // excluir cadastros, alocar requisição, gerar pedidos, gerir categorias
-        // Delivery (agregador iFood + 99Food)
-        'delivery:operate',   // operar o painel (confirmar/despachar/cancelar, alertas, loja)
-        'delivery:admin',     // configurar canais/integrações, sincronização manual
-        // Marmitex (catering B2B)
-        'marmitex:order',      // fluxo da empresa-cliente (catálogo, própria empresa, pedidos, etiquetas)
-        'marmitex:admin',      // catálogo, empresas-cliente, relatórios/faturamento
-        // Administração / sistema
-        'users:manage',        // CRUD de usuários
-        'system:admin',        // ações de sistema (ex.: teste de WhatsApp)
-    ];
-
     /**
-     * Papel → permissões concedidas. `admin` fica de fora (superusuário, ver forRole/roleHas).
-     * @var array<string,string[]>
+     * Catálogo agrupado por módulo — fonte para os checkboxes da UI e para validar
+     * o que pode ser atribuído. Ordem/labels aparecem na tela.
+     * @var array<string,array{label:string,items:array<string,string>}>
      */
-    private const MATRIX = [
-        'buyer' => [
-            'compras:read', 'compras:write', 'compras:requests', 'delivery:operate',
+    public const CATALOG = [
+        'compras' => [
+            'label' => 'Compras & Cadastros',
+            'items' => [
+                'compras:read' => 'Ver cadastros, cotações e pedidos',
+                'compras:write' => 'Criar / editar (fornecedores, itens, cotações, pedidos)',
+                'compras:approve' => 'Aprovar / recusar pedidos',
+                'compras:requests' => 'Requisições (listas de compra)',
+                'compras:admin' => 'Excluir e administrar (categorias, alocação)',
+            ],
         ],
-        'approver' => [
-            'compras:read', 'compras:approve', 'delivery:operate',
+        'delivery' => [
+            'label' => 'Delivery (iFood + 99Food)',
+            'items' => [
+                'delivery:operate' => 'Operar o painel de pedidos',
+                'delivery:admin' => 'Configurar canais / integrações',
+            ],
         ],
-        'requester' => [
-            'compras:read', 'compras:requests',
+        'marmitex' => [
+            'label' => 'Marmitex (catering B2B)',
+            'items' => [
+                'marmitex:order' => 'Enviar pedidos (fluxo da empresa)',
+                'marmitex:admin' => 'Gerenciar catálogo, empresas e faturamento',
+            ],
         ],
-        // Login da empresa-cliente do Marmitex: só o próprio fluxo de pedidos.
-        'company' => [
-            'marmitex:order',
+        'sistema' => [
+            'label' => 'Administração',
+            'items' => [
+                'users:manage' => 'Gerenciar usuários e papéis',
+                'system:admin' => 'Ações de sistema (ex.: teste de WhatsApp)',
+            ],
         ],
     ];
 
-    /** Permissões efetivas de um papel (admin recebe todas). @return string[] */
-    public static function forRole(string $role): array
+    /** Cache por request: userId => permissões efetivas. @var array<int,string[]> */
+    private static array $userCache = [];
+    /** Cache por request: roleKey => permissões do papel. @var array<string,string[]> */
+    private static array $roleCache = [];
+
+    /** Lista plana de todas as permissões conhecidas. @return string[] */
+    public static function all(): array
     {
-        if ($role === 'admin') {
-            return self::ALL;
+        $out = [];
+        foreach (self::CATALOG as $group) {
+            foreach ($group['items'] as $key => $_) {
+                $out[] = $key;
+            }
         }
-        return self::MATRIX[$role] ?? [];
+        return $out;
     }
 
-    /** O papel concede a permissão? (admin = sempre) */
-    public static function roleHas(string $role, string $perm): bool
+    /** Filtra uma lista para conter só permissões válidas e sem duplicatas. @return string[] */
+    public static function sanitize(array $perms): array
     {
-        if ($role === 'admin') {
-            return true;
+        $valid = self::all();
+        $out = [];
+        foreach ($perms as $p) {
+            if (is_string($p) && in_array($p, $valid, true) && !in_array($p, $out, true)) {
+                $out[] = $p;
+            }
         }
-        return in_array($perm, self::MATRIX[$role] ?? [], true);
+        return $out;
+    }
+
+    /** Permissões concedidas por um papel (pela tabela roles). admin = todas. @return string[] */
+    public static function forRoleKey(string $key): array
+    {
+        if ($key === 'admin') {
+            return self::all();
+        }
+        if (!isset(self::$roleCache[$key])) {
+            $row = Db::queryOne('SELECT permissions FROM roles WHERE `key` = ? LIMIT 1', [$key]);
+            $perms = $row ? json_decode((string) $row['permissions'], true) : [];
+            self::$roleCache[$key] = is_array($perms) ? self::sanitize($perms) : [];
+        }
+        return self::$roleCache[$key];
+    }
+
+    /**
+     * Permissões EFETIVAS de um usuário: override individual (se houver) senão as
+     * do papel. admin sempre recebe todas. Lê do banco (papel/override atuais) —
+     * mudanças valem no próximo request, sem precisar relogar.
+     * @return string[]
+     */
+    public static function effectiveForUser(int $userId): array
+    {
+        if (!isset(self::$userCache[$userId])) {
+            $row = Db::queryOne('SELECT role, permissions_json FROM users WHERE id = ?', [$userId]);
+            if (!$row) {
+                return self::$userCache[$userId] = [];
+            }
+            if ($row['role'] === 'admin') {
+                return self::$userCache[$userId] = self::all();
+            }
+            $override = $row['permissions_json'] !== null ? json_decode((string) $row['permissions_json'], true) : null;
+            self::$userCache[$userId] = is_array($override)
+                ? self::sanitize($override)
+                : self::forRoleKey((string) $row['role']);
+        }
+        return self::$userCache[$userId];
+    }
+
+    /** Limpa o cache de um usuário (após editar papel/permissões dele). */
+    public static function forget(int $userId): void
+    {
+        unset(self::$userCache[$userId]);
     }
 }

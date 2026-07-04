@@ -13,6 +13,7 @@ use App\Modules\Quotations\QuotationsController;
 use App\Modules\Orders\OrdersController;
 use App\Modules\Requests\RequestsController;
 use App\Modules\Users\UsersController;
+use App\Modules\Roles\RolesController;
 use App\Modules\Inbox\InboxController;
 use App\Modules\Import\ImportController;
 use App\Modules\Whatsapp\WhatsappController;
@@ -141,6 +142,13 @@ final class Routes
         $r->put('/users/:id', [UsersController::class, 'update'], self::USERS);
         $r->patch('/users/:id/active', [UsersController::class, 'setActive'], self::USERS);
         $r->delete('/users/:id', [UsersController::class, 'remove'], self::USERS);
+
+        // Papéis (roles) customizáveis + catálogo de permissões (admin de acessos)
+        $r->get('/permissions/catalog', [RolesController::class, 'catalog'], self::USERS);
+        $r->get('/roles', [RolesController::class, 'list'], self::USERS);
+        $r->post('/roles', [RolesController::class, 'create'], self::USERS);
+        $r->put('/roles/:id', [RolesController::class, 'update'], self::USERS);
+        $r->delete('/roles/:id', [RolesController::class, 'remove'], self::USERS);
 
         // Inbox (rotas específicas antes de /:id)
         $r->get('/inbox', [InboxController::class, 'list'], self::READ);

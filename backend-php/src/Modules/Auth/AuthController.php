@@ -29,8 +29,8 @@ final class AuthController
         $orgId = isset($user['org_id']) && $user['org_id'] !== null ? (int) $user['org_id'] : 1;
         $token = Auth::sign((int) $user['id'], $user['email'], $user['role'], $companyId, $orgId);
         unset($user['password_hash']);
-        // Permissões efetivas do papel — o frontend usa para exibir/ocultar ações.
-        Http::json(['token' => $token, 'user' => $user, 'permissions' => Permissions::forRole($user['role'])]);
+        // Permissões efetivas (papel + override) — o frontend usa para exibir/ocultar ações.
+        Http::json(['token' => $token, 'user' => $user, 'permissions' => Permissions::effectiveForUser((int) $user['id'])]);
     }
 
     public static function me(Request $req): void
@@ -42,7 +42,7 @@ final class AuthController
         if (!$user) {
             throw HttpError::notFound('Usuário não encontrado');
         }
-        $user['permissions'] = Permissions::forRole($user['role']);
+        $user['permissions'] = Permissions::effectiveForUser((int) $user['id']);
         Http::json($user);
     }
 }

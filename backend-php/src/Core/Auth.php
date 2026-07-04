@@ -105,11 +105,14 @@ final class Auth
             return; // qualquer autenticado
         }
         $role = (string) ($user['role'] ?? '');
+        $perms = null; // permissões efetivas do usuário (carregadas sob demanda)
         foreach ($guard as $need) {
-            $ok = str_contains($need, ':')
-                ? Permissions::roleHas($role, $need) // permissão granular
-                : $role === $need;                   // papel legado
-            if ($ok) {
+            if (str_contains($need, ':')) {
+                $perms ??= Permissions::effectiveForUser((int) ($user['id'] ?? 0));
+                if (in_array($need, $perms, true)) {
+                    return;
+                }
+            } elseif ($role === $need) { // papel legado (compat)
                 return;
             }
         }
@@ -119,7 +122,7 @@ final class Auth
     /** Checagem fina dentro de um handler: o usuário autenticado tem a permissão? */
     public static function can(array $user, string $perm): bool
     {
-        return Permissions::roleHas((string) ($user['role'] ?? ''), $perm);
+        return in_array($perm, Permissions::effectiveForUser((int) ($user['id'] ?? 0)), true);
     }
 
     private static function authHeader(): ?string
