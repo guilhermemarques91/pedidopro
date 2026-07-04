@@ -101,6 +101,10 @@ export function Layout() {
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => loadJSON<Record<string, boolean>>(GROUPS_KEY, {}));
   const [openSubs, setOpenSubs] = useState<Record<string, boolean>>({});
 
+  // Modo "trilho" (só ícones) vale apenas no desktop recolhido. No drawer do mobile
+  // (menuOpen) sempre mostramos os rótulos — senão fica largo e sem os nomes.
+  const rail = collapsed && !menuOpen;
+
   const visibleGroups = navGroups
     .map((g) => ({ ...g, items: g.items.map((n) => filterItem(n, can)).filter(Boolean) as NavItem[] }))
     .filter((g) => g.items.length > 0);
@@ -155,12 +159,12 @@ export function Layout() {
         to={to}
         end={end}
         onClick={() => setMenuOpen(false)}
-        title={collapsed ? label : undefined}
-        className={({ isActive }) => navItemClass(isActive, collapsed ? 'justify-center px-2' : depth ? 'pl-9' : '')}
+        title={rail ? label : undefined}
+        className={({ isActive }) => navItemClass(isActive, rail ? 'justify-center px-2' : depth ? 'pl-9' : '')}
       >
         <Icon size={18} className="shrink-0" />
-        {!collapsed && <span className="flex-1">{label}</span>}
-        {!collapsed && to === '/inbox' && inboxCount ? (
+        {!rail && <span className="flex-1">{label}</span>}
+        {!rail && to === '/inbox' && inboxCount ? (
           <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-xs font-semibold text-white">{inboxCount}</span>
         ) : null}
       </NavLink>
@@ -170,7 +174,7 @@ export function Layout() {
   // Item com filhos: no modo expandido vira accordion; no trilho, achata os filhos.
   function renderItem(item: NavItem) {
     if (!item.children) return renderLeaf(item);
-    if (collapsed) return <div key={item.to + item.label}>{item.children.map((c) => renderLeaf(c))}</div>;
+    if (rail) return <div key={item.to + item.label}>{item.children.map((c) => renderLeaf(c))}</div>;
     const open = isSubOpen(item);
     const { icon: Icon, label, to } = item;
     return (
@@ -198,11 +202,11 @@ export function Layout() {
 
       <aside
         className={`fixed inset-y-0 left-0 z-40 flex flex-col border-r border-slate-200 bg-white transition-all duration-200 md:static md:translate-x-0 ${
-          collapsed ? 'w-16' : 'w-60'
-        } ${menuOpen ? 'w-60 translate-x-0' : '-translate-x-full'}`}
+          rail ? 'w-16' : 'w-60'
+        } ${menuOpen ? 'translate-x-0' : '-translate-x-full'}`}
       >
-        <div className={`flex items-center py-5 ${collapsed ? 'justify-center px-2' : 'justify-between px-4'}`}>
-          {!collapsed && (
+        <div className={`flex items-center py-5 ${rail ? 'justify-center px-2' : 'justify-between px-4'}`}>
+          {!rail && (
             <div className="flex min-w-0 items-center gap-2">
               <Logo size={26} />
               <span className="truncate text-xl font-bold text-slate-800">{APP_NAME}</span>
@@ -223,15 +227,15 @@ export function Layout() {
           </button>
         </div>
 
-        <nav className={`flex-1 space-y-2 overflow-y-auto pb-4 ${collapsed ? 'px-2' : 'px-3'}`}>
+        <nav className={`flex-1 space-y-2 overflow-y-auto pb-4 ${rail ? 'px-2' : 'px-3'}`}>
           {visibleGroups.map((group, gi) => {
             if (!group.title) {
               return <div key={`g${gi}`} className="space-y-1">{group.items.map((it) => renderItem(it))}</div>;
             }
-            const open = collapsed || isGroupOpen(group.title, group.items);
+            const open = rail || isGroupOpen(group.title, group.items);
             return (
               <div key={group.title} className="space-y-1">
-                {collapsed ? (
+                {rail ? (
                   <div className="my-1 border-t border-slate-100" />
                 ) : (
                   <button
@@ -249,8 +253,8 @@ export function Layout() {
           })}
         </nav>
 
-        <div className={`border-t border-slate-200 p-3 ${collapsed ? 'px-2' : ''}`}>
-          {!collapsed && (
+        <div className={`border-t border-slate-200 p-3 ${rail ? 'px-2' : ''}`}>
+          {!rail && (
             <div className="px-3 py-2">
               <p className="truncate text-sm font-medium text-slate-800">{user?.name}</p>
               <p className="text-xs capitalize text-slate-500">{user?.role}</p>
@@ -258,13 +262,13 @@ export function Layout() {
           )}
           <button
             onClick={handleLogout}
-            title={collapsed ? 'Sair' : undefined}
+            title={rail ? 'Sair' : undefined}
             className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100 ${
-              collapsed ? 'justify-center px-2' : ''
+              rail ? 'justify-center px-2' : ''
             }`}
           >
             <LogOut size={18} className="shrink-0" />
-            {!collapsed && 'Sair'}
+            {!rail && 'Sair'}
           </button>
         </div>
       </aside>
