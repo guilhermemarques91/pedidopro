@@ -94,15 +94,32 @@ final class Auth
         return base64_decode(strtr($data, '-_', '+/')) ?: '';
     }
 
-    /** Garante que o papel do usuário esteja entre os permitidos. */
-    public static function authorize(array $user, array $roles): void
+    /**
+     * Guard da rota. Cada item do guard é uma PERMISSÃO (`modulo:acao`) ou, por
+     * compatibilidade, um PAPEL (sem `:`). Passa se o usuário satisfizer qualquer
+     * um dos itens. Guard vazio = qualquer autenticado.
+     */
+    public static function authorize(array $user, array $guard): void
     {
-        if (empty($roles)) {
+        if (empty($guard)) {
             return; // qualquer autenticado
         }
-        if (!in_array($user['role'] ?? '', $roles, true)) {
-            throw HttpError::forbidden('Você não tem permissão para esta ação');
+        $role = (string) ($user['role'] ?? '');
+        foreach ($guard as $need) {
+            $ok = str_contains($need, ':')
+                ? Permissions::roleHas($role, $need) // permissão granular
+                : $role === $need;                   // papel legado
+            if ($ok) {
+                return;
+            }
         }
+        throw HttpError::forbidden('Você não tem permissão para esta ação');
+    }
+
+    /** Checagem fina dentro de um handler: o usuário autenticado tem a permissão? */
+    public static function can(array $user, string $perm): bool
+    {
+        return Permissions::roleHas((string) ($user['role'] ?? ''), $perm);
     }
 
     private static function authHeader(): ?string

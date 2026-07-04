@@ -27,17 +27,28 @@ use App\Modules\Marmitex\MarmitexReportController;
 use App\Modules\Marmitex\MarmitexLabelsController;
 use App\Modules\Marmitex\MarmitexSheetController;
 
-/** Registro central das rotas (espelha as rotas do backend Node). */
+/**
+ * Registro central das rotas. Guards por PERMISSÃO granular (`modulo:acao`), ver
+ * App\Core\Permissions. null = público; [] (ANY) = qualquer autenticado.
+ */
 final class Routes
 {
-    // Guards de papel (null = público; [] = qualquer autenticado).
-    private const ANY = [];
-    private const ADMIN = ['admin'];
-    private const WRITERS = ['admin', 'buyer'];
-    private const APPROVERS = ['admin', 'approver'];
-    private const REQUESTERS = ['admin', 'buyer', 'requester'];
-    private const DELIVERY = ['admin', 'buyer', 'approver']; // operadores do painel de delivery
-    private const COMPANY = ['admin', 'company']; // dono + login da empresa-cliente (Marmitex)
+    private const ANY = [];                          // qualquer autenticado (ex.: /auth/me)
+    // Compras & cadastros
+    private const READ = ['compras:read'];
+    private const WRITE = ['compras:write'];
+    private const APPROVE = ['compras:approve'];
+    private const REQUESTS = ['compras:requests'];
+    private const COMPRAS_ADMIN = ['compras:admin'];
+    // Delivery
+    private const DELIVERY = ['delivery:operate'];
+    private const DELIVERY_ADMIN = ['delivery:admin'];
+    // Marmitex
+    private const MARMITEX = ['marmitex:order'];
+    private const MARMITEX_ADMIN = ['marmitex:admin'];
+    // Administração / sistema
+    private const USERS = ['users:manage'];
+    private const SYSTEM = ['system:admin'];
 
     public static function register(Router $r): void
     {
@@ -49,102 +60,102 @@ final class Routes
         $r->get('/auth/me', [AuthController::class, 'me'], self::ANY);
 
         // Categories
-        $r->get('/categories', [CategoriesController::class, 'list'], self::ANY);
-        $r->get('/categories/:id', [CategoriesController::class, 'getById'], self::ANY);
-        $r->post('/categories', [CategoriesController::class, 'create'], self::ADMIN);
-        $r->put('/categories/:id', [CategoriesController::class, 'update'], self::ADMIN);
-        $r->delete('/categories/:id', [CategoriesController::class, 'remove'], self::ADMIN);
+        $r->get('/categories', [CategoriesController::class, 'list'], self::READ);
+        $r->get('/categories/:id', [CategoriesController::class, 'getById'], self::READ);
+        $r->post('/categories', [CategoriesController::class, 'create'], self::COMPRAS_ADMIN);
+        $r->put('/categories/:id', [CategoriesController::class, 'update'], self::COMPRAS_ADMIN);
+        $r->delete('/categories/:id', [CategoriesController::class, 'remove'], self::COMPRAS_ADMIN);
 
         // Suppliers
-        $r->get('/suppliers', [SuppliersController::class, 'list'], self::ANY);
-        $r->get('/suppliers/:id', [SuppliersController::class, 'getById'], self::ANY);
-        $r->post('/suppliers', [SuppliersController::class, 'create'], self::WRITERS);
-        $r->put('/suppliers/:id', [SuppliersController::class, 'update'], self::WRITERS);
-        $r->delete('/suppliers/:id', [SuppliersController::class, 'remove'], self::ADMIN);
+        $r->get('/suppliers', [SuppliersController::class, 'list'], self::READ);
+        $r->get('/suppliers/:id', [SuppliersController::class, 'getById'], self::READ);
+        $r->post('/suppliers', [SuppliersController::class, 'create'], self::WRITE);
+        $r->put('/suppliers/:id', [SuppliersController::class, 'update'], self::WRITE);
+        $r->delete('/suppliers/:id', [SuppliersController::class, 'remove'], self::COMPRAS_ADMIN);
 
         // Items
-        $r->get('/items', [ItemsController::class, 'list'], self::ANY);
-        $r->get('/items/:id', [ItemsController::class, 'getById'], self::ANY);
-        $r->post('/items', [ItemsController::class, 'create'], self::WRITERS);
-        $r->put('/items/:id', [ItemsController::class, 'update'], self::WRITERS);
-        $r->delete('/items/:id', [ItemsController::class, 'remove'], self::ADMIN);
-        $r->post('/items/:id/suppliers', [ItemsController::class, 'linkSupplier'], self::WRITERS);
-        $r->delete('/items/:id/suppliers/:supplierId', [ItemsController::class, 'unlinkSupplier'], self::WRITERS);
+        $r->get('/items', [ItemsController::class, 'list'], self::READ);
+        $r->get('/items/:id', [ItemsController::class, 'getById'], self::READ);
+        $r->post('/items', [ItemsController::class, 'create'], self::WRITE);
+        $r->put('/items/:id', [ItemsController::class, 'update'], self::WRITE);
+        $r->delete('/items/:id', [ItemsController::class, 'remove'], self::COMPRAS_ADMIN);
+        $r->post('/items/:id/suppliers', [ItemsController::class, 'linkSupplier'], self::WRITE);
+        $r->delete('/items/:id/suppliers/:supplierId', [ItemsController::class, 'unlinkSupplier'], self::WRITE);
 
         // Products (rotas específicas antes de /:id)
-        $r->get('/products', [ProductsController::class, 'list'], self::ANY);
-        $r->get('/products/unmapped', [ProductsController::class, 'unmapped'], self::ANY);
-        $r->post('/products/suggest', [ProductsController::class, 'suggest'], self::WRITERS);
-        $r->post('/products/unassign', [ProductsController::class, 'unassign'], self::WRITERS);
-        $r->post('/products', [ProductsController::class, 'create'], self::WRITERS);
-        $r->get('/products/:id', [ProductsController::class, 'getById'], self::ANY);
-        $r->put('/products/:id', [ProductsController::class, 'update'], self::WRITERS);
-        $r->delete('/products/:id', [ProductsController::class, 'remove'], self::WRITERS);
-        $r->post('/products/:id/items', [ProductsController::class, 'assign'], self::WRITERS);
+        $r->get('/products', [ProductsController::class, 'list'], self::READ);
+        $r->get('/products/unmapped', [ProductsController::class, 'unmapped'], self::READ);
+        $r->post('/products/suggest', [ProductsController::class, 'suggest'], self::WRITE);
+        $r->post('/products/unassign', [ProductsController::class, 'unassign'], self::WRITE);
+        $r->post('/products', [ProductsController::class, 'create'], self::WRITE);
+        $r->get('/products/:id', [ProductsController::class, 'getById'], self::READ);
+        $r->put('/products/:id', [ProductsController::class, 'update'], self::WRITE);
+        $r->delete('/products/:id', [ProductsController::class, 'remove'], self::WRITE);
+        $r->post('/products/:id/items', [ProductsController::class, 'assign'], self::WRITE);
 
         // Quotations
-        $r->get('/quotations', [QuotationsController::class, 'list'], self::ANY);
-        $r->get('/quotations/:id', [QuotationsController::class, 'getById'], self::ANY);
-        $r->get('/quotations/:id/comparison', [QuotationsController::class, 'comparison'], self::ANY);
-        $r->post('/quotations', [QuotationsController::class, 'create'], self::WRITERS);
-        $r->patch('/quotations/:id', [QuotationsController::class, 'update'], self::WRITERS);
-        $r->delete('/quotations/:id', [QuotationsController::class, 'remove'], self::WRITERS);
-        $r->post('/quotations/:id/close', [QuotationsController::class, 'close'], self::WRITERS);
-        $r->post('/quotations/:id/extract-text', [QuotationsController::class, 'extractText'], self::WRITERS);
-        $r->post('/quotations/:id/extract', [QuotationsController::class, 'extract'], self::WRITERS);
-        $r->post('/quotations/:id/items', [QuotationsController::class, 'addItem'], self::WRITERS);
-        $r->put('/quotations/:id/items/:itemId', [QuotationsController::class, 'updateItem'], self::WRITERS);
-        $r->delete('/quotations/:id/items/:itemId', [QuotationsController::class, 'removeItem'], self::WRITERS);
+        $r->get('/quotations', [QuotationsController::class, 'list'], self::READ);
+        $r->get('/quotations/:id', [QuotationsController::class, 'getById'], self::READ);
+        $r->get('/quotations/:id/comparison', [QuotationsController::class, 'comparison'], self::READ);
+        $r->post('/quotations', [QuotationsController::class, 'create'], self::WRITE);
+        $r->patch('/quotations/:id', [QuotationsController::class, 'update'], self::WRITE);
+        $r->delete('/quotations/:id', [QuotationsController::class, 'remove'], self::WRITE);
+        $r->post('/quotations/:id/close', [QuotationsController::class, 'close'], self::WRITE);
+        $r->post('/quotations/:id/extract-text', [QuotationsController::class, 'extractText'], self::WRITE);
+        $r->post('/quotations/:id/extract', [QuotationsController::class, 'extract'], self::WRITE);
+        $r->post('/quotations/:id/items', [QuotationsController::class, 'addItem'], self::WRITE);
+        $r->put('/quotations/:id/items/:itemId', [QuotationsController::class, 'updateItem'], self::WRITE);
+        $r->delete('/quotations/:id/items/:itemId', [QuotationsController::class, 'removeItem'], self::WRITE);
 
         // Orders
-        $r->get('/orders', [OrdersController::class, 'list'], self::ANY);
-        $r->get('/orders/:id', [OrdersController::class, 'getById'], self::ANY);
-        $r->get('/orders/:id/message', [OrdersController::class, 'message'], self::WRITERS);
-        $r->post('/orders', [OrdersController::class, 'create'], self::WRITERS);
-        $r->patch('/orders/:id', [OrdersController::class, 'update'], self::WRITERS);
-        $r->delete('/orders/:id', [OrdersController::class, 'remove'], self::ADMIN);
-        $r->post('/orders/:id/items', [OrdersController::class, 'addItem'], self::WRITERS);
-        $r->put('/orders/:id/items/:itemId', [OrdersController::class, 'updateItem'], self::WRITERS);
-        $r->delete('/orders/:id/items/:itemId', [OrdersController::class, 'removeItem'], self::WRITERS);
-        $r->post('/orders/:id/submit', [OrdersController::class, 'submit'], self::WRITERS);
-        $r->post('/orders/:id/approve', [OrdersController::class, 'approve'], self::APPROVERS);
-        $r->post('/orders/:id/reject', [OrdersController::class, 'reject'], self::APPROVERS);
-        $r->post('/orders/:id/send', [OrdersController::class, 'send'], self::WRITERS);
-        $r->post('/orders/:id/receive', [OrdersController::class, 'receive'], self::WRITERS);
-        $r->post('/orders/:id/cancel', [OrdersController::class, 'cancel'], self::WRITERS);
+        $r->get('/orders', [OrdersController::class, 'list'], self::READ);
+        $r->get('/orders/:id', [OrdersController::class, 'getById'], self::READ);
+        $r->get('/orders/:id/message', [OrdersController::class, 'message'], self::WRITE);
+        $r->post('/orders', [OrdersController::class, 'create'], self::WRITE);
+        $r->patch('/orders/:id', [OrdersController::class, 'update'], self::WRITE);
+        $r->delete('/orders/:id', [OrdersController::class, 'remove'], self::COMPRAS_ADMIN);
+        $r->post('/orders/:id/items', [OrdersController::class, 'addItem'], self::WRITE);
+        $r->put('/orders/:id/items/:itemId', [OrdersController::class, 'updateItem'], self::WRITE);
+        $r->delete('/orders/:id/items/:itemId', [OrdersController::class, 'removeItem'], self::WRITE);
+        $r->post('/orders/:id/submit', [OrdersController::class, 'submit'], self::WRITE);
+        $r->post('/orders/:id/approve', [OrdersController::class, 'approve'], self::APPROVE);
+        $r->post('/orders/:id/reject', [OrdersController::class, 'reject'], self::APPROVE);
+        $r->post('/orders/:id/send', [OrdersController::class, 'send'], self::WRITE);
+        $r->post('/orders/:id/receive', [OrdersController::class, 'receive'], self::WRITE);
+        $r->post('/orders/:id/cancel', [OrdersController::class, 'cancel'], self::WRITE);
 
         // Requests (listas de compra)
-        $r->get('/requests', [RequestsController::class, 'list'], self::ANY);
-        $r->get('/requests/:id', [RequestsController::class, 'getById'], self::ANY);
-        $r->post('/requests', [RequestsController::class, 'create'], self::REQUESTERS);
-        $r->put('/requests/:id', [RequestsController::class, 'update'], self::REQUESTERS);
-        $r->post('/requests/:id/submit', [RequestsController::class, 'submit'], self::REQUESTERS);
-        $r->post('/requests/:id/cancel', [RequestsController::class, 'cancel'], self::REQUESTERS);
-        $r->delete('/requests/:id', [RequestsController::class, 'remove'], self::REQUESTERS);
-        $r->put('/requests/:id/allocation', [RequestsController::class, 'allocate'], self::ADMIN);
-        $r->post('/requests/:id/generate-orders', [RequestsController::class, 'generateOrders'], self::ADMIN);
+        $r->get('/requests', [RequestsController::class, 'list'], self::READ);
+        $r->get('/requests/:id', [RequestsController::class, 'getById'], self::READ);
+        $r->post('/requests', [RequestsController::class, 'create'], self::REQUESTS);
+        $r->put('/requests/:id', [RequestsController::class, 'update'], self::REQUESTS);
+        $r->post('/requests/:id/submit', [RequestsController::class, 'submit'], self::REQUESTS);
+        $r->post('/requests/:id/cancel', [RequestsController::class, 'cancel'], self::REQUESTS);
+        $r->delete('/requests/:id', [RequestsController::class, 'remove'], self::REQUESTS);
+        $r->put('/requests/:id/allocation', [RequestsController::class, 'allocate'], self::COMPRAS_ADMIN);
+        $r->post('/requests/:id/generate-orders', [RequestsController::class, 'generateOrders'], self::COMPRAS_ADMIN);
 
         // Users (admin)
-        $r->get('/users', [UsersController::class, 'list'], self::ADMIN);
-        $r->post('/users', [UsersController::class, 'create'], self::ADMIN);
-        $r->put('/users/:id', [UsersController::class, 'update'], self::ADMIN);
-        $r->patch('/users/:id/active', [UsersController::class, 'setActive'], self::ADMIN);
-        $r->delete('/users/:id', [UsersController::class, 'remove'], self::ADMIN);
+        $r->get('/users', [UsersController::class, 'list'], self::USERS);
+        $r->post('/users', [UsersController::class, 'create'], self::USERS);
+        $r->put('/users/:id', [UsersController::class, 'update'], self::USERS);
+        $r->patch('/users/:id/active', [UsersController::class, 'setActive'], self::USERS);
+        $r->delete('/users/:id', [UsersController::class, 'remove'], self::USERS);
 
         // Inbox (rotas específicas antes de /:id)
-        $r->get('/inbox', [InboxController::class, 'list'], self::ANY);
-        $r->get('/inbox/count', [InboxController::class, 'count'], self::ANY);
-        $r->post('/inbox/sync', [InboxController::class, 'sync'], self::WRITERS);
-        $r->post('/inbox/approve', [InboxController::class, 'approve'], self::WRITERS);
-        $r->post('/inbox/discard', [InboxController::class, 'discard'], self::WRITERS);
-        $r->put('/inbox/:id', [InboxController::class, 'update'], self::WRITERS);
+        $r->get('/inbox', [InboxController::class, 'list'], self::READ);
+        $r->get('/inbox/count', [InboxController::class, 'count'], self::READ);
+        $r->post('/inbox/sync', [InboxController::class, 'sync'], self::WRITE);
+        $r->post('/inbox/approve', [InboxController::class, 'approve'], self::WRITE);
+        $r->post('/inbox/discard', [InboxController::class, 'discard'], self::WRITE);
+        $r->put('/inbox/:id', [InboxController::class, 'update'], self::WRITE);
 
         // Import
-        $r->post('/import/preview', [ImportController::class, 'preview'], self::WRITERS);
-        $r->post('/import', [ImportController::class, 'commit'], self::WRITERS);
+        $r->post('/import/preview', [ImportController::class, 'preview'], self::WRITE);
+        $r->post('/import', [ImportController::class, 'commit'], self::WRITE);
 
         // WhatsApp
-        $r->post('/whatsapp/test', [WhatsappController::class, 'sendTest'], self::ADMIN);
+        $r->post('/whatsapp/test', [WhatsappController::class, 'sendTest'], self::SYSTEM);
         $r->get('/whatsapp/status', [WhatsappController::class, 'status'], self::ANY);
 
         // Webhooks de delivery (PÚBLICOS — validados por segredo do canal)
@@ -153,7 +164,7 @@ final class Routes
 
         // Delivery — painel de pedidos (iFood + 99Food)
         $r->post('/delivery/poll', [DeliveryController::class, 'poll'], null); // protegido por token interno (cron)
-        $r->post('/delivery/sync', [DeliveryController::class, 'sync'], self::ADMIN); // sincronização manual pela UI
+        $r->post('/delivery/sync', [DeliveryController::class, 'sync'], self::DELIVERY_ADMIN); // sincronização manual pela UI
         $r->get('/delivery/orders', [DeliveryController::class, 'listOrders'], self::DELIVERY);
         $r->get('/delivery/orders/:id', [DeliveryController::class, 'getOrder'], self::DELIVERY);
         $r->get('/delivery/orders/:id/tracking', [DeliveryController::class, 'tracking'], self::DELIVERY);
@@ -161,7 +172,6 @@ final class Routes
         $r->post('/delivery/orders/:id/ready', [DeliveryController::class, 'ready'], self::DELIVERY);
         $r->post('/delivery/orders/:id/dispatch', [DeliveryController::class, 'dispatch'], self::DELIVERY);
         $r->post('/delivery/orders/:id/cancel', [DeliveryController::class, 'cancel'], self::DELIVERY);
-        // Alertas — solicitações de cancelamento do cliente
         // Relatórios operacionais
         $r->get('/delivery/reports/summary', [ReportsController::class, 'summary'], self::DELIVERY);
         // Loja (módulo Merchant iFood): detalhes, disponibilidade, pausas, horários
@@ -176,41 +186,41 @@ final class Routes
         $r->post('/delivery/alerts/:id/accept', [DeliveryController::class, 'acceptAlert'], self::DELIVERY);
         $r->post('/delivery/alerts/:id/reject', [DeliveryController::class, 'rejectAlert'], self::DELIVERY);
         // Integrações (canais) — admin
-        $r->get('/delivery/channels', [DeliveryController::class, 'listChannels'], self::ADMIN);
-        $r->post('/delivery/channels', [DeliveryController::class, 'createChannel'], self::ADMIN);
-        $r->put('/delivery/channels/:id', [DeliveryController::class, 'updateChannel'], self::ADMIN);
-        $r->post('/delivery/channels/:id/test', [DeliveryController::class, 'testChannel'], self::ADMIN);
+        $r->get('/delivery/channels', [DeliveryController::class, 'listChannels'], self::DELIVERY_ADMIN);
+        $r->post('/delivery/channels', [DeliveryController::class, 'createChannel'], self::DELIVERY_ADMIN);
+        $r->put('/delivery/channels/:id', [DeliveryController::class, 'updateChannel'], self::DELIVERY_ADMIN);
+        $r->post('/delivery/channels/:id/test', [DeliveryController::class, 'testChannel'], self::DELIVERY_ADMIN);
 
         // ===== Marmitex (catering B2B) =====
         // Catálogo: leitura liberada à empresa (monta o formulário); escrita só admin.
-        $r->get('/marmitex/catalog', [MarmitexCatalogController::class, 'catalog'], self::COMPANY);
-        $r->post('/marmitex/catalog/:type', [MarmitexCatalogController::class, 'create'], self::ADMIN);
-        $r->put('/marmitex/catalog/:type/:id', [MarmitexCatalogController::class, 'update'], self::ADMIN);
-        $r->delete('/marmitex/catalog/:type/:id', [MarmitexCatalogController::class, 'remove'], self::ADMIN);
+        $r->get('/marmitex/catalog', [MarmitexCatalogController::class, 'catalog'], self::MARMITEX);
+        $r->post('/marmitex/catalog/:type', [MarmitexCatalogController::class, 'create'], self::MARMITEX_ADMIN);
+        $r->put('/marmitex/catalog/:type/:id', [MarmitexCatalogController::class, 'update'], self::MARMITEX_ADMIN);
+        $r->delete('/marmitex/catalog/:type/:id', [MarmitexCatalogController::class, 'remove'], self::MARMITEX_ADMIN);
 
         // Empresas-cliente: CRUD admin; a empresa só lê a própria.
-        $r->get('/marmitex/companies', [MarmitexCompaniesController::class, 'list'], self::ADMIN);
-        $r->post('/marmitex/companies', [MarmitexCompaniesController::class, 'create'], self::ADMIN);
-        $r->get('/marmitex/companies/:id', [MarmitexCompaniesController::class, 'getById'], self::COMPANY);
-        $r->put('/marmitex/companies/:id', [MarmitexCompaniesController::class, 'update'], self::ADMIN);
+        $r->get('/marmitex/companies', [MarmitexCompaniesController::class, 'list'], self::MARMITEX_ADMIN);
+        $r->post('/marmitex/companies', [MarmitexCompaniesController::class, 'create'], self::MARMITEX_ADMIN);
+        $r->get('/marmitex/companies/:id', [MarmitexCompaniesController::class, 'getById'], self::MARMITEX);
+        $r->put('/marmitex/companies/:id', [MarmitexCompaniesController::class, 'update'], self::MARMITEX_ADMIN);
 
         // Pedidos do dia (empresa) — escopados pelo token; admin pode filtrar por empresa.
         // Planilha-modelo + importação (rotas específicas antes de /:id).
-        $r->get('/marmitex/orders/template', [MarmitexSheetController::class, 'template'], self::COMPANY);
-        $r->post('/marmitex/orders/import', [MarmitexSheetController::class, 'import'], self::COMPANY);
-        $r->get('/marmitex/orders', [MarmitexOrdersController::class, 'list'], self::COMPANY);
-        $r->get('/marmitex/orders/:id', [MarmitexOrdersController::class, 'getById'], self::COMPANY);
-        $r->post('/marmitex/orders', [MarmitexOrdersController::class, 'save'], self::COMPANY);
-        $r->delete('/marmitex/orders/:id', [MarmitexOrdersController::class, 'remove'], self::COMPANY);
+        $r->get('/marmitex/orders/template', [MarmitexSheetController::class, 'template'], self::MARMITEX);
+        $r->post('/marmitex/orders/import', [MarmitexSheetController::class, 'import'], self::MARMITEX);
+        $r->get('/marmitex/orders', [MarmitexOrdersController::class, 'list'], self::MARMITEX);
+        $r->get('/marmitex/orders/:id', [MarmitexOrdersController::class, 'getById'], self::MARMITEX);
+        $r->post('/marmitex/orders', [MarmitexOrdersController::class, 'save'], self::MARMITEX);
+        $r->delete('/marmitex/orders/:id', [MarmitexOrdersController::class, 'remove'], self::MARMITEX);
 
         // Etiquetas (dados planos para impressão).
-        $r->get('/marmitex/labels', [MarmitexLabelsController::class, 'labels'], self::COMPANY);
+        $r->get('/marmitex/labels', [MarmitexLabelsController::class, 'labels'], self::MARMITEX);
 
         // Relatório / faturamento — admin.
-        $r->get('/marmitex/report', [MarmitexReportController::class, 'report'], self::ADMIN);
-        $r->post('/marmitex/report/close', [MarmitexReportController::class, 'close'], self::ADMIN);
-        $r->get('/marmitex/invoices', [MarmitexReportController::class, 'invoices'], self::ADMIN);
-        $r->get('/marmitex/invoices/:id', [MarmitexReportController::class, 'getInvoice'], self::ADMIN);
-        $r->post('/marmitex/invoices/:id/cancel', [MarmitexReportController::class, 'cancelInvoice'], self::ADMIN);
+        $r->get('/marmitex/report', [MarmitexReportController::class, 'report'], self::MARMITEX_ADMIN);
+        $r->post('/marmitex/report/close', [MarmitexReportController::class, 'close'], self::MARMITEX_ADMIN);
+        $r->get('/marmitex/invoices', [MarmitexReportController::class, 'invoices'], self::MARMITEX_ADMIN);
+        $r->get('/marmitex/invoices/:id', [MarmitexReportController::class, 'getInvoice'], self::MARMITEX_ADMIN);
+        $r->post('/marmitex/invoices/:id/cancel', [MarmitexReportController::class, 'cancelInvoice'], self::MARMITEX_ADMIN);
     }
 }

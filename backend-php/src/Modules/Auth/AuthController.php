@@ -6,6 +6,7 @@ use App\Core\Auth;
 use App\Core\Db;
 use App\Core\Http;
 use App\Core\HttpError;
+use App\Core\Permissions;
 use App\Core\Request;
 
 final class AuthController
@@ -28,7 +29,8 @@ final class AuthController
         $orgId = isset($user['org_id']) && $user['org_id'] !== null ? (int) $user['org_id'] : 1;
         $token = Auth::sign((int) $user['id'], $user['email'], $user['role'], $companyId, $orgId);
         unset($user['password_hash']);
-        Http::json(['token' => $token, 'user' => $user]);
+        // Permissões efetivas do papel — o frontend usa para exibir/ocultar ações.
+        Http::json(['token' => $token, 'user' => $user, 'permissions' => Permissions::forRole($user['role'])]);
     }
 
     public static function me(Request $req): void
@@ -40,6 +42,7 @@ final class AuthController
         if (!$user) {
             throw HttpError::notFound('Usuário não encontrado');
         }
+        $user['permissions'] = Permissions::forRole($user['role']);
         Http::json($user);
     }
 }
