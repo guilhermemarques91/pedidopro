@@ -1,12 +1,12 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Pencil, Lock, Unlock, Trash2, ShieldCheck } from 'lucide-react';
+import { Plus, Pencil, Lock, Unlock, Trash2, ShieldCheck, Eye } from 'lucide-react';
 import { usersApi, rolesApi, marmitexApi } from '../../services/resources';
 import { apiError } from '../../services/api';
 import { useAuth } from '../../store/auth.store';
 import type { User, Role, PermissionCatalog } from '../../types';
 import { PageHeader } from '../../components/PageHeader';
-import { Button, Card, Field, Input, Select, Modal, Spinner, ErrorBox, EmptyState } from '../../components/ui';
+import { Button, Card, Field, Input, Select, Modal, ViewModal, IconBtn, Spinner, ErrorBox, EmptyState } from '../../components/ui';
 
 /** Duas listas de permissões representam o mesmo conjunto? (ordem-insensível) */
 function sameSet(a: string[], b: string[]): boolean {
@@ -66,6 +66,7 @@ export function UsersPage() {
   const qc = useQueryClient();
   const me = useAuth((s) => s.user);
   const [editing, setEditing] = useState<User | null>(null);
+  const [viewing, setViewing] = useState<User | null>(null);
   const [open, setOpen] = useState(false);
   const [rolesOpen, setRolesOpen] = useState(false);
 
@@ -106,51 +107,93 @@ export function UsersPage() {
       {data && (data.length === 0 ? (
         <EmptyState message="Nenhum usuário." />
       ) : (
-        <Card className="overflow-x-auto p-0">
-          <table className="w-full min-w-[36rem] text-sm">
-            <thead className="border-b border-slate-200 text-left text-slate-500">
-              <tr>
-                <th className="px-5 py-3 font-medium">Nome</th>
-                <th className="px-5 py-3 font-medium">Usuário</th>
-                <th className="px-5 py-3 font-medium">Papel</th>
-                <th className="px-5 py-3 font-medium">Acesso</th>
-                <th className="px-5 py-3" />
-              </tr>
-            </thead>
-            <tbody>
-              {data.map((u) => (
-                <tr key={u.id} className="border-b border-slate-100 last:border-0">
-                  <td className="px-5 py-3 font-medium text-slate-800">{u.name}{u.id === me?.id && <span className="ml-2 text-xs text-slate-400">(você)</span>}</td>
-                  <td className="px-5 py-3 text-slate-600">{u.username}</td>
-                  <td className="px-5 py-3 text-slate-600">
+        <>
+          {/* Mobile: Nome + Papel + acesso; 👁 abre detalhes */}
+          <div className="space-y-2 sm:hidden">
+            {data.map((u) => (
+              <Card key={u.id} className="flex items-center justify-between gap-3 p-3">
+                <div className="min-w-0">
+                  <p className="truncate font-medium text-slate-800">{u.name}{u.id === me?.id && <span className="ml-1 text-xs text-slate-400">(você)</span>}</p>
+                  <p className="mt-0.5 flex items-center gap-2 text-xs text-slate-500">
                     {roleLabel[u.role] ?? u.role}
-                    {u.permissions != null && <span className="ml-2 rounded bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-700">personalizado</span>}
-                  </td>
-                  <td className="px-5 py-3">
                     {u.active
-                      ? <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">Liberado</span>
-                      : <span className="rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700">Bloqueado</span>}
-                  </td>
-                  <td className="px-5 py-3 text-right">
-                    <button onClick={() => { setEditing(u); setOpen(true); }} className="mr-3 text-slate-400 hover:text-emerald-600" title="Editar"><Pencil size={16} /></button>
-                    {u.id !== me?.id && (
-                      <>
-                        {u.active
-                          ? <button onClick={() => setActive.mutate({ id: u.id, active: false })} className="mr-3 text-slate-400 hover:text-red-600" title="Bloquear acesso"><Lock size={16} /></button>
-                          : <button onClick={() => setActive.mutate({ id: u.id, active: true })} className="mr-3 text-slate-400 hover:text-emerald-600" title="Liberar acesso"><Unlock size={16} /></button>}
-                        <button onClick={() => { if (confirm(`Excluir o usuário "${u.name}"? Esta ação é permanente.`)) remove.mutate(u.id); }} className="text-slate-400 hover:text-red-600" title="Excluir usuário"><Trash2 size={16} /></button>
-                      </>
-                    )}
-                  </td>
+                      ? <span className="rounded-full bg-emerald-50 px-1.5 py-0.5 font-medium text-emerald-700">Liberado</span>
+                      : <span className="rounded-full bg-red-50 px-1.5 py-0.5 font-medium text-red-700">Bloqueado</span>}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <IconBtn title="Ver detalhes" onClick={() => setViewing(u)}><Eye size={17} /></IconBtn>
+                  <IconBtn title="Editar" hover="emerald" onClick={() => { setEditing(u); setOpen(true); }}><Pencil size={16} /></IconBtn>
+                  {u.id !== me?.id && (
+                    <IconBtn title="Excluir" hover="red" onClick={() => { if (confirm(`Excluir o usuário "${u.name}"? Esta ação é permanente.`)) remove.mutate(u.id); }}><Trash2 size={16} /></IconBtn>
+                  )}
+                </div>
+              </Card>
+            ))}
+          </div>
+
+          {/* Desktop: tabela completa */}
+          <Card className="hidden overflow-x-auto p-0 sm:block">
+            <table className="w-full text-sm">
+              <thead className="border-b border-slate-200 text-left text-slate-500">
+                <tr>
+                  <th className="px-5 py-3 font-medium">Nome</th>
+                  <th className="px-5 py-3 font-medium">Usuário</th>
+                  <th className="px-5 py-3 font-medium">Papel</th>
+                  <th className="px-5 py-3 font-medium">Acesso</th>
+                  <th className="px-5 py-3" />
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </Card>
+              </thead>
+              <tbody>
+                {data.map((u) => (
+                  <tr key={u.id} className="border-b border-slate-100 last:border-0">
+                    <td className="px-5 py-3 font-medium text-slate-800">{u.name}{u.id === me?.id && <span className="ml-2 text-xs text-slate-400">(você)</span>}</td>
+                    <td className="px-5 py-3 text-slate-600">{u.username}</td>
+                    <td className="px-5 py-3 text-slate-600">
+                      {roleLabel[u.role] ?? u.role}
+                      {u.permissions != null && <span className="ml-2 rounded bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-700">personalizado</span>}
+                    </td>
+                    <td className="px-5 py-3">
+                      {u.active
+                        ? <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">Liberado</span>
+                        : <span className="rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700">Bloqueado</span>}
+                    </td>
+                    <td className="px-5 py-3 text-right">
+                      <button onClick={() => { setEditing(u); setOpen(true); }} className="mr-3 text-slate-400 hover:text-emerald-600" title="Editar"><Pencil size={16} /></button>
+                      {u.id !== me?.id && (
+                        <>
+                          {u.active
+                            ? <button onClick={() => setActive.mutate({ id: u.id, active: false })} className="mr-3 text-slate-400 hover:text-red-600" title="Bloquear acesso"><Lock size={16} /></button>
+                            : <button onClick={() => setActive.mutate({ id: u.id, active: true })} className="mr-3 text-slate-400 hover:text-emerald-600" title="Liberar acesso"><Unlock size={16} /></button>}
+                          <button onClick={() => { if (confirm(`Excluir o usuário "${u.name}"? Esta ação é permanente.`)) remove.mutate(u.id); }} className="text-slate-400 hover:text-red-600" title="Excluir usuário"><Trash2 size={16} /></button>
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Card>
+        </>
       ))}
 
       {open && <UserForm user={editing} roles={roles.data ?? []} onClose={() => setOpen(false)} />}
       {rolesOpen && <RolesManager onClose={() => setRolesOpen(false)} />}
+      {viewing && (
+        <ViewModal
+          title={viewing.name}
+          onClose={() => setViewing(null)}
+          onEdit={() => { setEditing(viewing); setViewing(null); setOpen(true); }}
+          fields={[
+            { label: 'Usuário (login)', value: viewing.username },
+            { label: 'Papel', value: roleLabel[viewing.role] ?? viewing.role },
+            { label: 'Permissões', value: viewing.permissions != null ? 'Personalizadas' : 'Padrão do papel' },
+            { label: 'Acesso', value: viewing.active ? 'Liberado' : 'Bloqueado' },
+            { label: 'Empresa (Marmitex)', value: viewing.company_name },
+            { label: 'Criado em', value: new Date(viewing.created_at).toLocaleDateString('pt-BR') },
+          ]}
+        />
+      )}
     </div>
   );
 }
