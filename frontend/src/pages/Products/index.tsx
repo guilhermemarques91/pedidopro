@@ -1,12 +1,12 @@
 import { FormEvent, ReactNode, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Pencil, Trash2, Sparkles, Check, Tags as TagsIcon, Filter } from 'lucide-react';
+import { Plus, Pencil, Trash2, Sparkles, Check, Tags as TagsIcon, Filter, Eye } from 'lucide-react';
 import { productsApi, productTypesApi, categoriesApi, suppliersApi, ProductFilters, ProductInput, SuggestedGroup } from '../../services/resources';
 import { apiError } from '../../services/api';
 import { brl } from '../../utils/format';
 import type { Product, ProductType } from '../../types';
 import { PageHeader } from '../../components/PageHeader';
-import { Button, Card, Input, Select, Modal, Spinner, ErrorBox, EmptyState } from '../../components/ui';
+import { Button, Card, Input, Select, Modal, ViewModal, IconBtn, Spinner, ErrorBox, EmptyState } from '../../components/ui';
 
 const numOrNull = (v: string): number | null => (v.trim() === '' ? null : Number(v));
 
@@ -23,6 +23,7 @@ export function Products() {
   const [saleMin, setSaleMin] = useState('');
   const [saleMax, setSaleMax] = useState('');
   const [editing, setEditing] = useState<Product | 'new' | null>(null);
+  const [viewing, setViewing] = useState<Product | null>(null);
   const [typesOpen, setTypesOpen] = useState(false);
   const [suggestOpen, setSuggestOpen] = useState(false);
 
@@ -97,23 +98,23 @@ export function Products() {
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-slate-500">Cadastrado (de / até)</label>
-            <div className="flex gap-2">
-              <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-              <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+            <div className="space-y-2">
+              <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="min-w-0" />
+              <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="min-w-0" />
             </div>
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-slate-500">Compra (R$ min / máx)</label>
-            <div className="flex gap-2">
-              <Input type="number" step="0.01" value={costMin} onChange={(e) => setCostMin(e.target.value)} placeholder="mín" />
-              <Input type="number" step="0.01" value={costMax} onChange={(e) => setCostMax(e.target.value)} placeholder="máx" />
+            <div className="grid grid-cols-2 gap-2">
+              <Input type="number" step="0.01" value={costMin} onChange={(e) => setCostMin(e.target.value)} placeholder="mín" className="min-w-0" />
+              <Input type="number" step="0.01" value={costMax} onChange={(e) => setCostMax(e.target.value)} placeholder="máx" className="min-w-0" />
             </div>
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-slate-500">Venda (R$ min / máx)</label>
-            <div className="flex gap-2">
-              <Input type="number" step="0.01" value={saleMin} onChange={(e) => setSaleMin(e.target.value)} placeholder="mín" />
-              <Input type="number" step="0.01" value={saleMax} onChange={(e) => setSaleMax(e.target.value)} placeholder="máx" />
+            <div className="grid grid-cols-2 gap-2">
+              <Input type="number" step="0.01" value={saleMin} onChange={(e) => setSaleMin(e.target.value)} placeholder="mín" className="min-w-0" />
+              <Input type="number" step="0.01" value={saleMax} onChange={(e) => setSaleMax(e.target.value)} placeholder="máx" className="min-w-0" />
             </div>
           </div>
           {hasFilters ? <button onClick={clearFilters} className="text-sm text-emerald-600 hover:underline">Limpar filtros</button> : null}
@@ -126,41 +127,63 @@ export function Products() {
           {products.data && (products.data.length === 0 ? (
             <EmptyState message={hasFilters || category ? 'Nenhum cadastro com esses filtros.' : 'Nenhum cadastro ainda. Clique em “Novo cadastro”.'} />
           ) : (
-            <Card className="overflow-x-auto p-0">
-              <table className="w-full min-w-[52rem] text-sm">
-                <thead className="border-b border-slate-200 text-left text-slate-500">
-                  <tr>
-                    <th className="px-4 py-3 font-medium">Nome</th>
-                    <th className="px-4 py-3 font-medium">Tipo</th>
-                    <th className="px-4 py-3 font-medium">Categoria</th>
-                    <th className="px-4 py-3 font-medium">Fornecedor</th>
-                    <th className="px-4 py-3 font-medium">Un.</th>
-                    <th className="px-4 py-3 text-right font-medium">Compra</th>
-                    <th className="px-4 py-3 text-right font-medium">Venda</th>
-                    <th className="px-4 py-3" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {products.data.map((p) => (
-                    <tr key={p.id} className="border-b border-slate-100 last:border-0">
-                      <td className="px-4 py-3 font-medium text-slate-800">{p.name}
-                        {Number(p.item_count ?? 0) > 0 && <span className="ml-2 text-xs text-slate-400">{p.item_count} item(ns)</span>}
-                      </td>
-                      <td className="px-4 py-3">{p.type_name ? <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600">{p.type_name}</span> : <span className="text-slate-300">—</span>}</td>
-                      <td className="px-4 py-3 text-slate-600">{p.category_name ?? <span className="text-slate-300">—</span>}</td>
-                      <td className="px-4 py-3 text-slate-600">{p.supplier_name ?? <span className="text-slate-300">—</span>}</td>
-                      <td className="px-4 py-3 text-slate-600">{p.unit ?? p.default_unit ?? <span className="text-slate-300">—</span>}</td>
-                      <td className="px-4 py-3 text-right text-slate-600">{p.cost_price != null ? brl(p.cost_price) : <span className="text-slate-300">—</span>}</td>
-                      <td className="px-4 py-3 text-right font-medium text-slate-800">{p.sale_price != null ? brl(p.sale_price) : <span className="text-slate-300">—</span>}</td>
-                      <td className="px-4 py-3 text-right">
-                        <button onClick={() => setEditing(p)} className="mr-3 text-slate-400 hover:text-emerald-600" title="Editar"><Pencil size={16} /></button>
-                        <button onClick={() => { if (confirm(`Excluir o cadastro "${p.name}"?`)) remove.mutate(p.id); }} className="text-slate-400 hover:text-red-600" title="Excluir"><Trash2 size={16} /></button>
-                      </td>
+            <>
+              {/* Mobile: só Nome, Tipo e Unidade + 👁 (detalhes), editar e excluir */}
+              <div className="space-y-2 sm:hidden">
+                {products.data.map((p) => (
+                  <Card key={p.id} className="flex items-center justify-between gap-3 p-3">
+                    <div className="min-w-0">
+                      <p className="truncate font-medium text-slate-800">{p.name}</p>
+                      <p className="mt-0.5 truncate text-xs text-slate-500">
+                        {p.type_name ?? 'sem tipo'} · {p.unit ?? p.default_unit ?? 's/ un.'}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <IconBtn title="Ver detalhes" onClick={() => setViewing(p)}><Eye size={17} /></IconBtn>
+                      <IconBtn title="Editar" hover="emerald" onClick={() => setEditing(p)}><Pencil size={16} /></IconBtn>
+                      <IconBtn title="Excluir" hover="red" onClick={() => { if (confirm(`Excluir o cadastro "${p.name}"?`)) remove.mutate(p.id); }}><Trash2 size={16} /></IconBtn>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+
+              {/* Desktop: tabela completa */}
+              <Card className="hidden overflow-x-auto p-0 sm:block">
+                <table className="w-full text-sm">
+                  <thead className="border-b border-slate-200 text-left text-slate-500">
+                    <tr>
+                      <th className="px-4 py-3 font-medium">Nome</th>
+                      <th className="px-4 py-3 font-medium">Tipo</th>
+                      <th className="px-4 py-3 font-medium">Categoria</th>
+                      <th className="px-4 py-3 font-medium">Fornecedor</th>
+                      <th className="px-4 py-3 font-medium">Un.</th>
+                      <th className="px-4 py-3 text-right font-medium">Compra</th>
+                      <th className="px-4 py-3 text-right font-medium">Venda</th>
+                      <th className="px-4 py-3" />
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </Card>
+                  </thead>
+                  <tbody>
+                    {products.data.map((p) => (
+                      <tr key={p.id} className="border-b border-slate-100 last:border-0">
+                        <td className="px-4 py-3 font-medium text-slate-800">{p.name}
+                          {Number(p.item_count ?? 0) > 0 && <span className="ml-2 text-xs text-slate-400">{p.item_count} item(ns)</span>}
+                        </td>
+                        <td className="px-4 py-3">{p.type_name ? <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600">{p.type_name}</span> : <span className="text-slate-300">—</span>}</td>
+                        <td className="px-4 py-3 text-slate-600">{p.category_name ?? <span className="text-slate-300">—</span>}</td>
+                        <td className="px-4 py-3 text-slate-600">{p.supplier_name ?? <span className="text-slate-300">—</span>}</td>
+                        <td className="px-4 py-3 text-slate-600">{p.unit ?? p.default_unit ?? <span className="text-slate-300">—</span>}</td>
+                        <td className="px-4 py-3 text-right text-slate-600">{p.cost_price != null ? brl(p.cost_price) : <span className="text-slate-300">—</span>}</td>
+                        <td className="px-4 py-3 text-right font-medium text-slate-800">{p.sale_price != null ? brl(p.sale_price) : <span className="text-slate-300">—</span>}</td>
+                        <td className="px-4 py-3 text-right">
+                          <button onClick={() => setEditing(p)} className="mr-3 text-slate-400 hover:text-emerald-600" title="Editar"><Pencil size={16} /></button>
+                          <button onClick={() => { if (confirm(`Excluir o cadastro "${p.name}"?`)) remove.mutate(p.id); }} className="text-slate-400 hover:text-red-600" title="Excluir"><Trash2 size={16} /></button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </Card>
+            </>
           ))}
         </div>
       </div>
@@ -176,6 +199,23 @@ export function Products() {
       )}
       {typesOpen && <TypesManager onClose={() => setTypesOpen(false)} />}
       {suggestOpen && <SuggestModal onClose={() => setSuggestOpen(false)} onApplied={() => qc.invalidateQueries({ queryKey: ['products'] })} />}
+      {viewing && (
+        <ViewModal
+          title={viewing.name}
+          onClose={() => setViewing(null)}
+          onEdit={() => { setEditing(viewing); setViewing(null); }}
+          fields={[
+            { label: 'Tipo', value: viewing.type_name },
+            { label: 'Categoria', value: viewing.category_name },
+            { label: 'Fornecedor', value: viewing.supplier_name },
+            { label: 'Unidade', value: viewing.unit ?? viewing.default_unit },
+            { label: 'Preço de compra', value: viewing.cost_price != null ? brl(viewing.cost_price) : null },
+            { label: 'Preço de venda', value: viewing.sale_price != null ? brl(viewing.sale_price) : null },
+            { label: 'Itens de fornecedor vinculados', value: Number(viewing.item_count ?? 0) || null },
+            { label: 'Cadastrado em', value: new Date(viewing.created_at).toLocaleDateString('pt-BR') },
+          ]}
+        />
+      )}
     </div>
   );
 }

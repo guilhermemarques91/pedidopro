@@ -263,6 +263,50 @@ export function Modal({
   );
 }
 
+/** Botão de ação em ícone (linhas de listas: ver / editar / excluir). */
+export function IconBtn({
+  title, onClick, hover = 'slate', children,
+}: { title: string; onClick: () => void; hover?: 'slate' | 'emerald' | 'red'; children: ReactNode }) {
+  const h = hover === 'emerald' ? 'hover:text-emerald-600' : hover === 'red' ? 'hover:text-red-600' : 'hover:text-slate-700';
+  return (
+    <button type="button" title={title} aria-label={title} onClick={onClick}
+      className={`rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 ${h}`}>
+      {children}
+    </button>
+  );
+}
+
+/**
+ * Popup só-leitura com os detalhes completos de um registro (padrão mobile:
+ * a listagem mostra poucos campos + botão 👁 que abre este modal). Botão "Editar"
+ * opcional para pular direto à edição.
+ */
+export function ViewModal({
+  title, fields, onClose, onEdit,
+}: {
+  title: string;
+  fields: { label: string; value: ReactNode }[];
+  onClose: () => void;
+  onEdit?: () => void;
+}) {
+  return (
+    <Modal title={title} onClose={onClose}>
+      <dl className="divide-y divide-slate-100">
+        {fields.map((f, i) => (
+          <div key={i} className="flex items-start justify-between gap-4 py-2 text-sm">
+            <dt className="shrink-0 text-slate-500">{f.label}</dt>
+            <dd className="text-right font-medium text-slate-800">{f.value === null || f.value === undefined || f.value === '' ? <span className="text-slate-300">—</span> : f.value}</dd>
+          </div>
+        ))}
+      </dl>
+      <div className="mt-4 flex justify-end gap-2">
+        <Button variant="secondary" onClick={onClose}>Fechar</Button>
+        {onEdit && <Button onClick={onEdit}>Editar</Button>}
+      </div>
+    </Modal>
+  );
+}
+
 export function Spinner() {
   return (
     <div className="flex justify-center p-8">
