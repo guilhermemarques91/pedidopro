@@ -1,7 +1,7 @@
 import { api } from './api';
 import type {
   Category, Supplier, Item, Product, Quotation, QuotationDetail, ComparisonRow,
-  Order, OrderDetail, User, UserRole, Role, PermissionCatalog, PurchaseRequest, RequestDetail,
+  Order, OrderDetail, User, UserRole, Role, PermissionCatalog, AuditEntry, PurchaseRequest, RequestDetail,
   DeliveryOrder, DeliveryOrderDetail, DeliveryStatus, DeliveryPlatform, Channel, DeliveryAlert, ReportSummary,
   Interruption, OpeningShift,
   MarmitexCompany, MarmitexCatalog, CatalogType, MarmitexOrder, MarmitexOrderDetail,
@@ -162,6 +162,12 @@ export const rolesApi = {
   update: (id: number, body: { label?: string; permissions?: string[] }) =>
     api.put<Role>(`/roles/${id}`, body).then((r) => r.data),
   remove: (id: number) => api.delete(`/roles/${id}`).then((r) => r.data),
+};
+
+// ---- Trilha de auditoria ----
+export const auditApi = {
+  list: (params?: { entity?: string; user?: string; limit?: number }) =>
+    api.get<AuditEntry[]>('/audit', { params }).then((r) => r.data),
 };
 
 // ---- Requests (listas de compra) ----

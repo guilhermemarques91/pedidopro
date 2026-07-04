@@ -46,6 +46,7 @@ final class Permissions
             'label' => 'Administração',
             'items' => [
                 'users:manage' => 'Gerenciar usuários e papéis',
+                'system:audit' => 'Ver a trilha de auditoria',
                 'system:admin' => 'Ações de sistema (ex.: teste de WhatsApp)',
             ],
         ],

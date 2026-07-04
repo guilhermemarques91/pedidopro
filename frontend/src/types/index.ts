@@ -28,6 +28,19 @@ export interface Role {
 /** Catálogo de permissões: módulo → { label, permissões: { chave → label } }. */
 export type PermissionCatalog = Record<string, { label: string; items: Record<string, string> }>;
 
+export interface AuditEntry {
+  id: number;
+  user_id: number | null;
+  username: string | null;
+  method: string;
+  path: string;
+  entity: string | null;
+  entity_id: string | null;
+  status: number | null;
+  ip: string | null;
+  created_at: string;
+}
+
 export interface Category {
   id: number;
   name: string;

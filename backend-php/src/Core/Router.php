@@ -78,6 +78,8 @@ final class Router
                 $req->user = Auth::authenticate();
                 Auth::authorize($req->user, $r['roles']);
             }
+            // Audita mutações autenticadas (grava no shutdown, com o status final).
+            Audit::maybeSchedule($req, $method, $path);
             ($r['handler'])($req);
             return;
         }

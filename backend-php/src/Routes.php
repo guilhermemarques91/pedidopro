@@ -14,6 +14,7 @@ use App\Modules\Orders\OrdersController;
 use App\Modules\Requests\RequestsController;
 use App\Modules\Users\UsersController;
 use App\Modules\Roles\RolesController;
+use App\Modules\Audit\AuditController;
 use App\Modules\Inbox\InboxController;
 use App\Modules\Import\ImportController;
 use App\Modules\Whatsapp\WhatsappController;
@@ -50,6 +51,7 @@ final class Routes
     // Administração / sistema
     private const USERS = ['users:manage'];
     private const SYSTEM = ['system:admin'];
+    private const AUDIT = ['system:audit'];
 
     public static function register(Router $r): void
     {
@@ -149,6 +151,9 @@ final class Routes
         $r->post('/roles', [RolesController::class, 'create'], self::USERS);
         $r->put('/roles/:id', [RolesController::class, 'update'], self::USERS);
         $r->delete('/roles/:id', [RolesController::class, 'remove'], self::USERS);
+
+        // Trilha de auditoria (leitura)
+        $r->get('/audit', [AuditController::class, 'list'], self::AUDIT);
 
         // Inbox (rotas específicas antes de /:id)
         $r->get('/inbox', [InboxController::class, 'list'], self::READ);

@@ -16,6 +16,7 @@ import { OrderDetailPage } from './pages/OrderDetail';
 import { Requests } from './pages/Requests';
 import { RequestDetailPage } from './pages/RequestDetail';
 import { UsersPage } from './pages/Users';
+import { AuditPage } from './pages/Audit';
 import { Delivery } from './pages/Delivery';
 import { DeliveryOrderDetailPage } from './pages/Delivery/OrderDetail';
 import { Integrations } from './pages/Integrations';
@@ -75,6 +76,7 @@ export default function App() {
         <Route path="requests" element={<Requests />} />
         <Route path="requests/:id" element={<RequestDetailPage />} />
         <Route path="users" element={<UsersPage />} />
+        <Route path="audit" element={<AuditPage />} />
         <Route path="inbox" element={<Inbox />} />
         <Route path="categories" element={<Categories />} />
         <Route path="suppliers" element={<Suppliers />} />

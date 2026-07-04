@@ -5,7 +5,7 @@ import {
   LayoutDashboard, Tags, Truck, Package, FileSpreadsheet,
   ClipboardList, ShoppingCart, LogOut, Inbox, ListChecks, Users, Menu, X,
   Bike, Plug, Building2, BookOpen, FileText, Receipt, BarChart3, UtensilsCrossed, Store as StoreIcon,
-  ChevronDown, ChevronRight, PanelLeftClose, PanelLeft,
+  ChevronDown, ChevronRight, PanelLeftClose, PanelLeft, ScrollText,
 } from 'lucide-react';
 import { useAuth } from '../store/auth.store';
 import { inboxApi } from '../services/resources';
@@ -56,6 +56,7 @@ const navGroups: NavGroup[] = [
   ] },
   { title: 'Admin', items: [
     { to: '/users', label: 'Usuários', icon: Users, perm: 'users:manage' },
+    { to: '/audit', label: 'Auditoria', icon: ScrollText, perm: 'system:audit' },
   ] },
 ];
 
