@@ -73,10 +73,23 @@ export interface Product {
   name: string;
   category_id: number | null;
   category_name?: string | null;
+  type_id: number | null;
+  type_name?: string | null;
+  supplier_id: number | null;
+  supplier_name?: string | null;
+  unit: string | null;
+  cost_price: string | null;   // preço de compra
+  sale_price: string | null;   // preço de venda
   item_count?: string;
   default_unit?: string | null;
   active: boolean;
   created_at: string;
+}
+
+export interface ProductType {
+  id: number;
+  name: string;
+  sort_order?: number;
 }
 
 export interface ItemSupplierLink {

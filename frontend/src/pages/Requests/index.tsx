@@ -87,7 +87,7 @@ export function Requests() {
 function RequestForm({ onClose, editId }: { onClose: () => void; editId?: number | null }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
-  const { data: products } = useQuery({ queryKey: ['products'], queryFn: productsApi.list });
+  const { data: products } = useQuery({ queryKey: ['products'], queryFn: () => productsApi.list() });
   const { data: unmapped } = useQuery({ queryKey: ['unmapped', 'catalog'], queryFn: () => productsApi.unmapped(true) });
   const { data: editing } = useQuery({
     queryKey: ['request', editId],

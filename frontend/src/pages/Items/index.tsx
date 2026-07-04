@@ -136,7 +136,7 @@ export function Items() {
 function ItemForm({ item, defaultSupplier, onClose }: { item: Item | null; defaultSupplier?: number; onClose: () => void }) {
   const qc = useQueryClient();
   const { data: suppliers } = useQuery({ queryKey: ['suppliers'], queryFn: suppliersApi.list });
-  const { data: products } = useQuery({ queryKey: ['products'], queryFn: productsApi.list });
+  const { data: products } = useQuery({ queryKey: ['products'], queryFn: () => productsApi.list() });
   const [supplierId, setSupplierId] = useState<string>(String(item?.supplier_id ?? defaultSupplier ?? ''));
   const [name, setName] = useState(item?.name ?? '');
   const [supplierCode, setSupplierCode] = useState(item?.supplier_code ?? '');
@@ -181,7 +181,7 @@ function ItemForm({ item, defaultSupplier, onClose }: { item: Item | null; defau
     mutationFn: async (body: Partial<Item>) => {
       // "+ novo produto": cria antes e usa o id.
       if (productId === 'new' && newProduct.trim()) {
-        const p = await productsApi.create(newProduct.trim());
+        const p = await productsApi.create({ name: newProduct.trim() });
         body = { ...body, product_id: p.id };
       } else if (productId === '') {
         body = { ...body, product_id: null };

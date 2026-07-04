@@ -1,7 +1,7 @@
 import { api } from './api';
 import type {
   Category, Supplier, Item, Product, Quotation, QuotationDetail, ComparisonRow,
-  Order, OrderDetail, User, UserRole, Role, PermissionCatalog, AuditEntry, PurchaseRequest, RequestDetail,
+  Order, OrderDetail, User, UserRole, Role, PermissionCatalog, AuditEntry, ProductType, PurchaseRequest, RequestDetail,
   DeliveryOrder, DeliveryOrderDetail, DeliveryStatus, DeliveryPlatform, Channel, DeliveryAlert, ReportSummary,
   Interruption, OpeningShift,
   MarmitexCompany, MarmitexCatalog, CatalogType, MarmitexOrder, MarmitexOrderDetail,
@@ -44,17 +44,40 @@ export interface ProductDetail extends Product { items: ProductItem[] }
 export interface UnmappedItem { id: number; name: string; unit: string; supplier_name: string }
 export interface SuggestedGroup { suggested_name: string; item_ids: number[]; items: { id: number; name: string; supplier_name: string }[] }
 
+export interface ProductInput {
+  name: string;
+  category_id?: number | null;
+  type_id?: number | null;
+  supplier_id?: number | null;
+  unit?: string | null;
+  cost_price?: number | null;
+  sale_price?: number | null;
+}
+export interface ProductFilters {
+  q?: string; category_id?: number; type_id?: number; supplier_id?: number;
+  created_from?: string; created_to?: string;
+  cost_min?: number; cost_max?: number; sale_min?: number; sale_max?: number;
+}
+
 export const productsApi = {
-  list: () => api.get<Product[]>('/products').then((r) => r.data),
+  list: (filters?: ProductFilters) => api.get<Product[]>('/products', { params: filters }).then((r) => r.data),
   get: (id: number) => api.get<ProductDetail>(`/products/${id}`).then((r) => r.data),
   unmapped: (forCatalog = false) =>
     api.get<UnmappedItem[]>('/products/unmapped', { params: forCatalog ? { for_catalog: 1 } : {} }).then((r) => r.data),
   suggest: () => api.post<SuggestedGroup[]>('/products/suggest').then((r) => r.data),
-  create: (name: string, categoryId?: number) => api.post<Product>('/products', { name, category_id: categoryId }).then((r) => r.data),
-  update: (id: number, body: { name?: string; category_id?: number | null }) => api.put<Product>(`/products/${id}`, body).then((r) => r.data),
+  create: (body: ProductInput) => api.post<Product>('/products', body).then((r) => r.data),
+  update: (id: number, body: Partial<ProductInput>) => api.put<Product>(`/products/${id}`, body).then((r) => r.data),
   remove: (id: number) => api.delete(`/products/${id}`).then((r) => r.data),
   assign: (productId: number, itemIds: number[]) => api.post<{ assigned: number }>(`/products/${productId}/items`, { item_ids: itemIds }).then((r) => r.data),
   unassign: (itemIds: number[]) => api.post<{ unassigned: number }>('/products/unassign', { item_ids: itemIds }).then((r) => r.data),
+};
+
+// ---- Tipos de produto (eixo do cadastro de estoque) ----
+export const productTypesApi = {
+  list: () => api.get<ProductType[]>('/product-types').then((r) => r.data),
+  create: (body: { name: string; sort_order?: number }) => api.post<ProductType>('/product-types', body).then((r) => r.data),
+  update: (id: number, body: { name?: string; sort_order?: number }) => api.put<ProductType>(`/product-types/${id}`, body).then((r) => r.data),
+  remove: (id: number) => api.delete(`/product-types/${id}`).then((r) => r.data),
 };
 
 // ---- Import ----

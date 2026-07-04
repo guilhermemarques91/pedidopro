@@ -13,21 +13,61 @@ final class ProductsController
 {
     public static function list(Request $req): void
     {
-        // FILTER (WHERE i.active) → SUM(i.active = 1).
-        Http::json(Db::query(
-            "SELECT p.*, c.name AS category_name,
-                    COALESCE(SUM(i.active = 1), 0) AS item_count,
-                    (SELECT i2.unit FROM items i2
-                      WHERE i2.product_id = p.id AND i2.active = 1
-                      ORDER BY (i2.base_price IS NULL), i2.base_price ASC, i2.id
-                      LIMIT 1) AS default_unit
-               FROM products p
-               LEFT JOIN categories c ON c.id = p.category_id
-               LEFT JOIN items i ON i.product_id = p.id
-              WHERE p.active = 1
-              GROUP BY p.id, c.name
-              ORDER BY p.name"
-        ));
+        // Cadastro de estoque: filtros de categoria (topo) + laterais (nome, tipo,
+        // fornecedor, data, faixas de preço de compra/venda).
+        $where = ['p.active = 1', 'p.org_id = ?'];
+        $params = [$req->orgId()];
+        $eq = [
+            'category_id' => 'p.category_id',
+            'type_id' => 'p.type_id',
+            'supplier_id' => 'p.supplier_id',
+        ];
+        foreach ($eq as $q => $col) {
+            $v = $req->query($q);
+            if ($v !== null && ctype_digit($v)) {
+                $where[] = "{$col} = ?";
+                $params[] = (int) $v;
+            }
+        }
+        if (($v = $req->query('q')) !== null) {
+            $where[] = 'p.name LIKE ?';
+            $params[] = '%' . $v . '%';
+        }
+        if (($v = $req->query('created_from')) !== null) {
+            $where[] = 'p.created_at >= ?';
+            $params[] = $v . ' 00:00:00';
+        }
+        if (($v = $req->query('created_to')) !== null) {
+            $where[] = 'p.created_at <= ?';
+            $params[] = $v . ' 23:59:59';
+        }
+        $ranges = [
+            'cost_min' => ['p.cost_price', '>='], 'cost_max' => ['p.cost_price', '<='],
+            'sale_min' => ['p.sale_price', '>='], 'sale_max' => ['p.sale_price', '<='],
+        ];
+        foreach ($ranges as $q => [$col, $op]) {
+            $v = $req->query($q);
+            if ($v !== null && is_numeric($v)) {
+                $where[] = "{$col} {$op} ?";
+                $params[] = (float) $v;
+            }
+        }
+
+        $sql = "SELECT p.*, c.name AS category_name, t.name AS type_name, s.name AS supplier_name,
+                       COALESCE(SUM(i.active = 1), 0) AS item_count,
+                       (SELECT i2.unit FROM items i2
+                         WHERE i2.product_id = p.id AND i2.active = 1
+                         ORDER BY (i2.base_price IS NULL), i2.base_price ASC, i2.id
+                         LIMIT 1) AS default_unit
+                  FROM products p
+                  LEFT JOIN categories c ON c.id = p.category_id
+                  LEFT JOIN product_types t ON t.id = p.type_id
+                  LEFT JOIN suppliers s ON s.id = p.supplier_id
+                  LEFT JOIN items i ON i.product_id = p.id
+                 WHERE " . implode(' AND ', $where) . "
+                 GROUP BY p.id, c.name, t.name, s.name
+                 ORDER BY p.name";
+        Http::json(Db::query($sql, $params));
     }
 
     public static function unmapped(Request $req): void
@@ -64,12 +104,15 @@ final class ProductsController
     {
         $in = $req->input();
         $name = $in->requireString('name', 1, 200);
-        $row = Db::insertReturning(
-            'INSERT INTO products (name, category_id) VALUES (?, ?)',
-            [$name, $in->integer('category_id')],
-            'products'
+        Db::execute(
+            'INSERT INTO products (org_id, name, category_id, type_id, supplier_id, unit, cost_price, sale_price)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [
+                $req->orgId(), $name, $in->integer('category_id'), $in->integer('type_id'),
+                $in->integer('supplier_id'), $in->string('unit'), $in->number('cost_price'), $in->number('sale_price'),
+            ]
         );
-        Http::json($row, 201);
+        Http::json(self::find(Db::lastInsertId()), 201);
     }
 
     public static function update(Request $req): void
@@ -77,15 +120,23 @@ final class ProductsController
         $id = $req->intParam('id');
         self::find($id);
         $in = $req->input();
+        // Campos escalares opcionais: só atualiza os enviados.
+        $map = [
+            'name' => fn () => $in->requireString('name', 1, 200),
+            'category_id' => fn () => $in->integer('category_id'),
+            'type_id' => fn () => $in->integer('type_id'),
+            'supplier_id' => fn () => $in->integer('supplier_id'),
+            'unit' => fn () => $in->string('unit'),
+            'cost_price' => fn () => $in->number('cost_price'),
+            'sale_price' => fn () => $in->number('sale_price'),
+        ];
         $fields = [];
         $values = [];
-        if ($in->has('name')) {
-            $fields[] = 'name = ?';
-            $values[] = $in->requireString('name', 1, 200);
-        }
-        if ($in->has('category_id')) {
-            $fields[] = 'category_id = ?';
-            $values[] = $in->integer('category_id');
+        foreach ($map as $key => $resolve) {
+            if ($in->has($key)) {
+                $fields[] = "{$key} = ?";
+                $values[] = $resolve();
+            }
         }
         if (!$fields) {
             throw HttpError::badRequest('Informe ao menos um campo');

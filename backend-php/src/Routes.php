@@ -9,6 +9,7 @@ use App\Modules\Categories\CategoriesController;
 use App\Modules\Suppliers\SuppliersController;
 use App\Modules\Items\ItemsController;
 use App\Modules\Products\ProductsController;
+use App\Modules\Products\ProductTypesController;
 use App\Modules\Quotations\QuotationsController;
 use App\Modules\Orders\OrdersController;
 use App\Modules\Requests\RequestsController;
@@ -95,6 +96,12 @@ final class Routes
         $r->put('/products/:id', [ProductsController::class, 'update'], self::WRITE);
         $r->delete('/products/:id', [ProductsController::class, 'remove'], self::WRITE);
         $r->post('/products/:id/items', [ProductsController::class, 'assign'], self::WRITE);
+
+        // Tipos de produto (eixo do cadastro de estoque)
+        $r->get('/product-types', [ProductTypesController::class, 'list'], self::READ);
+        $r->post('/product-types', [ProductTypesController::class, 'create'], self::WRITE);
+        $r->put('/product-types/:id', [ProductTypesController::class, 'update'], self::WRITE);
+        $r->delete('/product-types/:id', [ProductTypesController::class, 'remove'], self::WRITE);
 
         // Quotations
         $r->get('/quotations', [QuotationsController::class, 'list'], self::READ);
