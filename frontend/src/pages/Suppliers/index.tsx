@@ -1,18 +1,19 @@
 import { FormEvent, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Pencil, Trash2, MessageCircle, Globe, ExternalLink } from 'lucide-react';
+import { Plus, Pencil, Trash2, MessageCircle, Globe, ExternalLink, Eye } from 'lucide-react';
 import { suppliersApi, categoriesApi } from '../../services/resources';
 import { apiError } from '../../services/api';
 import { useAuth } from '../../store/auth.store';
 import type { Supplier, OrderType } from '../../types';
 import { PageHeader } from '../../components/PageHeader';
-import { Button, Card, Field, Input, Select, Modal, Spinner, ErrorBox, EmptyState, ActionMenu, type MenuAction } from '../../components/ui';
+import { Button, Card, Field, Input, Select, Modal, ViewModal, Spinner, ErrorBox, EmptyState, ActionMenu, type MenuAction } from '../../components/ui';
 
 export function Suppliers() {
   const qc = useQueryClient();
   const canWrite = useAuth((s) => s.hasRole('admin', 'buyer'));
   const isAdmin = useAuth((s) => s.hasRole('admin'));
   const [editing, setEditing] = useState<Supplier | null>(null);
+  const [viewing, setViewing] = useState<Supplier | null>(null);
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
@@ -31,7 +32,7 @@ export function Suppliers() {
   );
 
   function actionsFor(s: Supplier): MenuAction[] {
-    const out: MenuAction[] = [];
+    const out: MenuAction[] = [{ label: 'Ver detalhes', icon: <Eye size={16} />, onClick: () => setViewing(s) }];
     if (s.order_type === 'whatsapp' && s.whatsapp_number) {
       out.push({ label: 'Abrir WhatsApp', icon: <MessageCircle size={16} />, href: `https://wa.me/${s.whatsapp_number.replace(/\D/g, '')}` });
     }
@@ -124,6 +125,20 @@ export function Suppliers() {
       ))}
 
       {open && <SupplierForm supplier={editing} onClose={() => setOpen(false)} />}
+      {viewing && (
+        <ViewModal
+          title={viewing.name}
+          onClose={() => setViewing(null)}
+          onEdit={canWrite ? () => { setEditing(viewing); setViewing(null); setOpen(true); } : undefined}
+          fields={[
+            { label: 'Categoria', value: viewing.category_name },
+            { label: 'Tipo de pedido', value: viewing.order_type === 'whatsapp' ? 'WhatsApp' : 'Portal' },
+            { label: 'WhatsApp', value: viewing.whatsapp_number },
+            { label: 'Portal', value: viewing.portal_url },
+            { label: 'Contato', value: viewing.contact_name },
+          ]}
+        />
+      )}
     </div>
   );
 }

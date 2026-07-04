@@ -5,7 +5,7 @@ import { marmitexApi } from '../../../services/resources';
 import { apiError } from '../../../services/api';
 import type { MarmitexInvoice, MarmitexReportRow } from '../../../types';
 import { PageHeader } from '../../../components/PageHeader';
-import { Button, Card, Modal, Badge, Spinner, ErrorBox, EmptyState } from '../../../components/ui';
+import { Button, Card, Modal, IconBtn, Badge, Spinner, ErrorBox, EmptyState } from '../../../components/ui';
 import { brl, date } from '../../../utils/format';
 
 export function MarmitexInvoices() {
@@ -33,45 +33,68 @@ export function MarmitexInvoices() {
       {data && (data.length === 0 ? (
         <EmptyState message="Nenhum período fechado ainda." />
       ) : (
-        <Card className="p-0">
-          <table className="w-full text-sm">
-            <thead className="border-b border-slate-200 text-left text-slate-500">
-              <tr>
-                <th className="px-5 py-3 font-medium">#</th>
-                <th className="px-5 py-3 font-medium">Empresa</th>
-                <th className="px-5 py-3 font-medium">Período</th>
-                <th className="px-5 py-3 font-medium text-right">Marmitas</th>
-                <th className="px-5 py-3 font-medium text-right">Total</th>
-                <th className="px-5 py-3 font-medium">Situação</th>
-                <th className="px-5 py-3" />
-              </tr>
-            </thead>
-            <tbody>
-              {data.map((inv) => (
-                <tr key={inv.id} className={`border-b border-slate-100 last:border-0 ${inv.status === 'cancelled' ? 'opacity-50' : ''}`}>
-                  <td className="px-5 py-3 text-slate-500">{inv.id}</td>
-                  <td className="px-5 py-3 font-medium text-slate-800">{inv.company_name}</td>
-                  <td className="px-5 py-3 text-slate-600">{date(inv.period_start)} – {date(inv.period_end)}</td>
-                  <td className="px-5 py-3 text-right text-slate-700">{inv.marmita_count}</td>
-                  <td className="px-5 py-3 text-right font-medium text-slate-800">{brl(inv.total_amount)}</td>
-                  <td className="px-5 py-3"><Badge status={inv.status} /></td>
-                  <td className="px-5 py-3 text-right whitespace-nowrap">
-                    <button onClick={() => setViewing(inv)} className="mr-3 text-slate-400 hover:text-emerald-600" title="Ver detalhes"><Eye size={16} /></button>
-                    {inv.status === 'closed' && (
-                      <button
-                        onClick={() => { if (confirm('Cancelar este faturamento reabre as marmitas (voltam a aparecer como pendentes). Continuar?')) cancel.mutate(inv.id); }}
-                        className="text-slate-400 hover:text-red-600"
-                        title="Cancelar (reabrir marmitas)"
-                      >
-                        <RotateCcw size={16} />
-                      </button>
-                    )}
-                  </td>
+        <>
+          {/* Mobile: Empresa + período/total; 👁 abre o detalhamento */}
+          <div className="space-y-2 sm:hidden">
+            {data.map((inv) => (
+              <Card key={inv.id} className={`flex items-center justify-between gap-3 p-3 ${inv.status === 'cancelled' ? 'opacity-60' : ''}`}>
+                <div className="min-w-0">
+                  <p className="truncate font-medium text-slate-800">{inv.company_name}</p>
+                  <p className="mt-1 flex items-center gap-2 text-xs text-slate-500">
+                    <Badge status={inv.status} /> {inv.marmita_count} marmitas · {brl(inv.total_amount)}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <IconBtn title="Ver detalhes" onClick={() => setViewing(inv)}><Eye size={17} /></IconBtn>
+                  {inv.status === 'closed' && (
+                    <IconBtn title="Cancelar (reabrir marmitas)" hover="red" onClick={() => { if (confirm('Cancelar este faturamento reabre as marmitas (voltam a aparecer como pendentes). Continuar?')) cancel.mutate(inv.id); }}><RotateCcw size={16} /></IconBtn>
+                  )}
+                </div>
+              </Card>
+            ))}
+          </div>
+
+          {/* Desktop: tabela */}
+          <Card className="hidden overflow-x-auto p-0 sm:block">
+            <table className="w-full text-sm">
+              <thead className="border-b border-slate-200 text-left text-slate-500">
+                <tr>
+                  <th className="px-5 py-3 font-medium">#</th>
+                  <th className="px-5 py-3 font-medium">Empresa</th>
+                  <th className="px-5 py-3 font-medium">Período</th>
+                  <th className="px-5 py-3 font-medium text-right">Marmitas</th>
+                  <th className="px-5 py-3 font-medium text-right">Total</th>
+                  <th className="px-5 py-3 font-medium">Situação</th>
+                  <th className="px-5 py-3" />
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </Card>
+              </thead>
+              <tbody>
+                {data.map((inv) => (
+                  <tr key={inv.id} className={`border-b border-slate-100 last:border-0 ${inv.status === 'cancelled' ? 'opacity-50' : ''}`}>
+                    <td className="px-5 py-3 text-slate-500">{inv.id}</td>
+                    <td className="px-5 py-3 font-medium text-slate-800">{inv.company_name}</td>
+                    <td className="px-5 py-3 text-slate-600">{date(inv.period_start)} – {date(inv.period_end)}</td>
+                    <td className="px-5 py-3 text-right text-slate-700">{inv.marmita_count}</td>
+                    <td className="px-5 py-3 text-right font-medium text-slate-800">{brl(inv.total_amount)}</td>
+                    <td className="px-5 py-3"><Badge status={inv.status} /></td>
+                    <td className="px-5 py-3 text-right whitespace-nowrap">
+                      <button onClick={() => setViewing(inv)} className="mr-3 text-slate-400 hover:text-emerald-600" title="Ver detalhes"><Eye size={16} /></button>
+                      {inv.status === 'closed' && (
+                        <button
+                          onClick={() => { if (confirm('Cancelar este faturamento reabre as marmitas (voltam a aparecer como pendentes). Continuar?')) cancel.mutate(inv.id); }}
+                          className="text-slate-400 hover:text-red-600"
+                          title="Cancelar (reabrir marmitas)"
+                        >
+                          <RotateCcw size={16} />
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Card>
+        </>
       ))}
 
       {viewing && <InvoiceDetail invoice={viewing} onClose={() => setViewing(null)} />}

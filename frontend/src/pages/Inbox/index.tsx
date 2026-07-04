@@ -141,8 +141,8 @@ export function Inbox() {
                           <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggle(r.id)} className="h-4 w-4 accent-emerald-600" />
                         </td>
                         <td className="py-2 font-medium text-slate-800">{r.item_name} <span className="text-xs text-slate-400">({r.unit})</span></td>
-                        <td className="py-2 text-right text-slate-600">{brl(r.price)}</td>
-                        <td className="py-2 pl-4 pr-5 text-right text-xs text-slate-400" title={r.raw_message ?? ''}>
+                        <td className="py-2 pr-5 text-right text-slate-600">{brl(r.price)}</td>
+                        <td className="hidden py-2 pl-4 pr-5 text-right text-xs text-slate-400 sm:table-cell" title={r.raw_message ?? ''}>
                           {r.raw_message ? `"${r.raw_message.slice(0, 40)}${r.raw_message.length > 40 ? '…' : ''}"` : ''}
                         </td>
                       </tr>

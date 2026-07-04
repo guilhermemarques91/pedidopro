@@ -7,7 +7,7 @@ import { apiError } from '../../services/api';
 import { useAuth } from '../../store/auth.store';
 import { date } from '../../utils/format';
 import { PageHeader } from '../../components/PageHeader';
-import { Button, Card, Field, Input, Modal, Spinner, ErrorBox, EmptyState, Badge } from '../../components/ui';
+import { Button, Card, Field, Input, Modal, IconBtn, Spinner, ErrorBox, EmptyState, Badge } from '../../components/ui';
 
 export function Quotations() {
   const qc = useQueryClient();
@@ -43,42 +43,64 @@ export function Quotations() {
       {data && (data.length === 0 ? (
         <EmptyState message="Nenhuma cotação criada." />
       ) : (
-        <Card className="p-0">
-          <table className="w-full text-sm">
-            <thead className="border-b border-slate-200 text-left text-slate-500">
-              <tr>
-                <th className="px-5 py-3 font-medium">Título</th>
-                <th className="px-5 py-3 font-medium">Status</th>
-                <th className="px-5 py-3 font-medium">Itens</th>
-                <th className="px-5 py-3 font-medium">Criada em</th>
-                {canWrite && <th className="px-5 py-3" />}
-              </tr>
-            </thead>
-            <tbody>
-              {data.map((q) => (
-                <tr key={q.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
-                  <td className="px-5 py-3">
-                    <Link to={`/quotations/${q.id}`} className="font-medium text-emerald-700 hover:underline">{q.title}</Link>
-                  </td>
-                  <td className="px-5 py-3"><Badge status={q.status} /></td>
-                  <td className="px-5 py-3 text-slate-600">{q.item_count ?? 0}</td>
-                  <td className="px-5 py-3 text-slate-600">{date(q.created_at)}</td>
-                  {canWrite && (
-                    <td className="px-5 py-3 text-right">
-                      <button
-                        onClick={() => { if (confirm(`Excluir a cotação "${q.title}"?`)) remove.mutate(q.id); }}
-                        className="text-slate-300 hover:text-red-600"
-                        title="Excluir cotação"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </td>
-                  )}
+        <>
+          {/* Mobile: cards clicáveis (abre o detalhe da cotação) */}
+          <div className="space-y-2 sm:hidden">
+            {data.map((q) => (
+              <Card key={q.id} className="flex items-center justify-between gap-3 p-3">
+                <Link to={`/quotations/${q.id}`} className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="truncate font-medium text-emerald-700">{q.title}</span>
+                  </div>
+                  <p className="mt-1 flex items-center gap-2 text-xs text-slate-500">
+                    <Badge status={q.status} /> {q.item_count ?? 0} itens · {date(q.created_at)}
+                  </p>
+                </Link>
+                {canWrite && (
+                  <IconBtn title="Excluir cotação" hover="red" onClick={() => { if (confirm(`Excluir a cotação "${q.title}"?`)) remove.mutate(q.id); }}><Trash2 size={16} /></IconBtn>
+                )}
+              </Card>
+            ))}
+          </div>
+
+          {/* Desktop: tabela */}
+          <Card className="hidden overflow-x-auto p-0 sm:block">
+            <table className="w-full text-sm">
+              <thead className="border-b border-slate-200 text-left text-slate-500">
+                <tr>
+                  <th className="px-5 py-3 font-medium">Título</th>
+                  <th className="px-5 py-3 font-medium">Status</th>
+                  <th className="px-5 py-3 font-medium">Itens</th>
+                  <th className="px-5 py-3 font-medium">Criada em</th>
+                  {canWrite && <th className="px-5 py-3" />}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </Card>
+              </thead>
+              <tbody>
+                {data.map((q) => (
+                  <tr key={q.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
+                    <td className="px-5 py-3">
+                      <Link to={`/quotations/${q.id}`} className="font-medium text-emerald-700 hover:underline">{q.title}</Link>
+                    </td>
+                    <td className="px-5 py-3"><Badge status={q.status} /></td>
+                    <td className="px-5 py-3 text-slate-600">{q.item_count ?? 0}</td>
+                    <td className="px-5 py-3 text-slate-600">{date(q.created_at)}</td>
+                    {canWrite && (
+                      <td className="px-5 py-3 text-right">
+                        <button
+                          onClick={() => { if (confirm(`Excluir a cotação "${q.title}"?`)) remove.mutate(q.id); }}
+                          className="text-slate-300 hover:text-red-600"
+                          title="Excluir cotação"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Card>
+        </>
       ))}
 
       {open && (

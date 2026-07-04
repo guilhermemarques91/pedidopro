@@ -1,13 +1,13 @@
 import { FormEvent, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, Eye } from 'lucide-react';
 import { itemsApi, suppliersApi, productsApi } from '../../services/resources';
 import { apiError } from '../../services/api';
 import { useAuth } from '../../store/auth.store';
 import type { Item } from '../../types';
 import { brl, parseNum } from '../../utils/format';
 import { PageHeader } from '../../components/PageHeader';
-import { Button, Card, Field, Input, Select, Modal, Spinner, ErrorBox, EmptyState, ActionMenu, type MenuAction } from '../../components/ui';
+import { Button, Card, Field, Input, Select, Modal, ViewModal, Spinner, ErrorBox, EmptyState, ActionMenu, type MenuAction } from '../../components/ui';
 
 export function Items() {
   const qc = useQueryClient();
@@ -16,6 +16,7 @@ export function Items() {
   const [filter, setFilter] = useState<string>('');
   const [search, setSearch] = useState('');
   const [editing, setEditing] = useState<Item | null>(null);
+  const [viewing, setViewing] = useState<Item | null>(null);
   const [open, setOpen] = useState(false);
 
   const { data: suppliers } = useQuery({ queryKey: ['suppliers'], queryFn: suppliersApi.list });
@@ -33,7 +34,7 @@ export function Items() {
   const filtered = (data ?? []).filter((i) => !q || i.name.toLowerCase().includes(q));
 
   function actionsFor(it: Item): MenuAction[] {
-    const out: MenuAction[] = [];
+    const out: MenuAction[] = [{ label: 'Ver detalhes', icon: <Eye size={16} />, onClick: () => setViewing(it) }];
     if (canWrite) out.push({ label: 'Editar', icon: <Pencil size={16} />, onClick: () => { setEditing(it); setOpen(true); } });
     if (isAdmin) out.push({ label: 'Excluir', icon: <Trash2 size={16} />, danger: true, onClick: () => confirm(`Excluir "${it.name}"?`) && remove.mutate(it.id) });
     return out;
@@ -129,6 +130,20 @@ export function Items() {
       ))}
 
       {open && <ItemForm item={editing} defaultSupplier={supplierId} onClose={() => setOpen(false)} />}
+      {viewing && (
+        <ViewModal
+          title={viewing.name}
+          onClose={() => setViewing(null)}
+          onEdit={canWrite ? () => { setEditing(viewing); setViewing(null); setOpen(true); } : undefined}
+          fields={[
+            { label: 'Produto', value: viewing.product_name },
+            { label: 'Fornecedor', value: viewing.supplier_name },
+            { label: 'Unidade', value: viewing.unit },
+            { label: 'Preço base', value: viewing.base_price != null ? brl(viewing.base_price) : null },
+            { label: 'Código no fornecedor', value: viewing.supplier_code },
+          ]}
+        />
+      )}
     </div>
   );
 }

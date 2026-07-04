@@ -1,16 +1,17 @@
 import { FormEvent, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Pencil, UserPlus } from 'lucide-react';
+import { Plus, Pencil, UserPlus, Eye, Power } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { marmitexApi } from '../../../services/resources';
 import { apiError } from '../../../services/api';
 import type { MarmitexCompany } from '../../../types';
 import { PageHeader } from '../../../components/PageHeader';
-import { Button, Card, Field, Input, Modal, Spinner, ErrorBox, EmptyState } from '../../../components/ui';
+import { Button, Card, Field, Input, Modal, ViewModal, IconBtn, Spinner, ErrorBox, EmptyState } from '../../../components/ui';
 
 export function MarmitexCompanies() {
   const qc = useQueryClient();
   const [editing, setEditing] = useState<MarmitexCompany | null>(null);
+  const [viewing, setViewing] = useState<MarmitexCompany | null>(null);
   const [open, setOpen] = useState(false);
   const { data, isLoading, error } = useQuery({ queryKey: ['marmitex-companies'], queryFn: marmitexApi.companies.list });
 
@@ -33,40 +34,62 @@ export function MarmitexCompanies() {
       {data && (data.length === 0 ? (
         <EmptyState message="Nenhuma empresa cadastrada." />
       ) : (
-        <Card className="p-0">
-          <table className="w-full text-sm">
-            <thead className="border-b border-slate-200 text-left text-slate-500">
-              <tr>
-                <th className="px-5 py-3 font-medium">Empresa</th>
-                <th className="px-5 py-3 font-medium">CNPJ</th>
-                <th className="px-5 py-3 font-medium">Corte</th>
-                <th className="px-5 py-3 font-medium">Pendentes</th>
-                <th className="px-5 py-3 font-medium">Situação</th>
-                <th className="px-5 py-3" />
-              </tr>
-            </thead>
-            <tbody>
-              {data.map((c) => (
-                <tr key={c.id} className={`border-b border-slate-100 last:border-0 ${!c.active ? 'opacity-50' : ''}`}>
-                  <td className="px-5 py-3">
-                    <p className="font-medium text-slate-800">{c.name}</p>
-                    {c.contact_name && <p className="text-xs text-slate-500">{c.contact_name}</p>}
-                  </td>
-                  <td className="px-5 py-3 text-slate-600">{c.cnpj || '—'}</td>
-                  <td className="px-5 py-3 text-slate-600">{c.order_cutoff_time ? c.order_cutoff_time.slice(0, 5) : 'sem corte'}</td>
-                  <td className="px-5 py-3 text-slate-600">{c.pending_count ?? 0}</td>
-                  <td className="px-5 py-3 text-slate-500">{c.active ? 'Ativa' : 'Inativa'}</td>
-                  <td className="px-5 py-3 text-right whitespace-nowrap">
-                    <button onClick={() => { setEditing(c); setOpen(true); }} className="mr-2 text-slate-400 hover:text-emerald-600"><Pencil size={16} /></button>
-                    <button onClick={() => toggle.mutate(c)} className="text-xs font-medium text-slate-400 hover:text-emerald-600">
-                      {c.active ? 'Desativar' : 'Ativar'}
-                    </button>
-                  </td>
+        <>
+          {/* Mobile: Empresa + situação; 👁 abre detalhes */}
+          <div className="space-y-2 sm:hidden">
+            {data.map((c) => (
+              <Card key={c.id} className={`flex items-center justify-between gap-3 p-3 ${!c.active ? 'opacity-60' : ''}`}>
+                <div className="min-w-0">
+                  <p className="truncate font-medium text-slate-800">{c.name}</p>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    {c.active ? 'Ativa' : 'Inativa'} · {c.pending_count ?? 0} pendente(s)
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <IconBtn title="Ver detalhes" onClick={() => setViewing(c)}><Eye size={17} /></IconBtn>
+                  <IconBtn title="Editar" hover="emerald" onClick={() => { setEditing(c); setOpen(true); }}><Pencil size={16} /></IconBtn>
+                  <IconBtn title={c.active ? 'Desativar' : 'Ativar'} onClick={() => toggle.mutate(c)}><Power size={16} /></IconBtn>
+                </div>
+              </Card>
+            ))}
+          </div>
+
+          {/* Desktop: tabela */}
+          <Card className="hidden overflow-x-auto p-0 sm:block">
+            <table className="w-full text-sm">
+              <thead className="border-b border-slate-200 text-left text-slate-500">
+                <tr>
+                  <th className="px-5 py-3 font-medium">Empresa</th>
+                  <th className="px-5 py-3 font-medium">CNPJ</th>
+                  <th className="px-5 py-3 font-medium">Corte</th>
+                  <th className="px-5 py-3 font-medium">Pendentes</th>
+                  <th className="px-5 py-3 font-medium">Situação</th>
+                  <th className="px-5 py-3" />
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </Card>
+              </thead>
+              <tbody>
+                {data.map((c) => (
+                  <tr key={c.id} className={`border-b border-slate-100 last:border-0 ${!c.active ? 'opacity-50' : ''}`}>
+                    <td className="px-5 py-3">
+                      <p className="font-medium text-slate-800">{c.name}</p>
+                      {c.contact_name && <p className="text-xs text-slate-500">{c.contact_name}</p>}
+                    </td>
+                    <td className="px-5 py-3 text-slate-600">{c.cnpj || '—'}</td>
+                    <td className="px-5 py-3 text-slate-600">{c.order_cutoff_time ? c.order_cutoff_time.slice(0, 5) : 'sem corte'}</td>
+                    <td className="px-5 py-3 text-slate-600">{c.pending_count ?? 0}</td>
+                    <td className="px-5 py-3 text-slate-500">{c.active ? 'Ativa' : 'Inativa'}</td>
+                    <td className="px-5 py-3 text-right whitespace-nowrap">
+                      <button onClick={() => { setEditing(c); setOpen(true); }} className="mr-2 text-slate-400 hover:text-emerald-600"><Pencil size={16} /></button>
+                      <button onClick={() => toggle.mutate(c)} className="text-xs font-medium text-slate-400 hover:text-emerald-600">
+                        {c.active ? 'Desativar' : 'Ativar'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Card>
+        </>
       ))}
 
       <p className="mt-4 flex items-center gap-2 text-sm text-slate-500">
@@ -75,6 +98,22 @@ export function MarmitexCompanies() {
       </p>
 
       {open && <CompanyForm company={editing} onClose={() => setOpen(false)} />}
+      {viewing && (
+        <ViewModal
+          title={viewing.name}
+          onClose={() => setViewing(null)}
+          onEdit={() => { setEditing(viewing); setViewing(null); setOpen(true); }}
+          fields={[
+            { label: 'CNPJ', value: viewing.cnpj },
+            { label: 'Responsável', value: viewing.contact_name },
+            { label: 'Telefone', value: viewing.phone },
+            { label: 'E-mail', value: viewing.email },
+            { label: 'Horário de corte', value: viewing.order_cutoff_time ? viewing.order_cutoff_time.slice(0, 5) : 'sem corte' },
+            { label: 'Pedidos pendentes', value: viewing.pending_count ?? 0 },
+            { label: 'Situação', value: viewing.active ? 'Ativa' : 'Inativa' },
+          ]}
+        />
+      )}
     </div>
   );
 }

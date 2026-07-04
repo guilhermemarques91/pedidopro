@@ -8,7 +8,7 @@ import { apiError } from '../../services/api';
 import { useAuth } from '../../store/auth.store';
 import { brl, date, parseNum, numToInput } from '../../utils/format';
 import { PageHeader } from '../../components/PageHeader';
-import { Button, Card, Field, Input, Select, Combobox, Modal, Spinner, ErrorBox, EmptyState, Badge, ComboOption } from '../../components/ui';
+import { Button, Card, Field, Input, Select, Combobox, Modal, IconBtn, Spinner, ErrorBox, EmptyState, Badge, ComboOption } from '../../components/ui';
 
 const STATUS = ['', 'draft', 'pending_approval', 'approved', 'sent', 'received', 'cancelled'];
 
@@ -48,42 +48,64 @@ export function Orders() {
       {data && (data.length === 0 ? (
         <EmptyState message="Nenhum pedido encontrado." />
       ) : (
-        <Card className="p-0">
-          <table className="w-full text-sm">
-            <thead className="border-b border-slate-200 text-left text-slate-500">
-              <tr>
-                <th className="px-5 py-3 font-medium">Pedido</th>
-                <th className="px-5 py-3 font-medium">Fornecedor</th>
-                <th className="px-5 py-3 font-medium">Status</th>
-                <th className="px-5 py-3 font-medium text-right">Total</th>
-                <th className="px-5 py-3 font-medium">Criado</th>
-                {isAdmin && <th className="px-5 py-3" />}
-              </tr>
-            </thead>
-            <tbody>
-              {data.map((o) => (
-                <tr key={o.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
-                  <td className="px-5 py-3"><Link to={`/orders/${o.id}`} className="font-medium text-emerald-700 hover:underline">#{o.id}</Link></td>
-                  <td className="px-5 py-3 text-slate-600">{o.supplier_name}</td>
-                  <td className="px-5 py-3"><Badge status={o.status} /></td>
-                  <td className="px-5 py-3 text-right text-slate-600">{brl(o.total_amount)}</td>
-                  <td className="px-5 py-3 text-slate-600">{date(o.created_at)}</td>
-                  {isAdmin && (
-                    <td className="px-5 py-3 text-right">
-                      <button
-                        onClick={() => { if (confirm(`Excluir o pedido #${o.id}?`)) remove.mutate(o.id); }}
-                        className="text-slate-300 hover:text-red-600"
-                        title="Excluir pedido"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </td>
-                  )}
+        <>
+          {/* Mobile: cards clicáveis (abre o detalhe do pedido) */}
+          <div className="space-y-2 sm:hidden">
+            {data.map((o) => (
+              <Card key={o.id} className="flex items-center justify-between gap-3 p-3">
+                <Link to={`/orders/${o.id}`} className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-emerald-700">#{o.id}</span>
+                    <Badge status={o.status} />
+                  </div>
+                  <p className="mt-0.5 truncate text-sm text-slate-600">{o.supplier_name}</p>
+                  <p className="mt-0.5 text-xs text-slate-500">{brl(o.total_amount)} · {date(o.created_at)}</p>
+                </Link>
+                {isAdmin && (
+                  <IconBtn title="Excluir pedido" hover="red" onClick={() => { if (confirm(`Excluir o pedido #${o.id}?`)) remove.mutate(o.id); }}><Trash2 size={16} /></IconBtn>
+                )}
+              </Card>
+            ))}
+          </div>
+
+          {/* Desktop: tabela */}
+          <Card className="hidden overflow-x-auto p-0 sm:block">
+            <table className="w-full text-sm">
+              <thead className="border-b border-slate-200 text-left text-slate-500">
+                <tr>
+                  <th className="px-5 py-3 font-medium">Pedido</th>
+                  <th className="px-5 py-3 font-medium">Fornecedor</th>
+                  <th className="px-5 py-3 font-medium">Status</th>
+                  <th className="px-5 py-3 font-medium text-right">Total</th>
+                  <th className="px-5 py-3 font-medium">Criado</th>
+                  {isAdmin && <th className="px-5 py-3" />}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </Card>
+              </thead>
+              <tbody>
+                {data.map((o) => (
+                  <tr key={o.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
+                    <td className="px-5 py-3"><Link to={`/orders/${o.id}`} className="font-medium text-emerald-700 hover:underline">#{o.id}</Link></td>
+                    <td className="px-5 py-3 text-slate-600">{o.supplier_name}</td>
+                    <td className="px-5 py-3"><Badge status={o.status} /></td>
+                    <td className="px-5 py-3 text-right text-slate-600">{brl(o.total_amount)}</td>
+                    <td className="px-5 py-3 text-slate-600">{date(o.created_at)}</td>
+                    {isAdmin && (
+                      <td className="px-5 py-3 text-right">
+                        <button
+                          onClick={() => { if (confirm(`Excluir o pedido #${o.id}?`)) remove.mutate(o.id); }}
+                          className="text-slate-300 hover:text-red-600"
+                          title="Excluir pedido"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Card>
+        </>
       ))}
 
       {open && <OrderForm onClose={() => setOpen(false)} />}
