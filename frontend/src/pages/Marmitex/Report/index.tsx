@@ -91,7 +91,8 @@ export function MarmitexReportPage() {
               <Lock size={16} /> Gerar relatório / Fechar período
             </Button>
           </div>
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[34rem] text-sm">
             <thead className="border-b border-slate-200 text-left text-slate-500">
               <tr>
                 <th className="px-5 py-3 font-medium">Tamanho</th>
@@ -121,6 +122,7 @@ export function MarmitexReportPage() {
               </tr>
             </tfoot>
           </table>
+          </div>
           <p className="flex items-center gap-2 px-5 py-3 text-xs text-slate-400">
             <FileText size={14} /> Use estes valores para lançar a nota fiscal no seu ERP.
           </p>

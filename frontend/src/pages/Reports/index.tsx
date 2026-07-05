@@ -93,8 +93,8 @@ export function Reports() {
               </Card>
             </div>
 
-            <Card className="p-0">
-              <table className="w-full text-sm">
+            <Card className="overflow-x-auto p-0">
+              <table className="w-full min-w-[40rem] text-sm">
                 <thead className="border-b border-slate-200 text-left text-slate-500">
                   <tr>
                     <th className="px-4 py-3 font-medium">Plataforma</th>
