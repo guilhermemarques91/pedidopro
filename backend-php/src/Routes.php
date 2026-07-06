@@ -243,6 +243,8 @@ final class Routes
         $r->get('/marmitex/companies', [MarmitexCompaniesController::class, 'list'], self::MARMITEX_ADMIN);
         $r->post('/marmitex/companies', [MarmitexCompaniesController::class, 'create'], self::MARMITEX_ADMIN);
         $r->get('/marmitex/companies/:id', [MarmitexCompaniesController::class, 'getById'], self::MARMITEX);
+        $r->get('/marmitex/companies/:id/contract', [MarmitexCompaniesController::class, 'contract'], self::MARMITEX_ADMIN);
+        $r->put('/marmitex/companies/:id/contract', [MarmitexCompaniesController::class, 'updateContract'], self::MARMITEX_ADMIN);
         $r->put('/marmitex/companies/:id', [MarmitexCompaniesController::class, 'update'], self::MARMITEX_ADMIN);
 
         // Pedidos do dia (empresa) — escopados pelo token; admin pode filtrar por empresa.

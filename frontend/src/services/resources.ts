@@ -80,6 +80,13 @@ export const stockApi = {
     api.post('/stock/moves', body).then((r) => r.data),
 };
 
+export interface MarmitexContractData {
+  sizes: { id: number; name: string; base_price: string; contract_price: string | null; enabled: boolean }[];
+  proteins: { id: number; name: string; enabled: boolean }[];
+  sides: { id: number; name: string; enabled: boolean }[];
+  observations: { id: number; name: string; enabled: boolean }[];
+}
+
 // ---- Tipos de produto (eixo do cadastro de estoque) ----
 export const productTypesApi = {
   list: () => api.get<ProductType[]>('/product-types').then((r) => r.data),
@@ -319,7 +326,13 @@ export interface SaveOrderBody {
 export interface CatalogItemBody { name?: string; price?: number; sort_order?: number; active?: boolean }
 
 export const marmitexApi = {
-  catalog: () => api.get<MarmitexCatalog>('/marmitex/catalog').then((r) => r.data),
+  catalog: (companyId?: number | null) =>
+    api.get<MarmitexCatalog>('/marmitex/catalog', { params: companyId ? { company_id: companyId } : {} }).then((r) => r.data),
+  contract: {
+    get: (companyId: number) => api.get<MarmitexContractData>(`/marmitex/companies/${companyId}/contract`).then((r) => r.data),
+    update: (companyId: number, body: { prices: { size_id: number; price: number | null }[]; hidden: Record<string, number[]> }) =>
+      api.put<MarmitexContractData>(`/marmitex/companies/${companyId}/contract`, body).then((r) => r.data),
+  },
   catalogCreate: (type: CatalogType, body: CatalogItemBody) =>
     api.post(`/marmitex/catalog/${type}`, body).then((r) => r.data),
   catalogUpdate: (type: CatalogType, id: number, body: CatalogItemBody) =>

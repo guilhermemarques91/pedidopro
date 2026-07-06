@@ -74,7 +74,7 @@ final class MarmitexOrdersController
             self::assertBeforeCutoff($serviceDate, $company['order_cutoff_time']);
         }
 
-        $marmitas = self::parseMarmitas($in->array('marmitas', true));
+        $marmitas = self::parseMarmitas($in->array('marmitas', true), $companyId);
 
         $id = Db::transaction(function (PDO $pdo) use ($companyId, $serviceDate, $notes, $marmitas, $req) {
             $find = $pdo->prepare('SELECT id FROM marmitex_orders WHERE company_id = ? AND service_date = ?');
@@ -151,23 +151,37 @@ final class MarmitexOrdersController
         return $order;
     }
 
-    /** Valida cada marmita contra o catálogo ativo e gera o snapshot (nome/preço). */
-    private static function parseMarmitas(array $raw): array
+    /** Valida cada marmita contra o cardápio EFETIVO da empresa (contrato aplicado) e gera o snapshot. */
+    private static function parseMarmitas(array $raw, int $companyId): array
     {
         if (!$raw) {
             throw HttpError::badRequest('Inclua ao menos uma marmita');
         }
+        // Contrato: itens ocultos não valem; preço do tamanho pode ser o do contrato.
+        $hidden = MarmitexContract::hidden($companyId);
+        $prices = MarmitexContract::prices($companyId);
         $sizes = [];
         foreach (Db::query('SELECT id, name, price FROM marmitex_sizes WHERE active = 1') as $s) {
-            $sizes[(int) $s['id']] = $s;
+            $sid = (int) $s['id'];
+            if (isset($hidden['sizes'][$sid])) {
+                continue;
+            }
+            if (isset($prices[$sid])) {
+                $s['price'] = $prices[$sid];
+            }
+            $sizes[$sid] = $s;
         }
         $proteins = [];
         foreach (Db::query('SELECT id, name FROM marmitex_proteins WHERE active = 1') as $p) {
-            $proteins[(int) $p['id']] = $p['name'];
+            if (!isset($hidden['proteins'][(int) $p['id']])) {
+                $proteins[(int) $p['id']] = $p['name'];
+            }
         }
         $sidesCat = [];
         foreach (Db::query('SELECT id, name FROM marmitex_sides WHERE active = 1') as $s) {
-            $sidesCat[(int) $s['id']] = $s['name'];
+            if (!isset($hidden['sides'][(int) $s['id']])) {
+                $sidesCat[(int) $s['id']] = $s['name'];
+            }
         }
 
         $out = [];

@@ -19,7 +19,7 @@ type Row = MarmitexSize | MarmitexOption;
 
 export function MarmitexCatalogPage() {
   const [tab, setTab] = useState<CatalogType>('sizes');
-  const { data, isLoading, error } = useQuery({ queryKey: ['marmitex-catalog'], queryFn: marmitexApi.catalog });
+  const { data, isLoading, error } = useQuery({ queryKey: ['marmitex-catalog'], queryFn: () => marmitexApi.catalog() });
   const current = TABS.find((t) => t.type === tab)!;
 
   return (

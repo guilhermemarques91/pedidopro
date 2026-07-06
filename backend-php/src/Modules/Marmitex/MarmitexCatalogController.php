@@ -21,15 +21,25 @@ final class MarmitexCatalogController
         'observations' => 'marmitex_observations',
     ];
 
-    /** Catálogo completo (todas as listas) para a tela de pedido e o cadastro. */
+    /**
+     * Catálogo para a tela de pedido e o cadastro. Com contexto de empresa
+     * (login da empresa, ou admin com ?company_id=), aplica o CONTRATO dela:
+     * itens ocultos somem e os preços diferenciados sobrepõem os do cardápio.
+     * Sem contexto (tela de cadastro do cardápio), devolve o base completo.
+     */
     public static function catalog(Request $req): void
     {
-        Http::json([
+        $lists = [
             'sizes' => Db::query('SELECT * FROM marmitex_sizes WHERE org_id = ? ORDER BY sort_order, name', [$req->orgId()]),
             'proteins' => Db::query('SELECT * FROM marmitex_proteins WHERE org_id = ? ORDER BY sort_order, name', [$req->orgId()]),
             'sides' => Db::query('SELECT * FROM marmitex_sides WHERE org_id = ? ORDER BY sort_order, name', [$req->orgId()]),
             'observations' => Db::query('SELECT * FROM marmitex_observations WHERE org_id = ? ORDER BY sort_order, name', [$req->orgId()]),
-        ]);
+        ];
+        $qcid = $req->query('company_id');
+        $companyId = $req->isCompany()
+            ? $req->companyId()
+            : (($qcid !== null && ctype_digit($qcid)) ? (int) $qcid : null);
+        Http::json($companyId ? MarmitexContract::apply($lists, $companyId) : $lists);
     }
 
     public static function create(Request $req): void

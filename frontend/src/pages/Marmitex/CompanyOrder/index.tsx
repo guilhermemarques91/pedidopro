@@ -35,7 +35,7 @@ export function CompanyOrder() {
   const [importErrors, setImportErrors] = useState<{ row: number; messages: string[] }[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const catalogQuery = useQuery({ queryKey: ['marmitex-catalog'], queryFn: marmitexApi.catalog });
+  const catalogQuery = useQuery({ queryKey: ['marmitex-catalog', companyId], queryFn: () => marmitexApi.catalog(companyId) });
   const adminCompanies = useQuery({ queryKey: ['marmitex-companies'], queryFn: marmitexApi.companies.list, enabled: !isCompany });
   const ownCompany = useQuery({
     queryKey: ['marmitex-company', companyId],

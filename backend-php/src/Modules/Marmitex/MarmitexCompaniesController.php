@@ -110,4 +110,75 @@ final class MarmitexCompaniesController
         }
         return strlen($v) === 5 ? $v . ':00' : $v;
     }
+
+    /** GET /marmitex/companies/:id/contract — cardápio base com o estado do contrato. */
+    public static function contract(Request $req): void
+    {
+        $id = $req->intParam('id');
+        self::requireCompanyRow($id, $req->orgId());
+        Http::json(self::contractShape($id, $req->orgId()));
+    }
+
+    /**
+     * PUT /marmitex/companies/:id/contract — substitui o contrato inteiro.
+     * Body: { prices: [{size_id, price}], hidden: { sizes: [], proteins: [], sides: [], observations: [] } }
+     */
+    public static function updateContract(Request $req): void
+    {
+        $id = $req->intParam('id');
+        self::requireCompanyRow($id, $req->orgId());
+        $in = $req->input();
+        $prices = $in->array('prices');
+        $hidden = (array) ($req->body['hidden'] ?? []);
+
+        Db::transaction(function ($pdo) use ($id, $prices, $hidden): void {
+            $pdo->prepare('DELETE FROM marmitex_company_prices WHERE company_id = ?')->execute([$id]);
+            $pdo->prepare('DELETE FROM marmitex_company_hidden WHERE company_id = ?')->execute([$id]);
+            $insP = $pdo->prepare('INSERT INTO marmitex_company_prices (company_id, size_id, price) VALUES (?, ?, ?)');
+            foreach ($prices as $p) {
+                $sizeId = (int) ($p['size_id'] ?? 0);
+                $price = $p['price'] ?? null;
+                if ($sizeId > 0 && $price !== null && $price !== '' && (float) $price >= 0) {
+                    $insP->execute([$id, $sizeId, (float) $price]);
+                }
+            }
+            $insH = $pdo->prepare('INSERT INTO marmitex_company_hidden (company_id, item_type, item_id) VALUES (?, ?, ?)');
+            foreach (MarmitexContract::TYPES as $type) {
+                foreach ((array) ($hidden[$type] ?? []) as $itemId) {
+                    if ((int) $itemId > 0) {
+                        $insH->execute([$id, $type, (int) $itemId]);
+                    }
+                }
+            }
+        });
+        Http::json(self::contractShape($id, $req->orgId()));
+    }
+
+    /** Cardápio base anotado com o contrato (enabled + contract_price). */
+    private static function contractShape(int $companyId, int $orgId): array
+    {
+        $hidden = MarmitexContract::hidden($companyId);
+        $prices = MarmitexContract::prices($companyId);
+        $shape = static function (array $rows, string $type) use ($hidden): array {
+            return array_map(static fn ($r) => $r + ['enabled' => !isset($hidden[$type][(int) $r['id']])], $rows);
+        };
+        $sizes = Db::query('SELECT id, name, price AS base_price FROM marmitex_sizes WHERE org_id = ? AND active = 1 ORDER BY sort_order, name', [$orgId]);
+        foreach ($sizes as &$sz) {
+            $sz['contract_price'] = $prices[(int) $sz['id']] ?? null;
+        }
+        unset($sz);
+        return [
+            'sizes' => $shape($sizes, 'sizes'),
+            'proteins' => $shape(Db::query('SELECT id, name FROM marmitex_proteins WHERE org_id = ? AND active = 1 ORDER BY sort_order, name', [$orgId]), 'proteins'),
+            'sides' => $shape(Db::query('SELECT id, name FROM marmitex_sides WHERE org_id = ? AND active = 1 ORDER BY sort_order, name', [$orgId]), 'sides'),
+            'observations' => $shape(Db::query('SELECT id, name FROM marmitex_observations WHERE org_id = ? AND active = 1 ORDER BY sort_order, name', [$orgId]), 'observations'),
+        ];
+    }
+
+    private static function requireCompanyRow(int $id, int $orgId): void
+    {
+        if (!Db::queryOne('SELECT id FROM marmitex_companies WHERE id = ? AND org_id = ?', [$id, $orgId])) {
+            throw HttpError::notFound('Empresa não encontrada');
+        }
+    }
 }
