@@ -16,6 +16,7 @@ import { OrderDetailPage } from './pages/OrderDetail';
 import { Requests } from './pages/Requests';
 import { RequestDetailPage } from './pages/RequestDetail';
 import { UsersPage } from './pages/Users';
+import { ChangePassword } from './pages/ChangePassword';
 import { AuditPage } from './pages/Audit';
 import { Delivery } from './pages/Delivery';
 import { DeliveryOrderDetailPage } from './pages/Delivery/OrderDetail';
@@ -32,7 +33,11 @@ import { JSX } from 'react';
 
 function Protected({ children }: { children: JSX.Element }) {
   const token = useAuth((s) => s.token);
-  return token ? children : <Navigate to="/login" replace />;
+  const mustChange = useAuth((s) => !!s.user?.must_change_password);
+  if (!token) return <Navigate to="/login" replace />;
+  // Senha provisória (1º login / reset): obriga a troca antes de usar o app.
+  if (mustChange) return <ChangePassword />;
+  return children;
 }
 
 /** Home por papel: empresa-cliente cai na própria área; staff no dashboard. */

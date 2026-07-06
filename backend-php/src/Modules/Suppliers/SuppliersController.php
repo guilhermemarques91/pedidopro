@@ -23,7 +23,7 @@ final class SuppliersController
                FROM suppliers s
                LEFT JOIN categories c ON c.id = s.category_id
               WHERE s.org_id = ?{$active}
-               ORDER BY s.name",
+               ORDER BY s.name" . self::pagination($req),
             [$req->orgId()]
         ));
     }
@@ -116,5 +116,17 @@ final class SuppliersController
             throw HttpError::notFound('Fornecedor não encontrado');
         }
         return $row;
+    }
+
+    /** Paginação opcional: ?limit=N(&offset=M). Sem limit = tudo (compatível). */
+    private static function pagination(\App\Core\Request $req): string
+    {
+        $limit = (int) ($req->query('limit') ?? 0);
+        if ($limit < 1) {
+            return '';
+        }
+        $limit = min($limit, 500);
+        $offset = max(0, (int) ($req->query('offset') ?? 0));
+        return " LIMIT {$limit} OFFSET {$offset}";
     }
 }

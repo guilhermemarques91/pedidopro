@@ -66,7 +66,7 @@ final class ProductsController
                   LEFT JOIN items i ON i.product_id = p.id
                  WHERE " . implode(' AND ', $where) . "
                  GROUP BY p.id, c.name, t.name, s.name
-                 ORDER BY p.name";
+                 ORDER BY p.name" . self::pagination($req);
         Http::json(Db::query($sql, $params));
     }
 
@@ -269,5 +269,17 @@ final class ProductsController
             throw HttpError::notFound('Produto não encontrado');
         }
         return $row;
+    }
+
+    /** Paginação opcional: ?limit=N(&offset=M). Sem limit = tudo (compatível). */
+    private static function pagination(\App\Core\Request $req): string
+    {
+        $limit = (int) ($req->query('limit') ?? 0);
+        if ($limit < 1) {
+            return '';
+        }
+        $limit = min($limit, 500);
+        $offset = max(0, (int) ($req->query('offset') ?? 0));
+        return " LIMIT {$limit} OFFSET {$offset}";
     }
 }

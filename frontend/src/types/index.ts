@@ -13,6 +13,7 @@ export interface User {
   company_id: number | null;
   company_name?: string | null;
   permissions?: string[] | null;      // override individual (null = herda do papel)
+  must_change_password?: number | boolean;
   effective_permissions?: string[];   // o que o usuário realmente pode fazer
   created_at: string;
 }

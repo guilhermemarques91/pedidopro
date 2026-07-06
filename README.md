@@ -57,3 +57,11 @@ Backend: [backend-php/.env.example](backend-php/.env.example) (no Docker os valo
 CI/CD via GitHub Actions ([.github/workflows/deploy.yml](.github/workflows/deploy.yml)) — deploy por SSH a cada push na `main`. Process manager: PM2 ([ecosystem.config.js](ecosystem.config.js)).
 
 Secrets necessários no repositório: `HOSTGATOR_HOST`, `HOSTGATOR_USER`, `HOSTGATOR_SSH_KEY`, `HOSTGATOR_PORT`.
+
+## Nota de modelo — Items × Products (para a etapa 2 do Estoque)
+
+- **`products`** = cadastro central do estoque (tipo, categoria, unidade, preço de
+  compra/venda). **O saldo e as movimentações da etapa 2 viverão no product.**
+- **`items`** = SKUs por fornecedor (preço/código de cada fornecedor), usados em
+  cotações e pedidos de compra. Entradas de estoque via `Orders/receive` ou Import
+  de NF-e resolvem o item → `product_id` para creditar o saldo do produto.

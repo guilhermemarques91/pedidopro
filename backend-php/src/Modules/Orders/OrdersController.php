@@ -7,6 +7,7 @@ use App\Core\Http;
 use App\Core\HttpError;
 use App\Core\Request;
 use App\Services\Evolution;
+use App\Services\Outbox;
 use PDO;
 
 final class OrdersController
@@ -30,7 +31,7 @@ final class OrdersController
                JOIN suppliers s ON s.id = o.supplier_id
                JOIN users u ON u.id = o.created_by
                {$where}
-               ORDER BY o.created_at DESC",
+               ORDER BY o.created_at DESC" . self::pagination($req),
             $params
         ));
     }
@@ -227,8 +228,8 @@ final class OrdersController
             if (!$supplier['whatsapp_number']) {
                 throw HttpError::badRequest('Fornecedor não tem número de WhatsApp cadastrado');
             }
-            Evolution::sendMessage($supplier['whatsapp_number'], self::buildMessage($o));
-            $whatsappSent = true;
+            // Offline-first: se a Evolution estiver fora, fica na outbox e é reenviado depois.
+            $whatsappSent = Outbox::send($req->orgId(), $supplier['whatsapp_number'], self::buildMessage($o), "order:{$id}");
         }
         Db::execute("UPDATE orders SET status = 'sent', sent_at = NOW() WHERE id = ?", [$id]);
         Http::json(['order' => self::row($id, $req->orgId()), 'whatsappSent' => $whatsappSent]);
@@ -430,5 +431,17 @@ final class OrdersController
             throw HttpError::badRequest('Inclua ao menos um item');
         }
         return $out;
+    }
+
+    /** Paginação opcional: ?limit=N(&offset=M). Sem limit = tudo (compatível). */
+    private static function pagination(\App\Core\Request $req): string
+    {
+        $limit = (int) ($req->query('limit') ?? 0);
+        if ($limit < 1) {
+            return '';
+        }
+        $limit = min($limit, 500);
+        $offset = max(0, (int) ($req->query('offset') ?? 0));
+        return " LIMIT {$limit} OFFSET {$offset}";
     }
 }

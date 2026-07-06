@@ -50,7 +50,7 @@ final class ItemsController
                LEFT JOIN products p ON p.id = i.product_id
                {$join}
                {$where}
-               ORDER BY s.name, i.name",
+               ORDER BY s.name, i.name" . self::pagination($req),
             $params
         ));
     }
@@ -216,5 +216,17 @@ final class ItemsController
             throw HttpError::notFound('Item não encontrado');
         }
         return $row;
+    }
+
+    /** Paginação opcional: ?limit=N(&offset=M). Sem limit = tudo (compatível). */
+    private static function pagination(\App\Core\Request $req): string
+    {
+        $limit = (int) ($req->query('limit') ?? 0);
+        if ($limit < 1) {
+            return '';
+        }
+        $limit = min($limit, 500);
+        $offset = max(0, (int) ($req->query('offset') ?? 0));
+        return " LIMIT {$limit} OFFSET {$offset}";
     }
 }

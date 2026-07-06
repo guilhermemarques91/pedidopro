@@ -11,7 +11,7 @@ use App\Core\Request;
 
 final class AuthController
 {
-    private const PUBLIC_COLS = 'id, name, username, email, role, active, company_id, org_id, created_at';
+    private const PUBLIC_COLS = 'id, name, username, email, role, active, company_id, org_id, must_change_password, created_at';
 
     public static function login(Request $req): void
     {
@@ -35,6 +35,23 @@ final class AuthController
         unset($user['password_hash']);
         // Permissões efetivas (papel + override) — o frontend usa para exibir/ocultar ações.
         Http::json(['token' => $token, 'user' => $user, 'permissions' => Permissions::effectiveForUser((int) $user['id'])]);
+    }
+
+    /** Troca a senha do próprio usuário (zera must_change_password). */
+    public static function changePassword(Request $req): void
+    {
+        $in = $req->input();
+        $current = $in->requireString('current_password');
+        $new = $in->requireString('new_password', 8);
+        $user = Db::queryOne('SELECT id, password_hash FROM users WHERE id = ?', [$req->userId()]);
+        if (!$user || !password_verify($current, $user['password_hash'])) {
+            throw HttpError::badRequest('Senha atual incorreta');
+        }
+        Db::execute(
+            'UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?',
+            [password_hash($new, PASSWORD_BCRYPT), $req->userId()]
+        );
+        Http::json(['ok' => true]);
     }
 
     public static function me(Request $req): void

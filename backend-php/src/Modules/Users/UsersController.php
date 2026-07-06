@@ -10,7 +10,7 @@ use App\Core\Request;
 
 final class UsersController
 {
-    private const PUBLIC_COLS = 'id, name, username, email, role, active, company_id, permissions_json, created_at';
+    private const PUBLIC_COLS = 'id, name, username, email, role, active, company_id, permissions_json, must_change_password, created_at';
 
     public static function list(Request $req): void
     {
@@ -41,8 +41,9 @@ final class UsersController
         }
         $hash = password_hash($password, PASSWORD_BCRYPT);
         Db::execute(
-            'INSERT INTO users (name, username, email, password_hash, role, company_id, org_id, permissions_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            [$name, $username, $email, $hash, $role, $companyId, $req->orgId(), $permissions]
+            'INSERT INTO users (name, username, email, password_hash, role, company_id, org_id, permissions_json, must_change_password) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [$name, $username, $email, $hash, $role, $companyId, $req->orgId(), $permissions,
+             $in->boolean('must_change_password', true) ? 1 : 0]
         );
         Http::json(self::find(Db::lastInsertId()), 201);
     }
@@ -128,6 +129,9 @@ final class UsersController
         if ($in->has('password') && $in->string('password') !== null) {
             $fields[] = 'password_hash = ?';
             $values[] = password_hash($in->requireString('password', 8), PASSWORD_BCRYPT);
+            // Reset de senha pelo admin exige troca no próximo login (a menos que peça o contrário).
+            $fields[] = 'must_change_password = ?';
+            $values[] = $in->boolean('must_change_password', true) ? 1 : 0;
         }
         if (!$fields) {
             throw HttpError::badRequest('Nada para atualizar');

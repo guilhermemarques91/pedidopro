@@ -62,6 +62,7 @@ final class Routes
         // Auth
         $r->post('/auth/login', [AuthController::class, 'login'], null);
         $r->get('/auth/me', [AuthController::class, 'me'], self::ANY);
+        $r->post('/auth/change-password', [AuthController::class, 'changePassword'], self::ANY);
 
         // Categories
         $r->get('/categories', [CategoriesController::class, 'list'], self::READ);
@@ -177,6 +178,8 @@ final class Routes
         // WhatsApp
         $r->post('/whatsapp/test', [WhatsappController::class, 'sendTest'], self::SYSTEM);
         $r->get('/whatsapp/status', [WhatsappController::class, 'status'], self::ANY);
+        $r->get('/whatsapp/outbox', [WhatsappController::class, 'outbox'], self::WRITE);
+        $r->post('/whatsapp/outbox/drain', [WhatsappController::class, 'drainOutbox'], self::WRITE);
 
         // Webhooks de delivery (PÚBLICOS — validados por segredo do canal)
         $r->post('/webhooks/ifood', [WebhooksController::class, 'ifood'], null);
