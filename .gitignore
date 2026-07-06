@@ -21,3 +21,4 @@ backend/dist/
 # Upload temp
 backend/uploads/
 *.tsbuildinfo
+backups/

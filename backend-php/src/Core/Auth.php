@@ -9,11 +9,18 @@ namespace App\Core;
  */
 final class Auth
 {
+    /** Secret default do docker-compose — aceitável só em dev. */
+    private const DEV_DEFAULT_SECRET = 'troque-esta-chave-por-uma-bem-grande-0123456789';
+
     private static function secret(): string
     {
-        $s = Env::get('JWT_SECRET', '');
-        if (strlen((string) $s) < 16) {
+        $s = (string) Env::get('JWT_SECRET', '');
+        if (strlen($s) < 16) {
             throw new \RuntimeException('JWT_SECRET ausente ou muito curto (>=16 chars).');
+        }
+        // Em produção, recusa o secret default (qualquer um conseguiria forjar tokens).
+        if ($s === self::DEV_DEFAULT_SECRET && Env::get('APP_ENV') === 'production') {
+            throw new \RuntimeException('JWT_SECRET default não é permitido em produção. Defina um valor próprio no .env.');
         }
         return $s;
     }

@@ -44,9 +44,11 @@ services:
       DB_NAME: ${DB_NAME:-pedidopro}
       DB_USER: ${DB_USER:-pedidopro}
       DB_PASS: ${DB_PASS:-pedidopro}
+      # Em produção (APP_ENV=production) o backend RECUSA o secret default abaixo:
+      # defina JWT_SECRET (e senhas do banco) num .env ao lado deste arquivo.
       JWT_SECRET: ${JWT_SECRET:-troque-esta-chave-por-uma-bem-grande-0123456789}
       JWT_EXPIRES_DAYS: "7"
-      APP_ENV: ${APP_ENV:-production}
+      APP_ENV: ${APP_ENV:-dev}
       # Sem internet no bootstrap: não chamar plataformas externas (iFood/99Food).
       INTEGRATIONS_MOCK: ${INTEGRATIONS_MOCK:-1}
       CORS_ORIGINS: ""

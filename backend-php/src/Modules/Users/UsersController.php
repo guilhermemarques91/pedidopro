@@ -30,7 +30,7 @@ final class UsersController
         $name = $in->requireString('name');
         $username = self::normalizeUsername($in->requireString('username', 3, 80));
         $email = $in->string('email'); // opcional
-        $password = $in->requireString('password', 6);
+        $password = $in->requireString('password', 8);
         $role = self::requireRole($in->string('role'), $req->orgId());
         // Login de empresa (Marmitex) precisa estar vinculado a uma empresa.
         $companyId = $role === 'company' ? self::requireCompany($in->integer('company_id')) : null;
@@ -127,7 +127,7 @@ final class UsersController
         }
         if ($in->has('password') && $in->string('password') !== null) {
             $fields[] = 'password_hash = ?';
-            $values[] = password_hash($in->requireString('password', 6), PASSWORD_BCRYPT);
+            $values[] = password_hash($in->requireString('password', 8), PASSWORD_BCRYPT);
         }
         if (!$fields) {
             throw HttpError::badRequest('Nada para atualizar');
