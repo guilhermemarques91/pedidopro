@@ -28,6 +28,13 @@ final class Permissions
                 'compras:admin' => 'Excluir e administrar (categorias, alocação)',
             ],
         ],
+        'estoque' => [
+            'label' => 'Estoque',
+            'items' => [
+                'estoque:read' => 'Ver saldo e movimentações',
+                'estoque:mover' => 'Lançar entrada / saída / ajuste',
+            ],
+        ],
         'delivery' => [
             'label' => 'Delivery (iFood + 99Food)',
             'items' => [

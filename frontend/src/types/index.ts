@@ -81,9 +81,26 @@ export interface Product {
   unit: string | null;
   cost_price: string | null;   // preço de compra
   sale_price: string | null;   // preço de venda
+  stock_qty?: string;          // saldo atual (etapa 2 do estoque)
+  avg_cost?: string | null;    // custo médio ponderado
   item_count?: string;
   default_unit?: string | null;
   active: boolean;
+  created_at: string;
+}
+
+export interface StockMove {
+  id: number;
+  product_id: number;
+  product_name?: string;
+  unit?: string | null;
+  type: 'in' | 'out' | 'adjust';
+  qty_delta: string;
+  unit_cost: string | null;
+  balance_after: string;
+  ref: string | null;
+  notes: string | null;
+  user_name?: string | null;
   created_at: string;
 }
 

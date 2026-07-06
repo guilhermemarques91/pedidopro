@@ -1,7 +1,7 @@
 import { api } from './api';
 import type {
   Category, Supplier, Item, Product, Quotation, QuotationDetail, ComparisonRow,
-  Order, OrderDetail, User, UserRole, Role, PermissionCatalog, AuditEntry, ProductType, PurchaseRequest, RequestDetail,
+  Order, OrderDetail, User, UserRole, Role, PermissionCatalog, AuditEntry, ProductType, StockMove, PurchaseRequest, RequestDetail,
   DeliveryOrder, DeliveryOrderDetail, DeliveryStatus, DeliveryPlatform, Channel, DeliveryAlert, ReportSummary,
   Interruption, OpeningShift,
   MarmitexCompany, MarmitexCatalog, CatalogType, MarmitexOrder, MarmitexOrderDetail,
@@ -70,6 +70,14 @@ export const productsApi = {
   remove: (id: number) => api.delete(`/products/${id}`).then((r) => r.data),
   assign: (productId: number, itemIds: number[]) => api.post<{ assigned: number }>(`/products/${productId}/items`, { item_ids: itemIds }).then((r) => r.data),
   unassign: (itemIds: number[]) => api.post<{ unassigned: number }>('/products/unassign', { item_ids: itemIds }).then((r) => r.data),
+};
+
+// ---- Estoque: movimentações ----
+export const stockApi = {
+  moves: (productId?: number, limit = 30) =>
+    api.get<StockMove[]>('/stock/moves', { params: { product_id: productId, limit } }).then((r) => r.data),
+  move: (body: { product_id: number; type: 'in' | 'out' | 'adjust'; quantity: number; unit_cost?: number | null; notes?: string | null }) =>
+    api.post('/stock/moves', body).then((r) => r.data),
 };
 
 // ---- Tipos de produto (eixo do cadastro de estoque) ----

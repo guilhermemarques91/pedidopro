@@ -17,6 +17,7 @@ use App\Modules\Users\UsersController;
 use App\Modules\Roles\RolesController;
 use App\Modules\Audit\AuditController;
 use App\Modules\Settings\SettingsController;
+use App\Modules\Stock\StockController;
 use App\Modules\Inbox\InboxController;
 use App\Modules\Import\ImportController;
 use App\Modules\Whatsapp\WhatsappController;
@@ -44,6 +45,9 @@ final class Routes
     private const APPROVE = ['compras:approve'];
     private const REQUESTS = ['compras:requests'];
     private const COMPRAS_ADMIN = ['compras:admin'];
+    // Estoque
+    private const ESTOQUE_READ = ['estoque:read'];
+    private const ESTOQUE_MOVE = ['estoque:mover'];
     // Delivery
     private const DELIVERY = ['delivery:operate'];
     private const DELIVERY_ADMIN = ['delivery:admin'];
@@ -108,6 +112,10 @@ final class Routes
         $r->post('/product-types', [ProductTypesController::class, 'create'], self::WRITE);
         $r->put('/product-types/:id', [ProductTypesController::class, 'update'], self::WRITE);
         $r->delete('/product-types/:id', [ProductTypesController::class, 'remove'], self::WRITE);
+
+        // Estoque (movimentações; saldo vive em products)
+        $r->get('/stock/moves', [StockController::class, 'moves'], self::ESTOQUE_READ);
+        $r->post('/stock/moves', [StockController::class, 'create'], self::ESTOQUE_MOVE);
 
         // Quotations
         $r->get('/quotations', [QuotationsController::class, 'list'], self::READ);

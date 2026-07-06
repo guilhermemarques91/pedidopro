@@ -2,11 +2,12 @@ import { FormEvent, ReactNode, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Items } from '../Items';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Pencil, Trash2, Sparkles, Check, Tags as TagsIcon, Filter, Eye } from 'lucide-react';
-import { productsApi, productTypesApi, categoriesApi, suppliersApi, ProductFilters, ProductInput, SuggestedGroup } from '../../services/resources';
+import { Plus, Pencil, Trash2, Sparkles, Check, Tags as TagsIcon, Filter, Eye, ArrowDownUp } from 'lucide-react';
+import { productsApi, productTypesApi, categoriesApi, suppliersApi, stockApi, ProductFilters, ProductInput, SuggestedGroup } from '../../services/resources';
 import { apiError } from '../../services/api';
 import { brl } from '../../utils/format';
-import type { Product, ProductType } from '../../types';
+import type { Product, ProductType, StockMove } from '../../types';
+import { useAuth } from '../../store/auth.store';
 import { PageHeader } from '../../components/PageHeader';
 import { Button, Card, Input, Select, Modal, ViewModal, IconBtn, Spinner, ErrorBox, EmptyState } from '../../components/ui';
 
@@ -31,6 +32,8 @@ export function Products() {
   const [editing, setEditing] = useState<Product | 'new' | null>(null);
   const [viewing, setViewing] = useState<Product | null>(null);
   const [typesOpen, setTypesOpen] = useState(false);
+  const [stockOf, setStockOf] = useState<Product | null>(null);
+  const canMove = useAuth((st) => st.can('estoque:mover'));
   const [suggestOpen, setSuggestOpen] = useState(false);
 
   const categories = useQuery({ queryKey: ['categories'], queryFn: categoriesApi.list });
@@ -153,10 +156,11 @@ export function Products() {
                     <div className="min-w-0">
                       <p className="truncate font-medium text-slate-800">{p.name}</p>
                       <p className="mt-0.5 truncate text-xs text-slate-500">
-                        {p.type_name ?? 'sem tipo'} · {p.unit ?? p.default_unit ?? 's/ un.'}
+                        {p.type_name ?? 'sem tipo'} · {p.unit ?? p.default_unit ?? 's/ un.'} · estoque {fmtQty(p.stock_qty)}
                       </p>
                     </div>
                     <div className="flex shrink-0 items-center gap-1">
+                      {canMove && <IconBtn title="Movimentar estoque" hover="emerald" onClick={() => setStockOf(p)}><ArrowDownUp size={16} /></IconBtn>}
                       <IconBtn title="Ver detalhes" onClick={() => setViewing(p)}><Eye size={17} /></IconBtn>
                       <IconBtn title="Editar" hover="emerald" onClick={() => setEditing(p)}><Pencil size={16} /></IconBtn>
                       <IconBtn title="Excluir" hover="red" onClick={() => { if (confirm(`Excluir o cadastro "${p.name}"?`)) remove.mutate(p.id); }}><Trash2 size={16} /></IconBtn>
@@ -175,6 +179,7 @@ export function Products() {
                       <th className="px-4 py-3 font-medium">Categoria</th>
                       <th className="px-4 py-3 font-medium">Fornecedor</th>
                       <th className="px-4 py-3 font-medium">Un.</th>
+                      <th className="px-4 py-3 text-right font-medium">Estoque</th>
                       <th className="px-4 py-3 text-right font-medium">Compra</th>
                       <th className="px-4 py-3 text-right font-medium">Venda</th>
                       <th className="px-4 py-3" />
@@ -190,9 +195,11 @@ export function Products() {
                         <td className="px-4 py-3 text-slate-600">{p.category_name ?? <span className="text-slate-300">—</span>}</td>
                         <td className="px-4 py-3 text-slate-600">{p.supplier_name ?? <span className="text-slate-300">—</span>}</td>
                         <td className="px-4 py-3 text-slate-600">{p.unit ?? p.default_unit ?? <span className="text-slate-300">—</span>}</td>
+                        <td className={`px-4 py-3 text-right font-medium ${Number(p.stock_qty ?? 0) < 0 ? 'text-red-600' : Number(p.stock_qty ?? 0) === 0 ? 'text-slate-400' : 'text-slate-800'}`}>{fmtQty(p.stock_qty)}</td>
                         <td className="px-4 py-3 text-right text-slate-600">{p.cost_price != null ? brl(p.cost_price) : <span className="text-slate-300">—</span>}</td>
                         <td className="px-4 py-3 text-right font-medium text-slate-800">{p.sale_price != null ? brl(p.sale_price) : <span className="text-slate-300">—</span>}</td>
                         <td className="px-4 py-3 text-right">
+                          {canMove && <button onClick={() => setStockOf(p)} className="mr-3 text-slate-400 hover:text-emerald-600" title="Movimentar estoque"><ArrowDownUp size={16} /></button>}
                           <button onClick={() => setEditing(p)} className="mr-3 text-slate-400 hover:text-emerald-600" title="Editar"><Pencil size={16} /></button>
                           <button onClick={() => { if (confirm(`Excluir o cadastro "${p.name}"?`)) remove.mutate(p.id); }} className="text-slate-400 hover:text-red-600" title="Excluir"><Trash2 size={16} /></button>
                         </td>
@@ -219,6 +226,7 @@ export function Products() {
         />
       )}
       {typesOpen && <TypesManager onClose={() => setTypesOpen(false)} />}
+      {stockOf && <StockModal product={stockOf} onClose={() => { setStockOf(null); qc.invalidateQueries({ queryKey: ['products'] }); }} />}
       {suggestOpen && <SuggestModal onClose={() => setSuggestOpen(false)} onApplied={() => qc.invalidateQueries({ queryKey: ['products'] })} />}
       {viewing && (
         <ViewModal
@@ -232,12 +240,117 @@ export function Products() {
             { label: 'Unidade', value: viewing.unit ?? viewing.default_unit },
             { label: 'Preço de compra', value: viewing.cost_price != null ? brl(viewing.cost_price) : null },
             { label: 'Preço de venda', value: viewing.sale_price != null ? brl(viewing.sale_price) : null },
+            { label: 'Estoque atual', value: fmtQty(viewing.stock_qty) },
+            { label: 'Custo médio', value: viewing.avg_cost != null ? brl(viewing.avg_cost) : null },
             { label: 'Itens de fornecedor vinculados', value: Number(viewing.item_count ?? 0) || null },
             { label: 'Cadastrado em', value: new Date(viewing.created_at).toLocaleDateString('pt-BR') },
           ]}
         />
       )}
     </div>
+  );
+}
+
+const fmtQty = (v?: string | null) => {
+  const n = Number(v ?? 0);
+  return Number.isInteger(n) ? String(n) : n.toFixed(3).replace('.', ',');
+};
+
+const MOVE_LABEL: Record<string, string> = { in: 'Entrada', out: 'Saída', adjust: 'Ajuste' };
+
+/** Movimentação de estoque de um produto: form + últimas movimentações. */
+function StockModal({ product, onClose }: { product: Product; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [type, setType] = useState<'in' | 'out' | 'adjust'>('in');
+  const [qty, setQty] = useState('');
+  const [cost, setCost] = useState('');
+  const [notes, setNotes] = useState('');
+  const [error, setError] = useState('');
+  const [saldo, setSaldo] = useState(product.stock_qty ?? '0');
+
+  const moves = useQuery({ queryKey: ['stock-moves', product.id], queryFn: () => stockApi.moves(product.id) });
+  const save = useMutation({
+    mutationFn: () => stockApi.move({
+      product_id: product.id, type, quantity: Number(qty.replace(',', '.')),
+      unit_cost: type === 'in' && cost ? Number(cost.replace(',', '.')) : null,
+      notes: notes.trim() || null,
+    }),
+    onSuccess: (r: { stock_qty: string }) => {
+      setSaldo(r.stock_qty); setQty(''); setCost(''); setNotes(''); setError('');
+      moves.refetch(); qc.invalidateQueries({ queryKey: ['products'] });
+    },
+    onError: (e) => setError(apiError(e)),
+  });
+
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    setError('');
+    const n = Number(qty.replace(',', '.'));
+    if (Number.isNaN(n) || (type !== 'adjust' && n <= 0) || n < 0) { setError('Informe uma quantidade válida.'); return; }
+    save.mutate();
+  }
+
+  const unit = product.unit ?? product.default_unit ?? '';
+  return (
+    <Modal title={`Estoque — ${product.name}`} onClose={onClose} size="xl">
+      <p className="mb-3 text-sm text-slate-600">
+        Saldo atual: <strong className={Number(saldo) < 0 ? 'text-red-600' : 'text-slate-800'}>{fmtQty(saldo)} {unit}</strong>
+        {product.avg_cost != null && <span className="ml-3 text-slate-400">custo médio {brl(product.avg_cost)}</span>}
+      </p>
+      <form onSubmit={submit} className="mb-4 space-y-3 rounded-lg border border-slate-200 p-3">
+        {error && <ErrorBox message={error} />}
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-slate-500">Tipo</span>
+            <Select value={type} onChange={(e) => setType(e.target.value as 'in' | 'out' | 'adjust')}>
+              <option value="in">Entrada</option>
+              <option value="out">Saída</option>
+              <option value="adjust">Ajuste (saldo final)</option>
+            </Select>
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-slate-500">{type === 'adjust' ? 'Novo saldo' : 'Quantidade'}</span>
+            <Input value={qty} onChange={(e) => setQty(e.target.value)} placeholder="0" inputMode="decimal" required />
+          </label>
+          {type === 'in' && (
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-slate-500">Custo unit. (R$)</span>
+              <Input value={cost} onChange={(e) => setCost(e.target.value)} placeholder="opcional" inputMode="decimal" />
+            </label>
+          )}
+          <label className={`block ${type === 'in' ? '' : 'sm:col-span-2'}`}>
+            <span className="mb-1 block text-xs font-medium text-slate-500">Observação</span>
+            <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="opcional" />
+          </label>
+        </div>
+        <div className="flex justify-end">
+          <Button type="submit" disabled={save.isPending}>Lançar</Button>
+        </div>
+      </form>
+
+      <h4 className="mb-2 text-sm font-semibold text-slate-600">Últimas movimentações</h4>
+      {moves.isLoading && <Spinner />}
+      {moves.data && (moves.data.length === 0 ? (
+        <EmptyState message="Nenhuma movimentação ainda." />
+      ) : (
+        <div className="max-h-64 divide-y divide-slate-100 overflow-y-auto rounded-lg border border-slate-200">
+          {moves.data.map((m: StockMove) => (
+            <div key={m.id} className="flex items-center justify-between px-3 py-2 text-sm">
+              <div>
+                <span className={`mr-2 rounded px-1.5 py-0.5 text-xs font-semibold ${m.type === 'in' ? 'bg-emerald-50 text-emerald-700' : m.type === 'out' ? 'bg-red-50 text-red-700' : 'bg-blue-50 text-blue-700'}`}>{MOVE_LABEL[m.type]}</span>
+                <span className={Number(m.qty_delta) < 0 ? 'text-red-600' : 'text-emerald-700'}>{Number(m.qty_delta) > 0 ? '+' : ''}{fmtQty(m.qty_delta)}</span>
+                <span className="ml-2 text-xs text-slate-400">
+                  saldo {fmtQty(m.balance_after)}{m.unit_cost != null ? ` · ${brl(m.unit_cost)}/un` : ''}{m.ref && m.ref !== 'manual' ? ` · ${m.ref.replace('order:', 'pedido #')}` : ''}
+                </span>
+                {m.notes && <p className="text-xs text-slate-400">{m.notes}</p>}
+              </div>
+              <span className="shrink-0 text-xs text-slate-400">{new Date(m.created_at).toLocaleString('pt-BR')}<br />{m.user_name ?? ''}</span>
+            </div>
+          ))}
+        </div>
+      ))}
+      <div className="mt-4 flex justify-end"><Button variant="secondary" onClick={onClose}>Fechar</Button></div>
+    </Modal>
   );
 }
 
