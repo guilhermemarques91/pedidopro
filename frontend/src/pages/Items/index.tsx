@@ -9,7 +9,7 @@ import { brl, parseNum } from '../../utils/format';
 import { PageHeader } from '../../components/PageHeader';
 import { Button, Card, Field, Input, Select, Modal, ViewModal, Spinner, ErrorBox, EmptyState, ActionMenu, type MenuAction } from '../../components/ui';
 
-export function Items() {
+export function Items({ embedded = false }: { embedded?: boolean } = {}) {
   const qc = useQueryClient();
   const canWrite = useAuth((s) => s.can('compras:write'));
   const isAdmin = useAuth((s) => s.can('compras:admin'));
@@ -42,11 +42,13 @@ export function Items() {
 
   return (
     <div>
-      <PageHeader
-        title="Itens"
-        subtitle="Produtos e insumos por fornecedor"
-        action={canWrite && <Button onClick={() => { setEditing(null); setOpen(true); }}><Plus size={16} /> Novo item</Button>}
-      />
+      {!embedded && (
+        <PageHeader
+          title="Itens"
+          subtitle="Produtos e insumos por fornecedor"
+          action={canWrite && <Button onClick={() => { setEditing(null); setOpen(true); }}><Plus size={16} /> Novo item</Button>}
+        />
+      )}
 
       <div className="mb-4 flex flex-col gap-3 sm:flex-row">
         <Input
@@ -59,6 +61,9 @@ export function Items() {
           <option value="">Todos os fornecedores</option>
           {suppliers?.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
         </Select>
+        {embedded && canWrite && (
+          <Button onClick={() => { setEditing(null); setOpen(true); }} className="sm:ml-auto"><Plus size={16} /> Novo item</Button>
+        )}
       </div>
 
       {isLoading && <Spinner />}

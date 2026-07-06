@@ -48,10 +48,7 @@ const navGroups: NavGroup[] = [
   { title: 'Cadastros', items: [
     { to: '/suppliers', label: 'Fornecedores', icon: Truck, perm: 'compras:write' },
     { to: '/categories', label: 'Categorias', icon: Tags, perm: 'compras:write' },
-    { to: '/items', label: 'Itens/Produtos', icon: Package, perm: 'compras:write', children: [
-      { to: '/items', label: 'Itens', icon: Package, perm: 'compras:write', end: true },
-      { to: '/products', label: 'Produtos', icon: Package, perm: 'compras:write' },
-    ] },
+    { to: '/products', label: 'Itens & Produtos', icon: Package, perm: 'compras:write' },
     { to: '/import', label: 'Importação', icon: FileSpreadsheet, perm: 'compras:write' },
   ] },
   { title: 'Admin', items: [

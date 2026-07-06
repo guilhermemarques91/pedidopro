@@ -1,4 +1,6 @@
 import { FormEvent, ReactNode, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { Items } from '../Items';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Pencil, Trash2, Sparkles, Check, Tags as TagsIcon, Filter, Eye } from 'lucide-react';
 import { productsApi, productTypesApi, categoriesApi, suppliersApi, ProductFilters, ProductInput, SuggestedGroup } from '../../services/resources';
@@ -12,6 +14,10 @@ const numOrNull = (v: string): number | null => (v.trim() === '' ? null : Number
 
 export function Products() {
   const qc = useQueryClient();
+  // Visão unificada: "produtos" (cadastro central) ou "itens" (SKUs por fornecedor).
+  const [params, setParams] = useSearchParams();
+  const view = params.get('view') === 'itens' ? 'itens' : 'produtos';
+  const setView = (v: string) => setParams(v === 'itens' ? { view: 'itens' } : {}, { replace: true });
   const [category, setCategory] = useState<number | ''>('');   // filtro do topo
   const [q, setQ] = useState('');
   const [type, setType] = useState<number | ''>('');
@@ -58,17 +64,29 @@ export function Products() {
   return (
     <div>
       <PageHeader
-        title="Produtos / Estoque"
-        subtitle="Cadastro de matéria-prima, uso e consumo, cardápio, bebidas…"
-        action={
+        title="Itens & Produtos"
+        subtitle={view === 'produtos'
+          ? 'Cadastro central do estoque: matéria-prima, uso e consumo, cardápio, bebidas…'
+          : 'Itens por fornecedor (preço e código de cada um) usados em cotações e pedidos'}
+        action={view === 'produtos' ? (
           <div className="flex flex-wrap gap-2">
             <Button variant="secondary" onClick={() => setSuggestOpen(true)}><Sparkles size={16} /> Agrupar (IA)</Button>
             <Button variant="secondary" onClick={() => setTypesOpen(true)}><TagsIcon size={16} /> Tipos</Button>
             <Button onClick={() => setEditing('new')}><Plus size={16} /> Novo cadastro</Button>
           </div>
-        }
+        ) : undefined}
       />
 
+      {/* Alternador de visão */}
+      <div className="mb-4 inline-flex rounded-lg border border-slate-200 bg-white p-1">
+        <SegBtn active={view === 'produtos'} onClick={() => setView('produtos')}>Produtos</SegBtn>
+        <SegBtn active={view === 'itens'} onClick={() => setView('itens')}>Itens de fornecedor</SegBtn>
+      </div>
+
+      {view === 'itens' ? (
+        <Items embedded />
+      ) : (
+      <>
       {/* Filtro de categorias no topo (chips) */}
       <div className="mb-4 flex flex-wrap gap-2">
         <Chip active={category === ''} onClick={() => setCategory('')}>Todas</Chip>
@@ -188,6 +206,9 @@ export function Products() {
         </div>
       </div>
 
+      </>
+      )}
+
       {editing && (
         <ProductForm
           product={editing === 'new' ? null : editing}
@@ -217,6 +238,17 @@ export function Products() {
         />
       )}
     </div>
+  );
+}
+
+function SegBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`rounded-md px-4 py-1.5 text-sm font-medium transition ${active ? 'bg-emerald-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+    >
+      {children}
+    </button>
   );
 }
 

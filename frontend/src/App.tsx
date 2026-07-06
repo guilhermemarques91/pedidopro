@@ -6,7 +6,7 @@ import { Dashboard } from './pages/Dashboard';
 import { Inbox } from './pages/Inbox';
 import { Categories } from './pages/Categories';
 import { Suppliers } from './pages/Suppliers';
-import { Items } from './pages/Items';
+
 import { Products } from './pages/Products';
 import { Import } from './pages/Import';
 import { Quotations } from './pages/Quotations';
@@ -90,7 +90,7 @@ export default function App() {
         <Route path="inbox" element={<Inbox />} />
         <Route path="categories" element={<Categories />} />
         <Route path="suppliers" element={<Suppliers />} />
-        <Route path="items" element={<Items />} />
+        <Route path="items" element={<Navigate to="/products?view=itens" replace />} />
         <Route path="products" element={<Products />} />
         <Route path="import" element={<Import />} />
         <Route path="quotations" element={<Quotations />} />
