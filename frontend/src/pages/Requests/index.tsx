@@ -20,7 +20,7 @@ function canEdit(status: string, isAdmin: boolean): boolean {
 
 export function Requests() {
   const qc = useQueryClient();
-  const isAdmin = useAuth((s) => s.hasRole('admin'));
+  const isAdmin = useAuth((s) => s.can('compras:admin'));
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
   const { data, isLoading, error } = useQuery({ queryKey: ['requests'], queryFn: requestsApi.list });

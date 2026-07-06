@@ -10,8 +10,8 @@ import { Button, Card, Field, Input, Select, Modal, ViewModal, Spinner, ErrorBox
 
 export function Suppliers() {
   const qc = useQueryClient();
-  const canWrite = useAuth((s) => s.hasRole('admin', 'buyer'));
-  const isAdmin = useAuth((s) => s.hasRole('admin'));
+  const canWrite = useAuth((s) => s.can('compras:write'));
+  const isAdmin = useAuth((s) => s.can('compras:admin'));
   const [editing, setEditing] = useState<Supplier | null>(null);
   const [viewing, setViewing] = useState<Supplier | null>(null);
   const [open, setOpen] = useState(false);

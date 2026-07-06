@@ -17,14 +17,15 @@ final class InboxController
             "SELECT ip.*, s.name AS supplier_name
                FROM inbox_prices ip
                JOIN suppliers s ON s.id = ip.supplier_id
-              WHERE ip.status = 'pending'
-              ORDER BY s.name, ip.received_at DESC, ip.id"
+              WHERE ip.status = 'pending' AND ip.org_id = ?
+              ORDER BY s.name, ip.received_at DESC, ip.id",
+            [$req->orgId()]
         ));
     }
 
     public static function count(Request $req): void
     {
-        $r = Db::queryOne("SELECT COUNT(*) AS n FROM inbox_prices WHERE status = 'pending'");
+        $r = Db::queryOne("SELECT COUNT(*) AS n FROM inbox_prices WHERE status = 'pending' AND org_id = ?", [$req->orgId()]);
         Http::json(['count' => (int) ($r['n'] ?? 0)]);
     }
 
@@ -36,7 +37,7 @@ final class InboxController
     public static function update(Request $req): void
     {
         $id = $req->intParam('id');
-        $row = Db::queryOne('SELECT id, status FROM inbox_prices WHERE id = ?', [$id]);
+        $row = Db::queryOne('SELECT id, status FROM inbox_prices WHERE id = ? AND org_id = ?', [$id, $req->orgId()]);
         if (!$row) {
             throw HttpError::notFound('Item da caixa de entrada não encontrado');
         }
@@ -85,7 +86,7 @@ final class InboxController
         if (!$ids) {
             throw HttpError::badRequest('Selecione ao menos um item');
         }
-        $q = Db::queryOne('SELECT status FROM quotations WHERE id = ?', [$quotationId]);
+        $q = Db::queryOne('SELECT status FROM quotations WHERE id = ? AND org_id = ?', [$quotationId, $req->orgId()]);
         if (!$q) {
             throw HttpError::notFound('Cotação não encontrada');
         }
@@ -94,7 +95,7 @@ final class InboxController
         }
 
         $place = Db::inClause($ids);
-        $rows = Db::query("SELECT * FROM inbox_prices WHERE id IN ({$place}) AND status = 'pending'", $ids);
+        $rows = Db::query("SELECT * FROM inbox_prices WHERE id IN ({$place}) AND status = 'pending' AND org_id = ?", array_merge($ids, [$req->orgId()]));
         if (!$rows) {
             throw HttpError::badRequest('Nenhum item pendente selecionado');
         }
@@ -132,8 +133,8 @@ final class InboxController
         $place = Db::inClause($ids);
         $n = Db::execute(
             "UPDATE inbox_prices SET status = 'discarded', reviewed_at = NOW(), reviewed_by = ?
-              WHERE id IN ({$place}) AND status = 'pending'",
-            array_merge([$req->userId()], $ids)
+              WHERE id IN ({$place}) AND status = 'pending' AND org_id = ?",
+            array_merge([$req->userId()], $ids, [$req->orgId()])
         );
         Http::json(['discarded' => $n]);
     }

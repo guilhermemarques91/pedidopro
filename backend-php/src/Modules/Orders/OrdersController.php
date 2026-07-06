@@ -13,8 +13,8 @@ final class OrdersController
 {
     public static function list(Request $req): void
     {
-        $conditions = [];
-        $params = [];
+        $conditions = ['o.org_id = ?'];
+        $params = [$req->orgId()];
         if ($req->query('status') !== null) {
             $conditions[] = 'o.status = ?';
             $params[] = $req->query('status');
@@ -23,7 +23,7 @@ final class OrdersController
             $conditions[] = 'o.supplier_id = ?';
             $params[] = (int) $req->query('supplier_id');
         }
-        $where = $conditions ? 'WHERE ' . implode(' AND ', $conditions) : '';
+        $where = 'WHERE ' . implode(' AND ', $conditions);
         Http::json(Db::query(
             "SELECT o.*, s.name AS supplier_name, u.name AS created_by_name
                FROM orders o
@@ -37,7 +37,7 @@ final class OrdersController
 
     public static function getById(Request $req): void
     {
-        Http::json(self::detailed($req->intParam('id')));
+        Http::json(self::detailed($req->intParam('id'), $req->orgId()));
     }
 
     public static function create(Request $req): void
@@ -63,8 +63,8 @@ final class OrdersController
         }
 
         $orderId = Db::transaction(function (PDO $pdo) use ($supplierId, $quotationId, $notes, $items, $req) {
-            $o = $pdo->prepare('INSERT INTO orders (supplier_id, quotation_id, notes, created_by) VALUES (?, ?, ?, ?)');
-            $o->execute([$supplierId, $quotationId, $notes, $req->userId()]);
+            $o = $pdo->prepare('INSERT INTO orders (org_id, supplier_id, quotation_id, notes, created_by) VALUES (?, ?, ?, ?, ?)');
+            $o->execute([$req->orgId(), $supplierId, $quotationId, $notes, $req->userId()]);
             $id = (int) $pdo->lastInsertId();
             self::insertItem($pdo, $id, $items);
             self::recalc($pdo, $id);
@@ -76,7 +76,7 @@ final class OrdersController
     public static function update(Request $req): void
     {
         $id = $req->intParam('id');
-        self::assertDraft(self::row($id));
+        self::assertDraft(self::row($id, $req->orgId()));
         Db::execute('UPDATE orders SET notes = ? WHERE id = ?', [$req->input()->string('notes'), $id]);
         Http::json(self::detailed($id));
     }
@@ -84,7 +84,7 @@ final class OrdersController
     public static function remove(Request $req): void
     {
         $id = $req->intParam('id');
-        self::row($id);
+        self::row($id, $req->orgId());
         Db::transaction(function (PDO $pdo) use ($id) {
             $pdo->prepare('DELETE FROM order_approvals WHERE order_id = ?')->execute([$id]);
             $pdo->prepare('DELETE FROM order_items WHERE order_id = ?')->execute([$id]);
@@ -96,7 +96,7 @@ final class OrdersController
     public static function addItem(Request $req): void
     {
         $orderId = $req->intParam('id');
-        $o = self::row($orderId);
+        $o = self::row($orderId, $req->orgId());
         self::assertDraft($o);
         $items = self::parseItems([$req->body]);
         $it = $items[0];
@@ -118,7 +118,7 @@ final class OrdersController
     {
         $orderId = $req->intParam('id');
         $itemRowId = $req->intParam('itemId');
-        self::assertDraft(self::row($orderId));
+        self::assertDraft(self::row($orderId, $req->orgId()));
         self::assertItemBelongs($orderId, $itemRowId);
 
         $in = $req->input();
@@ -151,7 +151,7 @@ final class OrdersController
     {
         $orderId = $req->intParam('id');
         $itemRowId = $req->intParam('itemId');
-        self::assertDraft(self::row($orderId));
+        self::assertDraft(self::row($orderId, $req->orgId()));
         self::assertItemBelongs($orderId, $itemRowId);
         Db::transaction(function (PDO $pdo) use ($orderId, $itemRowId) {
             $pdo->prepare('DELETE FROM order_items WHERE id = ?')->execute([$itemRowId]);
@@ -163,7 +163,7 @@ final class OrdersController
     public static function submit(Request $req): void
     {
         $id = $req->intParam('id');
-        $o = self::row($id);
+        $o = self::row($id, $req->orgId());
         if ($o['status'] !== 'draft') {
             throw HttpError::badRequest('Apenas pedidos em rascunho podem ser enviados para aprovação');
         }
@@ -171,13 +171,13 @@ final class OrdersController
             throw HttpError::badRequest('Pedido sem itens não pode ser enviado para aprovação');
         }
         self::setStatus($id, 'pending_approval');
-        Http::json(self::row($id));
+        Http::json(self::row($id, $req->orgId()));
     }
 
     public static function approve(Request $req): void
     {
         $id = $req->intParam('id');
-        $o = self::row($id);
+        $o = self::row($id, $req->orgId());
         if ($o['status'] !== 'pending_approval') {
             throw HttpError::badRequest('Pedido não está aguardando aprovação');
         }
@@ -188,13 +188,13 @@ final class OrdersController
             $pdo->prepare("UPDATE orders SET status = 'approved', approved_by = ?, approved_at = NOW() WHERE id = ?")
                 ->execute([$req->userId(), $id]);
         });
-        Http::json(self::row($id));
+        Http::json(self::row($id, $req->orgId()));
     }
 
     public static function reject(Request $req): void
     {
         $id = $req->intParam('id');
-        $o = self::row($id);
+        $o = self::row($id, $req->orgId());
         if ($o['status'] !== 'pending_approval') {
             throw HttpError::badRequest('Pedido não está aguardando aprovação');
         }
@@ -205,13 +205,13 @@ final class OrdersController
             $pdo->prepare("UPDATE orders SET status = 'draft', approved_by = NULL, approved_at = NULL WHERE id = ?")
                 ->execute([$id]);
         });
-        Http::json(self::row($id));
+        Http::json(self::row($id, $req->orgId()));
     }
 
     public static function send(Request $req): void
     {
         $id = $req->intParam('id');
-        $o = self::row($id);
+        $o = self::row($id, $req->orgId());
         if ($o['status'] !== 'approved') {
             throw HttpError::badRequest('Apenas pedidos aprovados podem ser enviados');
         }
@@ -231,7 +231,7 @@ final class OrdersController
             $whatsappSent = true;
         }
         Db::execute("UPDATE orders SET status = 'sent', sent_at = NOW() WHERE id = ?", [$id]);
-        Http::json(['order' => self::row($id), 'whatsappSent' => $whatsappSent]);
+        Http::json(['order' => self::row($id, $req->orgId()), 'whatsappSent' => $whatsappSent]);
     }
 
     /**
@@ -241,7 +241,7 @@ final class OrdersController
     public static function message(Request $req): void
     {
         $id = $req->intParam('id');
-        $o = self::row($id);
+        $o = self::row($id, $req->orgId());
         $supplier = Db::queryOne(
             'SELECT order_type, whatsapp_number FROM suppliers WHERE id = ?',
             [$o['supplier_id']]
@@ -275,38 +275,44 @@ final class OrdersController
     public static function receive(Request $req): void
     {
         $id = $req->intParam('id');
-        $o = self::row($id);
+        $o = self::row($id, $req->orgId());
         if ($o['status'] !== 'sent') {
             throw HttpError::badRequest('Apenas pedidos enviados podem ser marcados como recebidos');
         }
         Db::execute("UPDATE orders SET status = 'received', received_at = NOW() WHERE id = ?", [$id]);
-        Http::json(self::row($id));
+        Http::json(self::row($id, $req->orgId()));
     }
 
     public static function cancel(Request $req): void
     {
         $id = $req->intParam('id');
-        $o = self::row($id);
+        $o = self::row($id, $req->orgId());
         if ($o['status'] === 'received' || $o['status'] === 'cancelled') {
             throw HttpError::badRequest('Pedido recebido ou já cancelado não pode ser cancelado');
         }
         self::setStatus($id, 'cancelled');
-        Http::json(self::row($id));
+        Http::json(self::row($id, $req->orgId()));
     }
 
     // ---- helpers ----
 
-    private static function row(int $id): array
+    /** Gate de tenant quando $orgId é informado (entradas públicas); null = uso interno já gated. */
+    private static function row(int $id, ?int $orgId = null): array
     {
-        $o = Db::queryOne('SELECT * FROM orders WHERE id = ?', [$id]);
+        $o = $orgId === null
+            ? Db::queryOne('SELECT * FROM orders WHERE id = ?', [$id])
+            : Db::queryOne('SELECT * FROM orders WHERE id = ? AND org_id = ?', [$id, $orgId]);
         if (!$o) {
             throw HttpError::notFound('Pedido não encontrado');
         }
         return $o;
     }
 
-    private static function detailed(int $id): array
+    private static function detailed(int $id, ?int $orgId = null): array
     {
+        if ($orgId !== null) {
+            self::row($id, $orgId); // gate de tenant
+        }
         $order = Db::queryOne(
             'SELECT o.*, s.name AS supplier_name, s.order_type, s.whatsapp_number,
                     u.name AS created_by_name, a.name AS approved_by_name

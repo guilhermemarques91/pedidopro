@@ -96,8 +96,8 @@ final class MarmitexReportController
     public static function invoices(Request $req): void
     {
         $cid = $req->query('company_id');
-        $where = $cid ? 'WHERE i.company_id = ?' : '';
-        $params = $cid ? [(int) $cid] : [];
+        $where = 'WHERE c.org_id = ?' . ($cid ? ' AND i.company_id = ?' : '');
+        $params = $cid ? [$req->orgId(), (int) $cid] : [$req->orgId()];
         Http::json(Db::query(
             "SELECT i.*, c.name AS company_name
                FROM marmitex_invoices i JOIN marmitex_companies c ON c.id = i.company_id

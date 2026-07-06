@@ -10,7 +10,7 @@ import { Button, Card, Field, Input, Modal, Spinner, ErrorBox, EmptyState } from
 
 export function Categories() {
   const qc = useQueryClient();
-  const isAdmin = useAuth((s) => s.hasRole('admin'));
+  const isAdmin = useAuth((s) => s.can('compras:admin'));
   const [editing, setEditing] = useState<Category | null>(null);
   const [open, setOpen] = useState(false);
 

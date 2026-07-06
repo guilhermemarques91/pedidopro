@@ -48,7 +48,9 @@ final class DeliveryController
         if ($req->query('all') === null && !$conditions) {
             $conditions[] = "(o.status NOT IN ('concluded','cancelled') OR o.created_at >= (NOW() - INTERVAL 1 DAY))";
         }
-        $where = $conditions ? 'WHERE ' . implode(' AND ', $conditions) : '';
+        $conditions[] = 'o.org_id = ?';
+        $params[] = $req->orgId();
+        $where = 'WHERE ' . implode(' AND ', $conditions);
         Http::json(Db::query(
             "SELECT o.*, (SELECT COUNT(*) FROM delivery_order_items i WHERE i.order_id = o.id) AS items_count
                FROM delivery_orders o
@@ -60,7 +62,12 @@ final class DeliveryController
 
     public static function getOrder(Request $req): void
     {
-        Http::json(self::detailed($req->intParam('id')));
+        $id = $req->intParam('id');
+        // Gate de tenant antes do detalhe.
+        if (!Db::queryOne('SELECT id FROM delivery_orders WHERE id = ? AND org_id = ?', [$id, $req->orgId()])) {
+            throw HttpError::notFound('Pedido não encontrado');
+        }
+        Http::json(self::detailed($id));
     }
 
     /** POST /delivery/orders/:id/{confirm|ready|dispatch|cancel} */
@@ -113,8 +120,9 @@ final class DeliveryController
             "SELECT a.*, o.display_id, o.customer_name, o.customer_paid
                FROM delivery_alerts a
                LEFT JOIN delivery_orders o ON o.id = a.order_id
-              WHERE a.status = 'pending'
-              ORDER BY a.created_at DESC"
+              WHERE a.status = 'pending' AND a.org_id = ?
+              ORDER BY a.created_at DESC",
+            [$req->orgId()]
         ));
     }
 
@@ -124,7 +132,7 @@ final class DeliveryController
     private static function resolveAlert(Request $req, bool $accept): void
     {
         $id = $req->intParam('id');
-        $a = Db::queryOne('SELECT * FROM delivery_alerts WHERE id = ?', [$id]);
+        $a = Db::queryOne('SELECT * FROM delivery_alerts WHERE id = ? AND org_id = ?', [$id, $req->orgId()]);
         if (!$a) {
             throw HttpError::notFound('Alerta não encontrado');
         }
@@ -157,7 +165,7 @@ final class DeliveryController
 
     public static function listChannels(Request $req): void
     {
-        $rows = Db::query('SELECT * FROM channels ORDER BY platform, name');
+        $rows = Db::query('SELECT * FROM channels WHERE org_id = ? ORDER BY platform, name', [$req->orgId()]);
         Http::json(array_map([self::class, 'maskChannel'], $rows));
     }
 
@@ -167,10 +175,10 @@ final class DeliveryController
         $platform = $in->enum('platform', ['ifood', '99food'], true);
         $name = $in->requireString('name', 1, 150);
         $id = Db::insertReturning(
-            'INSERT INTO channels (platform, name, merchant_id, client_id, client_secret, webhook_secret, active, auto_confirm, commission_rate, extra)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            'INSERT INTO channels (org_id, platform, name, merchant_id, client_id, client_secret, webhook_secret, active, auto_confirm, commission_rate, extra)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             [
-                $platform, $name,
+                $req->orgId(), $platform, $name,
                 $in->string('merchant_id'), $in->string('client_id'),
                 $in->string('client_secret'), $in->string('webhook_secret'),
                 $in->boolean('active', true) ? 1 : 0,

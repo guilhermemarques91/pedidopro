@@ -11,8 +11,8 @@ import { Button, Card, Field, Input, Select, Modal, ViewModal, Spinner, ErrorBox
 
 export function Items() {
   const qc = useQueryClient();
-  const canWrite = useAuth((s) => s.hasRole('admin', 'buyer'));
-  const isAdmin = useAuth((s) => s.hasRole('admin'));
+  const canWrite = useAuth((s) => s.can('compras:write'));
+  const isAdmin = useAuth((s) => s.can('compras:admin'));
   const [filter, setFilter] = useState<string>('');
   const [search, setSearch] = useState('');
   const [editing, setEditing] = useState<Item | null>(null);

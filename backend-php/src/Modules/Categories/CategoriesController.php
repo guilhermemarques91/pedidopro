@@ -11,15 +11,16 @@ final class CategoriesController
 {
     public static function list(Request $req): void
     {
-        $sql = $req->query('includeInactive') === 'true'
-            ? 'SELECT * FROM categories ORDER BY name'
-            : 'SELECT * FROM categories WHERE active = 1 ORDER BY name';
-        Http::json(Db::query($sql));
+        $active = $req->query('includeInactive') === 'true' ? '' : ' AND active = 1';
+        Http::json(Db::query(
+            "SELECT * FROM categories WHERE org_id = ?{$active} ORDER BY name",
+            [$req->orgId()]
+        ));
     }
 
     public static function getById(Request $req): void
     {
-        Http::json(self::find($req->intParam('id')));
+        Http::json(self::find($req->intParam('id'), $req->orgId()));
     }
 
     public static function create(Request $req): void
@@ -27,8 +28,8 @@ final class CategoriesController
         $in = $req->input();
         $name = $in->requireString('name');
         $row = Db::insertReturning(
-            'INSERT INTO categories (name, color, icon) VALUES (?, ?, ?)',
-            [$name, $in->string('color'), $in->string('icon')],
+            'INSERT INTO categories (org_id, name, color, icon) VALUES (?, ?, ?, ?)',
+            [$req->orgId(), $name, $in->string('color'), $in->string('icon')],
             'categories'
         );
         Http::json($row, 201);
@@ -37,7 +38,7 @@ final class CategoriesController
     public static function update(Request $req): void
     {
         $id = $req->intParam('id');
-        self::find($id);
+        self::find($id, $req->orgId());
         $in = $req->input();
         $fields = [];
         $values = [];
@@ -52,20 +53,21 @@ final class CategoriesController
         }
         $values[] = $id;
         Db::execute('UPDATE categories SET ' . implode(', ', $fields) . ' WHERE id = ?', $values);
-        Http::json(self::find($id));
+        Http::json(self::find($id, $req->orgId()));
     }
 
     public static function remove(Request $req): void
     {
         $id = $req->intParam('id');
-        self::find($id);
+        self::find($id, $req->orgId());
         Db::execute('UPDATE categories SET active = 0 WHERE id = ?', [$id]);
         Http::noContent();
     }
 
-    private static function find(int $id): array
+    /** Gate de tenant: só devolve a linha se pertencer à org do usuário. */
+    private static function find(int $id, int $orgId): array
     {
-        $row = Db::queryOne('SELECT * FROM categories WHERE id = ?', [$id]);
+        $row = Db::queryOne('SELECT * FROM categories WHERE id = ? AND org_id = ?', [$id, $orgId]);
         if (!$row) {
             throw HttpError::notFound('Categoria não encontrada');
         }

@@ -13,8 +13,8 @@ final class RequestsController
     public static function list(Request $req): void
     {
         $own = !$req->isAdmin();
-        $where = $own ? 'WHERE pr.created_by = ?' : '';
-        $params = $own ? [$req->userId()] : [];
+        $where = 'WHERE pr.org_id = ?' . ($own ? ' AND pr.created_by = ?' : '');
+        $params = $own ? [$req->orgId(), $req->userId()] : [$req->orgId()];
         Http::json(Db::query(
             "SELECT pr.*, u.name AS created_by_name, COUNT(pri.id) AS item_count
                FROM purchase_requests pr
@@ -33,8 +33,8 @@ final class RequestsController
         $header = Db::queryOne(
             'SELECT pr.*, u.name AS created_by_name
                FROM purchase_requests pr JOIN users u ON u.id = pr.created_by
-              WHERE pr.id = ?',
-            [$id]
+              WHERE pr.id = ? AND pr.org_id = ?',
+            [$id, $req->orgId()]
         );
         if (!$header) {
             throw HttpError::notFound('Lista de compras não encontrada');
@@ -124,8 +124,8 @@ final class RequestsController
         $items = self::parseItems($in->array('items', true));
 
         $id = Db::transaction(function (PDO $pdo) use ($title, $notes, $items, $req) {
-            $stmt = $pdo->prepare('INSERT INTO purchase_requests (title, notes, created_by) VALUES (?, ?, ?)');
-            $stmt->execute([$title, $notes, $req->userId()]);
+            $stmt = $pdo->prepare('INSERT INTO purchase_requests (org_id, title, notes, created_by) VALUES (?, ?, ?, ?)');
+            $stmt->execute([$req->orgId(), $title, $notes, $req->userId()]);
             $rid = (int) $pdo->lastInsertId();
             self::insertItems($pdo, $rid, $items);
             return $rid;
@@ -136,7 +136,7 @@ final class RequestsController
     public static function update(Request $req): void
     {
         $id = $req->intParam('id');
-        $r = self::row($id);
+        $r = self::row($id, $req->orgId());
         if ((int) $r['created_by'] !== $req->userId() && !$req->isAdmin()) {
             throw HttpError::forbidden('Lista de outro usuário');
         }
@@ -165,7 +165,7 @@ final class RequestsController
     public static function submit(Request $req): void
     {
         $id = $req->intParam('id');
-        $r = self::row($id);
+        $r = self::row($id, $req->orgId());
         if ((int) $r['created_by'] !== $req->userId() && !$req->isAdmin()) {
             throw HttpError::forbidden('Lista de outro usuário');
         }
@@ -179,7 +179,7 @@ final class RequestsController
     public static function cancel(Request $req): void
     {
         $id = $req->intParam('id');
-        $r = self::row($id);
+        $r = self::row($id, $req->orgId());
         if ($r['status'] === 'ordered' || $r['status'] === 'cancelled') {
             throw HttpError::badRequest('Lista já finalizada ou cancelada não pode ser cancelada');
         }
@@ -190,7 +190,7 @@ final class RequestsController
     public static function remove(Request $req): void
     {
         $id = $req->intParam('id');
-        $r = self::row($id);
+        $r = self::row($id, $req->orgId());
         if (!$req->isAdmin()) {
             if ((int) $r['created_by'] !== $req->userId()) {
                 throw HttpError::forbidden('Lista de outro usuário');
@@ -210,7 +210,7 @@ final class RequestsController
     public static function allocate(Request $req): void
     {
         $id = $req->intParam('id');
-        $r = self::row($id);
+        $r = self::row($id, $req->orgId());
         if (!in_array($r['status'], ['submitted', 'allocated'], true)) {
             throw HttpError::badRequest('A lista precisa estar enviada para ser alocada');
         }
@@ -237,7 +237,7 @@ final class RequestsController
     public static function generateOrders(Request $req): void
     {
         $id = $req->intParam('id');
-        $r = self::row($id);
+        $r = self::row($id, $req->orgId());
         if ($r['status'] !== 'allocated') {
             throw HttpError::badRequest('Aloque os itens antes de gerar os pedidos');
         }
@@ -290,8 +290,8 @@ final class RequestsController
                     }
                 } else {
                     $pdo->prepare(
-                        'INSERT INTO orders (supplier_id, purchase_request_id, created_by, notes) VALUES (?, ?, ?, ?)'
-                    )->execute([$supplierId, $id, $req->userId(), "Gerado da lista #{$id}"]);
+                        'INSERT INTO orders (org_id, supplier_id, purchase_request_id, created_by, notes) VALUES (?, ?, ?, ?, ?)'
+                    )->execute([$req->orgId(), $supplierId, $id, $req->userId(), "Gerado da lista #{$id}"]);
                     $orderId = (int) $pdo->lastInsertId();
                 }
 
@@ -329,9 +329,12 @@ final class RequestsController
         )->execute([$orderId, $itemId, $line['quantity'], $line['alloc_price'] ?? 0, $line['notes']]);
     }
 
-    private static function row(int $id): array
+    /** Gate de tenant quando $orgId é informado (entradas públicas); null = uso interno já gated. */
+    private static function row(int $id, ?int $orgId = null): array
     {
-        $r = Db::queryOne('SELECT * FROM purchase_requests WHERE id = ?', [$id]);
+        $r = $orgId === null
+            ? Db::queryOne('SELECT * FROM purchase_requests WHERE id = ?', [$id])
+            : Db::queryOne('SELECT * FROM purchase_requests WHERE id = ? AND org_id = ?', [$id, $orgId]);
         if (!$r) {
             throw HttpError::notFound('Lista de compras não encontrada');
         }

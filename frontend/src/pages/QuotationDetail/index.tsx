@@ -12,7 +12,7 @@ export function QuotationDetailPage() {
   const { id } = useParams();
   const qid = Number(id);
   const qc = useQueryClient();
-  const canWrite = useAuth((s) => s.hasRole('admin', 'buyer'));
+  const canWrite = useAuth((s) => s.can('compras:write'));
   const [addOpen, setAddOpen] = useState(false);
   const [extractOpen, setExtractOpen] = useState(false);
 

@@ -74,10 +74,10 @@ final class ImportController
             }
 
             $pdo->prepare(
-                "INSERT INTO imports (filename, status, total_rows, imported_rows, error_rows, error_log, created_by)
-                 VALUES (?, 'done', ?, ?, ?, ?, ?)"
+                "INSERT INTO imports (org_id, filename, status, total_rows, imported_rows, error_rows, error_log, created_by)
+                 VALUES (?, ?, 'done', ?, ?, ?, ?, ?)"
             )->execute([
-                $filename, $parsed['totalRows'], count($valid), count($errors),
+                $req->orgId(), $filename, $parsed['totalRows'], count($valid), count($errors),
                 json_encode($errors, JSON_UNESCAPED_UNICODE), $req->userId(),
             ]);
 

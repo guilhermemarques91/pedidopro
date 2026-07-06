@@ -23,14 +23,16 @@ final class MarmitexCompaniesController
                     (SELECT COUNT(*) FROM marmitex_marmitas m
                       WHERE m.company_id = c.id AND m.billed_invoice_id IS NULL) AS pending_count
                FROM marmitex_companies c
-              ORDER BY c.active DESC, c.name"
+              WHERE c.org_id = ?
+              ORDER BY c.active DESC, c.name",
+            [$req->orgId()]
         ));
     }
 
     public static function getById(Request $req): void
     {
         $cid = self::scopeCompany($req, $req->intParam('id'));
-        $row = Db::queryOne('SELECT * FROM marmitex_companies WHERE id = ?', [$cid]);
+        $row = Db::queryOne('SELECT * FROM marmitex_companies WHERE id = ? AND org_id = ?', [$cid, $req->orgId()]);
         if (!$row) {
             throw HttpError::notFound('Empresa não encontrada');
         }
@@ -41,9 +43,10 @@ final class MarmitexCompaniesController
     {
         $in = $req->input();
         $row = Db::insertReturning(
-            'INSERT INTO marmitex_companies (name, cnpj, contact_name, phone, email, notes, order_cutoff_time, created_by)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            'INSERT INTO marmitex_companies (org_id, name, cnpj, contact_name, phone, email, notes, order_cutoff_time, created_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
             [
+                $req->orgId(),
                 $in->requireString('name'),
                 $in->string('cnpj'),
                 $in->string('contact_name'),
@@ -61,7 +64,7 @@ final class MarmitexCompaniesController
     public static function update(Request $req): void
     {
         $id = $req->intParam('id');
-        if (!Db::queryOne('SELECT id FROM marmitex_companies WHERE id = ?', [$id])) {
+        if (!Db::queryOne('SELECT id FROM marmitex_companies WHERE id = ? AND org_id = ?', [$id, $req->orgId()])) {
             throw HttpError::notFound('Empresa não encontrada');
         }
         $in = $req->input();

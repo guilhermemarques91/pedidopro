@@ -14,8 +14,8 @@ export function OrderDetailPage() {
   const { id } = useParams();
   const oid = Number(id);
   const qc = useQueryClient();
-  const isBuyer = useAuth((s) => s.hasRole('admin', 'buyer'));
-  const isApprover = useAuth((s) => s.hasRole('admin', 'approver'));
+  const isBuyer = useAuth((s) => s.can('compras:write'));
+  const isApprover = useAuth((s) => s.can('compras:approve'));
 
   const { data, isLoading, error } = useQuery({ queryKey: ['order', oid], queryFn: () => ordersApi.get(oid) });
   const invalidate = () => {

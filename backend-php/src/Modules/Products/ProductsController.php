@@ -89,7 +89,7 @@ final class ProductsController
 
     public static function getById(Request $req): void
     {
-        $product = self::find($req->intParam('id'));
+        $product = self::find($req->intParam('id'), $req->orgId());
         $product['items'] = Db::query(
             "SELECT i.id, i.name, i.unit, i.base_price, s.name AS supplier_name
                FROM items i JOIN suppliers s ON s.id = i.supplier_id
@@ -118,7 +118,7 @@ final class ProductsController
     public static function update(Request $req): void
     {
         $id = $req->intParam('id');
-        self::find($id);
+        self::find($id, $req->orgId());
         $in = $req->input();
         // Campos escalares opcionais: só atualiza os enviados.
         $map = [
@@ -149,7 +149,7 @@ final class ProductsController
     public static function remove(Request $req): void
     {
         $id = $req->intParam('id');
-        self::find($id);
+        self::find($id, $req->orgId());
         // Soft delete: desvincula itens e desativa.
         Db::execute('UPDATE items SET product_id = NULL WHERE product_id = ?', [$id]);
         Db::execute('UPDATE products SET active = 0 WHERE id = ?', [$id]);
@@ -159,7 +159,7 @@ final class ProductsController
     public static function assign(Request $req): void
     {
         $id = $req->intParam('id');
-        self::find($id);
+        self::find($id, $req->orgId());
         $itemIds = $req->input()->intArray('item_ids', true);
         if (!$itemIds) {
             throw HttpError::badRequest('Selecione ao menos um item');
@@ -259,9 +259,12 @@ final class ProductsController
         Http::json($out);
     }
 
-    private static function find(int $id): array
+    /** Gate de tenant quando $orgId é informado; null = uso interno (pós-insert). */
+    private static function find(int $id, ?int $orgId = null): array
     {
-        $row = Db::queryOne('SELECT * FROM products WHERE id = ?', [$id]);
+        $row = $orgId === null
+            ? Db::queryOne('SELECT * FROM products WHERE id = ?', [$id])
+            : Db::queryOne('SELECT * FROM products WHERE id = ? AND org_id = ?', [$id, $orgId]);
         if (!$row) {
             throw HttpError::notFound('Produto não encontrado');
         }

@@ -11,7 +11,7 @@ import { Button, Card, Field, Input, Modal, IconBtn, Spinner, ErrorBox, EmptySta
 
 export function Quotations() {
   const qc = useQueryClient();
-  const canWrite = useAuth((s) => s.hasRole('admin', 'buyer'));
+  const canWrite = useAuth((s) => s.can('compras:write'));
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState('');
   const [error, setError] = useState('');

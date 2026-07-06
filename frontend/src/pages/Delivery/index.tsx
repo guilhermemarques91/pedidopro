@@ -25,7 +25,7 @@ const PLATFORM_META: Record<string, { label: string; cls: string }> = {
 
 export function Delivery() {
   const qc = useQueryClient();
-  const isAdmin = useAuth((s) => s.hasRole('admin'));
+  const isAdmin = useAuth((s) => s.can('delivery:admin'));
   const { data, isLoading, error } = useQuery({
     queryKey: ['delivery-orders'],
     queryFn: () => deliveryApi.list(),

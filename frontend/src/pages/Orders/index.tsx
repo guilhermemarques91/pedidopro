@@ -14,8 +14,8 @@ const STATUS = ['', 'draft', 'pending_approval', 'approved', 'sent', 'received',
 
 export function Orders() {
   const qc = useQueryClient();
-  const canWrite = useAuth((s) => s.hasRole('admin', 'buyer'));
-  const isAdmin = useAuth((s) => s.hasRole('admin'));
+  const canWrite = useAuth((s) => s.can('compras:write'));
+  const isAdmin = useAuth((s) => s.can('compras:admin'));
   const [status, setStatus] = useState('');
   const [open, setOpen] = useState(false);
 

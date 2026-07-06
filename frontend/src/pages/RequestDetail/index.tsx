@@ -43,7 +43,7 @@ export function RequestDetailPage() {
   const { id } = useParams();
   const requestId = Number(id);
   const qc = useQueryClient();
-  const isAdmin = useAuth((s) => s.hasRole('admin'));
+  const isAdmin = useAuth((s) => s.can('compras:admin'));
   const { data, isLoading, error } = useQuery({ queryKey: ['request', requestId], queryFn: () => requestsApi.get(requestId) });
   const { data: suppliers } = useQuery({ queryKey: ['suppliers'], queryFn: suppliersApi.list, enabled: isAdmin });
 

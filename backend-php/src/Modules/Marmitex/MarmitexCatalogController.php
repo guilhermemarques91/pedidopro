@@ -25,10 +25,10 @@ final class MarmitexCatalogController
     public static function catalog(Request $req): void
     {
         Http::json([
-            'sizes' => Db::query('SELECT * FROM marmitex_sizes ORDER BY sort_order, name'),
-            'proteins' => Db::query('SELECT * FROM marmitex_proteins ORDER BY sort_order, name'),
-            'sides' => Db::query('SELECT * FROM marmitex_sides ORDER BY sort_order, name'),
-            'observations' => Db::query('SELECT * FROM marmitex_observations ORDER BY sort_order, name'),
+            'sizes' => Db::query('SELECT * FROM marmitex_sizes WHERE org_id = ? ORDER BY sort_order, name', [$req->orgId()]),
+            'proteins' => Db::query('SELECT * FROM marmitex_proteins WHERE org_id = ? ORDER BY sort_order, name', [$req->orgId()]),
+            'sides' => Db::query('SELECT * FROM marmitex_sides WHERE org_id = ? ORDER BY sort_order, name', [$req->orgId()]),
+            'observations' => Db::query('SELECT * FROM marmitex_observations WHERE org_id = ? ORDER BY sort_order, name', [$req->orgId()]),
         ]);
     }
 
@@ -42,14 +42,14 @@ final class MarmitexCatalogController
         if ($table === 'marmitex_sizes') {
             $price = (float) ($in->number('price') ?? 0);
             $row = Db::insertReturning(
-                "INSERT INTO {$table} (name, price, sort_order) VALUES (?, ?, ?)",
-                [$name, $price, $sort],
+                "INSERT INTO {$table} (org_id, name, price, sort_order) VALUES (?, ?, ?, ?)",
+                [$req->orgId(), $name, $price, $sort],
                 $table
             );
         } else {
             $row = Db::insertReturning(
-                "INSERT INTO {$table} (name, sort_order) VALUES (?, ?)",
-                [$name, $sort],
+                "INSERT INTO {$table} (org_id, name, sort_order) VALUES (?, ?, ?)",
+                [$req->orgId(), $name, $sort],
                 $table
             );
         }

@@ -16,10 +16,10 @@ final class QuotationsController
 
     public static function list(Request $req): void
     {
-        $params = [];
-        $where = '';
+        $params = [$req->orgId()];
+        $where = 'WHERE q.org_id = ?';
         if ($req->query('status') !== null) {
-            $where = 'WHERE q.status = ?';
+            $where .= ' AND q.status = ?';
             $params[] = $req->query('status');
         }
         Http::json(Db::query(
@@ -37,7 +37,7 @@ final class QuotationsController
     public static function getById(Request $req): void
     {
         $id = $req->intParam('id');
-        $q = self::row($id);
+        $q = self::row($id, $req->orgId());
         $q['items'] = Db::query(
             'SELECT qi.*, i.name AS item_name, i.unit, s.name AS supplier_name
                FROM quotation_items qi
@@ -54,8 +54,8 @@ final class QuotationsController
     {
         $title = $req->input()->requireString('title', 1, 200);
         $row = Db::insertReturning(
-            'INSERT INTO quotations (title, created_by) VALUES (?, ?)',
-            [$title, $req->userId()],
+            'INSERT INTO quotations (org_id, title, created_by) VALUES (?, ?, ?)',
+            [$req->orgId(), $title, $req->userId()],
             'quotations'
         );
         Http::json($row, 201);
@@ -64,7 +64,7 @@ final class QuotationsController
     public static function update(Request $req): void
     {
         $id = $req->intParam('id');
-        $q = self::row($id);
+        $q = self::row($id, $req->orgId());
         if ($q['status'] === 'closed') {
             throw HttpError::badRequest('Cotação fechada não pode ser editada');
         }
@@ -84,13 +84,13 @@ final class QuotationsController
         }
         $values[] = $id;
         Db::execute('UPDATE quotations SET ' . implode(', ', $fields) . ' WHERE id = ?', $values);
-        Http::json(self::row($id));
+        Http::json(self::row($id, $req->orgId()));
     }
 
     public static function remove(Request $req): void
     {
         $id = $req->intParam('id');
-        self::row($id);
+        self::row($id, $req->orgId());
         Db::transaction(function (PDO $pdo) use ($id) {
             $pdo->prepare('UPDATE orders SET quotation_id = NULL WHERE quotation_id = ?')->execute([$id]);
             $pdo->prepare('DELETE FROM quotation_items WHERE quotation_id = ?')->execute([$id]);
@@ -102,7 +102,7 @@ final class QuotationsController
     public static function close(Request $req): void
     {
         $id = $req->intParam('id');
-        $q = self::row($id);
+        $q = self::row($id, $req->orgId());
         if ($q['status'] === 'closed') {
             throw HttpError::badRequest('Cotação já está fechada');
         }
@@ -122,13 +122,13 @@ final class QuotationsController
             )->execute([$id]);
             $pdo->prepare("UPDATE quotations SET status = 'closed', closed_at = NOW() WHERE id = ?")->execute([$id]);
         });
-        Http::json(self::row($id));
+        Http::json(self::row($id, $req->orgId()));
     }
 
     public static function comparison(Request $req): void
     {
         $id = $req->intParam('id');
-        self::row($id);
+        self::row($id, $req->orgId());
         $rows = Db::query(
             'SELECT qi.*, i.name AS item_name, i.unit, s.name AS supplier_name,
                     i.product_id, p.name AS product_name
@@ -183,7 +183,7 @@ final class QuotationsController
     public static function addItem(Request $req): void
     {
         $id = $req->intParam('id');
-        $q = self::row($id);
+        $q = self::row($id, $req->orgId());
         if ($q['status'] === 'closed') {
             throw HttpError::badRequest('Cotação fechada não aceita novos preços');
         }
@@ -210,7 +210,7 @@ final class QuotationsController
     {
         $id = $req->intParam('id');
         $qiId = $req->intParam('itemId');
-        self::assertItemBelongs($id, $qiId);
+        self::assertItemBelongs($id, $qiId, $req->orgId());
         $in = $req->input();
         $fields = [];
         $values = [];
@@ -242,7 +242,7 @@ final class QuotationsController
     {
         $id = $req->intParam('id');
         $qiId = $req->intParam('itemId');
-        self::assertItemBelongs($id, $qiId);
+        self::assertItemBelongs($id, $qiId, $req->orgId());
         Db::execute('DELETE FROM quotation_items WHERE id = ?', [$qiId]);
         Http::noContent();
     }
@@ -255,7 +255,7 @@ final class QuotationsController
         $in = $req->input();
         $supplierId = $in->integer('supplier_id', true);
         $text = $in->requireString('text');
-        self::assertExtractable($id, $supplierId);
+        self::assertExtractable($id, $supplierId, $req->orgId());
         $rows = AiExtractor::fromText($text);
         Http::json(self::addExtracted($id, $supplierId, $rows, 'whatsapp'), 201);
     }
@@ -271,7 +271,7 @@ final class QuotationsController
         if ($supplierId <= 0) {
             throw HttpError::badRequest('Informe o supplier_id do fornecedor do documento');
         }
-        self::assertExtractable($id, $supplierId);
+        self::assertExtractable($id, $supplierId, $req->orgId());
         $mediaType = $file['type'] ?: 'application/octet-stream';
         $source = $mediaType === 'application/pdf' ? 'pdf' : 'image';
         $binary = (string) file_get_contents($file['tmp_name']);
@@ -281,9 +281,9 @@ final class QuotationsController
 
     // ---- helpers ----
 
-    private static function assertExtractable(int $quotationId, int $supplierId): void
+    private static function assertExtractable(int $quotationId, int $supplierId, int $orgId): void
     {
-        $q = self::row($quotationId);
+        $q = self::row($quotationId, $orgId);
         if ($q['status'] === 'closed') {
             throw HttpError::badRequest('Cotação fechada não aceita novos preços');
         }
@@ -300,9 +300,12 @@ final class QuotationsController
         return ['extracted' => count($rows), 'added' => count($ids), 'rows' => $rows, 'items' => $items];
     }
 
-    private static function row(int $id): array
+    /** Gate de tenant quando $orgId é informado (entradas públicas); null = uso interno já gated. */
+    private static function row(int $id, ?int $orgId = null): array
     {
-        $q = Db::queryOne('SELECT * FROM quotations WHERE id = ?', [$id]);
+        $q = $orgId === null
+            ? Db::queryOne('SELECT * FROM quotations WHERE id = ?', [$id])
+            : Db::queryOne('SELECT * FROM quotations WHERE id = ? AND org_id = ?', [$id, $orgId]);
         if (!$q) {
             throw HttpError::notFound('Cotação não encontrada');
         }
@@ -325,9 +328,9 @@ final class QuotationsController
         return $row;
     }
 
-    private static function assertItemBelongs(int $quotationId, int $qiId): void
+    private static function assertItemBelongs(int $quotationId, int $qiId, int $orgId): void
     {
-        $q = self::row($quotationId);
+        $q = self::row($quotationId, $orgId);
         if ($q['status'] === 'closed') {
             throw HttpError::badRequest('Cotação fechada não pode ser editada');
         }

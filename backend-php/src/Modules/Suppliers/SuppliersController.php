@@ -17,19 +17,20 @@ final class SuppliersController
 
     public static function list(Request $req): void
     {
-        $where = $req->query('includeInactive') === 'true' ? '' : 'WHERE s.active = 1';
+        $active = $req->query('includeInactive') === 'true' ? '' : ' AND s.active = 1';
         Http::json(Db::query(
             "SELECT s.*, c.name AS category_name
                FROM suppliers s
                LEFT JOIN categories c ON c.id = s.category_id
-               {$where}
-               ORDER BY s.name"
+              WHERE s.org_id = ?{$active}
+               ORDER BY s.name",
+            [$req->orgId()]
         ));
     }
 
     public static function getById(Request $req): void
     {
-        Http::json(self::find($req->intParam('id')));
+        Http::json(self::find($req->intParam('id'), $req->orgId()));
     }
 
     public static function create(Request $req): void
@@ -40,9 +41,10 @@ final class SuppliersController
         self::assertCategory($in);
 
         $values = array_map(static fn ($c) => self::col($in, $c), self::COLUMNS);
+        $values[] = $req->orgId();
         $placeholders = implode(', ', array_fill(0, count(self::COLUMNS), '?'));
         $row = Db::insertReturning(
-            'INSERT INTO suppliers (' . implode(', ', self::COLUMNS) . ") VALUES ({$placeholders})",
+            'INSERT INTO suppliers (' . implode(', ', self::COLUMNS) . ", org_id) VALUES ({$placeholders}, ?)",
             $values,
             'suppliers'
         );
@@ -52,7 +54,7 @@ final class SuppliersController
     public static function update(Request $req): void
     {
         $id = $req->intParam('id');
-        self::find($id);
+        self::find($id, $req->orgId());
         $in = $req->input();
         if ($in->has('category_id')) {
             self::assertCategory($in);
@@ -70,13 +72,13 @@ final class SuppliersController
         }
         $values[] = $id;
         Db::execute('UPDATE suppliers SET ' . implode(', ', $fields) . ' WHERE id = ?', $values);
-        Http::json(self::find($id));
+        Http::json(self::find($id, $req->orgId()));
     }
 
     public static function remove(Request $req): void
     {
         $id = $req->intParam('id');
-        self::find($id);
+        self::find($id, $req->orgId());
         Db::execute('UPDATE suppliers SET active = 0 WHERE id = ?', [$id]);
         Http::noContent();
     }
@@ -101,13 +103,14 @@ final class SuppliersController
         }
     }
 
-    private static function find(int $id): array
+    /** Gate de tenant: só devolve a linha se pertencer à org do usuário. */
+    private static function find(int $id, int $orgId): array
     {
         $row = Db::queryOne(
             'SELECT s.*, c.name AS category_name
                FROM suppliers s LEFT JOIN categories c ON c.id = s.category_id
-              WHERE s.id = ?',
-            [$id]
+              WHERE s.id = ? AND s.org_id = ?',
+            [$id, $orgId]
         );
         if (!$row) {
             throw HttpError::notFound('Fornecedor não encontrado');

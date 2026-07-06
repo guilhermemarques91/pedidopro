@@ -18,10 +18,11 @@ final class ItemsController
         $supplierId = $req->query('supplier_id') !== null ? (int) $req->query('supplier_id') : null;
         $includeInactive = $req->query('includeInactive') === 'true';
 
-        $params = [];
+        $joinParams = [];
         $join = '';
         $priceSel = 'i.base_price, i.supplier_code';
-        $conditions = [];
+        $conditions = ['i.org_id = ?'];
+        $whereParams = [$req->orgId()];
 
         if (!$includeInactive) {
             $conditions[] = 'i.active = 1';
@@ -30,12 +31,13 @@ final class ItemsController
             // Disponível ao fornecedor = item de origem OU vínculo ativo em item_suppliers.
             // Quando filtrado, preço/código vêm do vínculo do fornecedor (fallback p/ os do item).
             $join = 'LEFT JOIN item_suppliers x ON x.item_id = i.id AND x.supplier_id = ? AND x.active = 1';
-            $params[] = $supplierId; // do JOIN
+            $joinParams[] = $supplierId;
             $priceSel = 'COALESCE(x.base_price, i.base_price) AS base_price, COALESCE(x.supplier_code, i.supplier_code) AS supplier_code';
             $conditions[] = '(i.supplier_id = ? OR x.id IS NOT NULL)';
-            $params[] = $supplierId; // do WHERE
+            $whereParams[] = $supplierId;
         }
-        $where = $conditions ? 'WHERE ' . implode(' AND ', $conditions) : '';
+        $where = 'WHERE ' . implode(' AND ', $conditions);
+        $params = array_merge($joinParams, $whereParams); // ordem = posição dos ? no SQL
 
         Http::json(Db::query(
             "SELECT i.id, i.supplier_id, i.product_id, i.name, i.unit,
@@ -56,7 +58,7 @@ final class ItemsController
     public static function getById(Request $req): void
     {
         $id = $req->intParam('id');
-        $item = self::find($id);
+        $item = self::find($id, $req->orgId());
         $item['suppliers'] = self::suppliersOf($id);
         Http::json($item);
     }
@@ -67,15 +69,16 @@ final class ItemsController
         $supplierId = $in->integer('supplier_id', true);
         $in->requireString('name');
         $in->requireString('unit');
-        self::assertSupplier($supplierId);
+        self::assertSupplier($supplierId, $req->orgId());
 
         $values = array_map(static fn ($c) => self::col($in, $c), self::COLUMNS);
         $placeholders = implode(', ', array_fill(0, count(self::COLUMNS), '?'));
         $supplierCode = $in->string('supplier_code');
         $basePrice = $in->number('base_price');
 
+        $values[] = $req->orgId();
         $id = Db::transaction(function (PDO $pdo) use ($values, $placeholders, $supplierId, $supplierCode, $basePrice) {
-            $pdo->prepare('INSERT INTO items (' . implode(', ', self::COLUMNS) . ") VALUES ({$placeholders})")
+            $pdo->prepare('INSERT INTO items (' . implode(', ', self::COLUMNS) . ", org_id) VALUES ({$placeholders}, ?)")
                 ->execute($values);
             $itemId = (int) $pdo->lastInsertId();
             // Vínculo de origem em item_suppliers (espelha items.supplier_id).
@@ -84,7 +87,7 @@ final class ItemsController
             return $itemId;
         });
 
-        $item = self::find($id);
+        $item = self::find($id, $req->orgId());
         $item['suppliers'] = self::suppliersOf($id);
         Http::json($item, 201);
     }
@@ -92,10 +95,10 @@ final class ItemsController
     public static function update(Request $req): void
     {
         $id = $req->intParam('id');
-        self::find($id);
+        self::find($id, $req->orgId());
         $in = $req->input();
         if ($in->has('supplier_id')) {
-            self::assertSupplier($in->integer('supplier_id', true));
+            self::assertSupplier($in->integer('supplier_id', true), $req->orgId());
         }
         $fields = [];
         $values = [];
@@ -117,7 +120,7 @@ final class ItemsController
               WHERE x.item_id = ?',
             [$id]
         );
-        $item = self::find($id);
+        $item = self::find($id, $req->orgId());
         $item['suppliers'] = self::suppliersOf($id);
         Http::json($item);
     }
@@ -125,7 +128,7 @@ final class ItemsController
     public static function remove(Request $req): void
     {
         $id = $req->intParam('id');
-        self::find($id);
+        self::find($id, $req->orgId());
         Db::execute('UPDATE items SET active = 0 WHERE id = ?', [$id]);
         Http::noContent();
     }
@@ -134,10 +137,10 @@ final class ItemsController
     public static function linkSupplier(Request $req): void
     {
         $itemId = $req->intParam('id');
-        self::find($itemId);
+        self::find($itemId, $req->orgId());
         $in = $req->input();
         $supplierId = $in->integer('supplier_id', true);
-        self::assertSupplier($supplierId);
+        self::assertSupplier($supplierId, $req->orgId());
 
         Db::execute(
             'INSERT INTO item_suppliers (item_id, supplier_id, supplier_code, base_price)
@@ -148,7 +151,7 @@ final class ItemsController
             [$itemId, $supplierId, $in->string('supplier_code'), $in->number('base_price')]
         );
 
-        $item = self::find($itemId);
+        $item = self::find($itemId, $req->orgId());
         $item['suppliers'] = self::suppliersOf($itemId);
         Http::json($item, 201);
     }
@@ -158,7 +161,7 @@ final class ItemsController
     {
         $itemId = $req->intParam('id');
         $supplierId = $req->intParam('supplierId');
-        $item = self::find($itemId);
+        $item = self::find($itemId, $req->orgId());
         if ((int) $item['supplier_id'] === $supplierId) {
             throw HttpError::badRequest('Não é possível remover o fornecedor de origem do item');
         }
@@ -176,9 +179,9 @@ final class ItemsController
         };
     }
 
-    private static function assertSupplier(int $supplierId): void
+    private static function assertSupplier(int $supplierId, int $orgId): void
     {
-        $sup = Db::queryOne('SELECT id FROM suppliers WHERE id = ? AND active = 1', [$supplierId]);
+        $sup = Db::queryOne('SELECT id FROM suppliers WHERE id = ? AND active = 1 AND org_id = ?', [$supplierId, $orgId]);
         if (!$sup) {
             throw HttpError::badRequest('Fornecedor informado não existe ou está inativo');
         }
@@ -197,7 +200,8 @@ final class ItemsController
         );
     }
 
-    private static function find(int $id): array
+    /** Gate de tenant: só devolve a linha se pertencer à org do usuário. */
+    private static function find(int $id, int $orgId): array
     {
         $row = Db::queryOne(
             'SELECT i.*, s.name AS supplier_name, p.name AS product_name,
@@ -205,8 +209,8 @@ final class ItemsController
                FROM items i
                JOIN suppliers s ON s.id = i.supplier_id
                LEFT JOIN products p ON p.id = i.product_id
-              WHERE i.id = ?',
-            [$id]
+              WHERE i.id = ? AND i.org_id = ?',
+            [$id, $orgId]
         );
         if (!$row) {
             throw HttpError::notFound('Item não encontrado');
