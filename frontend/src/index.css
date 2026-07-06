@@ -13,3 +13,27 @@
     white-space: nowrap;
   }
 }
+
+/* ==== Personalização de cor (Admin → Personalização) ====
+   As CSS vars são definidas via JS (brand.store). Sem personalização, os
+   defaults abaixo = paleta emerald original (nada muda). Estas regras ficam
+   FORA de @layer, então vencem as utilities do Tailwind. */
+:root {
+  --brand: #059669;       /* emerald-600 */
+  --brand-dark: #047857;  /* emerald-700 */
+  --brand-soft: #ecfdf5;  /* emerald-50 */
+}
+.bg-emerald-600 { background-color: var(--brand); }
+.hover\:bg-emerald-700:hover { background-color: var(--brand-dark); }
+.bg-emerald-50 { background-color: var(--brand-soft); }
+.hover\:bg-emerald-50:hover { background-color: var(--brand-soft); }
+.text-emerald-600 { color: var(--brand); }
+.text-emerald-700 { color: var(--brand-dark); }
+.hover\:text-emerald-600:hover { color: var(--brand); }
+.hover\:text-emerald-700:hover { color: var(--brand-dark); }
+.accent-emerald-600 { accent-color: var(--brand); }
+.border-emerald-600 { border-color: var(--brand); }
+.border-emerald-300 { border-color: color-mix(in srgb, var(--brand) 40%, white); }
+.focus\:border-emerald-500:focus { border-color: var(--brand); }
+.focus\:ring-emerald-500:focus { --tw-ring-color: var(--brand); }
+.border-t-emerald-600 { border-top-color: var(--brand); }

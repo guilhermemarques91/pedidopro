@@ -5,11 +5,11 @@ import {
   LayoutDashboard, Tags, Truck, Package, FileSpreadsheet,
   ClipboardList, ShoppingCart, LogOut, Inbox, ListChecks, Users, Menu, X,
   Bike, Plug, Building2, BookOpen, FileText, Receipt, BarChart3, UtensilsCrossed, Store as StoreIcon,
-  ChevronDown, ChevronRight, PanelLeftClose, PanelLeft, ScrollText,
+  ChevronDown, ChevronRight, PanelLeftClose, PanelLeft, ScrollText, Palette,
 } from 'lucide-react';
 import { useAuth } from '../store/auth.store';
 import { inboxApi } from '../services/resources';
-import { APP_NAME, Logo } from '../config/brand';
+import { AppName, Logo } from '../config/brand';
 
 type NavItem = {
   to: string;
@@ -57,6 +57,7 @@ const navGroups: NavGroup[] = [
   { title: 'Admin', items: [
     { to: '/users', label: 'Usuários', icon: Users, perm: 'users:manage' },
     { to: '/audit', label: 'Auditoria', icon: ScrollText, perm: 'system:audit' },
+    { to: '/personalizacao', label: 'Personalização', icon: Palette, perm: 'system:admin' },
   ] },
 ];
 
@@ -209,7 +210,7 @@ export function Layout() {
           {!rail && (
             <div className="flex min-w-0 items-center gap-2">
               <Logo size={26} />
-              <span className="truncate text-xl font-bold text-slate-800">{APP_NAME}</span>
+              <span className="truncate text-xl font-bold text-slate-800"><AppName /></span>
             </div>
           )}
           {/* Toggle do trilho — só desktop */}
@@ -281,7 +282,7 @@ export function Layout() {
           </button>
           <div className="flex items-center gap-2">
             <Logo size={22} />
-            <span className="text-lg font-bold text-slate-800">{APP_NAME}</span>
+            <span className="text-lg font-bold text-slate-800"><AppName /></span>
           </div>
         </header>
 

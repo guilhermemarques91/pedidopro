@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api, apiError } from '../../services/api';
 import { useAuth } from '../../store/auth.store';
 import { Button, Field, Input, ErrorBox } from '../../components/ui';
-import { APP_NAME, Logo } from '../../config/brand';
+import { AppName, Logo } from '../../config/brand';
 
 /** Troca de senha obrigatória (1º login / reset pelo admin) ou voluntária. */
 export function ChangePassword() {
@@ -40,7 +40,7 @@ export function ChangePassword() {
       <div className="w-full max-w-sm rounded-2xl bg-white p-8 shadow-lg">
         <div className="mb-6 flex flex-col items-center gap-2">
           <Logo size={36} />
-          <h1 className="text-xl font-bold text-slate-800">{APP_NAME}</h1>
+          <h1 className="text-xl font-bold text-slate-800"><AppName /></h1>
           <p className="text-center text-sm text-slate-500">
             Por segurança, defina uma nova senha antes de continuar.
           </p>

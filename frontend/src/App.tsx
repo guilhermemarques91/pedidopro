@@ -18,6 +18,7 @@ import { RequestDetailPage } from './pages/RequestDetail';
 import { UsersPage } from './pages/Users';
 import { ChangePassword } from './pages/ChangePassword';
 import { AuditPage } from './pages/Audit';
+import { BrandingPage } from './pages/Branding';
 import { Delivery } from './pages/Delivery';
 import { DeliveryOrderDetailPage } from './pages/Delivery/OrderDetail';
 import { Integrations } from './pages/Integrations';
@@ -29,7 +30,8 @@ import { MarmitexCatalogPage } from './pages/Marmitex/Catalog';
 import { MarmitexReportPage } from './pages/Marmitex/Report';
 import { MarmitexInvoices } from './pages/Marmitex/Invoices';
 import { LabelsPrint } from './pages/Marmitex/LabelsPrint';
-import { JSX } from 'react';
+import { JSX, useEffect } from 'react';
+import { useBrand } from './store/brand.store';
 
 function Protected({ children }: { children: JSX.Element }) {
   const token = useAuth((s) => s.token);
@@ -47,6 +49,8 @@ function RoleHome() {
 }
 
 export default function App() {
+  const loadBrand = useBrand((s) => s.load);
+  useEffect(() => { loadBrand(); }, [loadBrand]);
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
@@ -82,6 +86,7 @@ export default function App() {
         <Route path="requests/:id" element={<RequestDetailPage />} />
         <Route path="users" element={<UsersPage />} />
         <Route path="audit" element={<AuditPage />} />
+        <Route path="personalizacao" element={<BrandingPage />} />
         <Route path="inbox" element={<Inbox />} />
         <Route path="categories" element={<Categories />} />
         <Route path="suppliers" element={<Suppliers />} />

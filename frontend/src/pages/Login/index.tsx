@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../store/auth.store';
 import { apiError } from '../../services/api';
 import { Button, Field, Input, ErrorBox } from '../../components/ui';
-import { APP_NAME, APP_TAGLINE, Logo } from '../../config/brand';
+import { AppName, AppTagline, Logo } from '../../config/brand';
 
 export function Login() {
   const login = useAuth((s) => s.login);
@@ -34,8 +34,8 @@ export function Login() {
       <div className="w-full max-w-sm rounded-2xl bg-white p-8 shadow-lg">
         <div className="mb-6 flex flex-col items-center gap-2">
           <Logo size={36} />
-          <h1 className="text-2xl font-bold text-slate-800">{APP_NAME}</h1>
-          <p className="text-sm text-slate-500">{APP_TAGLINE}</p>
+          <h1 className="text-2xl font-bold text-slate-800"><AppName /></h1>
+          <p className="text-sm text-slate-500"><AppTagline /></p>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && <ErrorBox message={error} />}

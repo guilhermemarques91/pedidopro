@@ -16,6 +16,7 @@ use App\Modules\Requests\RequestsController;
 use App\Modules\Users\UsersController;
 use App\Modules\Roles\RolesController;
 use App\Modules\Audit\AuditController;
+use App\Modules\Settings\SettingsController;
 use App\Modules\Inbox\InboxController;
 use App\Modules\Import\ImportController;
 use App\Modules\Whatsapp\WhatsappController;
@@ -58,6 +59,10 @@ final class Routes
     {
         // Health
         $r->get('/health', fn () => Http::json(['status' => 'ok']), null);
+
+        // Marca/personalização (login precisa antes da autenticação)
+        $r->get('/branding', [SettingsController::class, 'branding'], null);
+        $r->put('/settings/branding', [SettingsController::class, 'update'], self::SYSTEM);
 
         // Auth
         $r->post('/auth/login', [AuthController::class, 'login'], null);
