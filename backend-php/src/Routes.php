@@ -18,6 +18,7 @@ use App\Modules\Roles\RolesController;
 use App\Modules\Audit\AuditController;
 use App\Modules\Settings\SettingsController;
 use App\Modules\Stock\StockController;
+use App\Modules\Nfe\NfeController;
 use App\Modules\Inbox\InboxController;
 use App\Modules\Import\ImportController;
 use App\Modules\Whatsapp\WhatsappController;
@@ -116,6 +117,10 @@ final class Routes
         // Estoque (movimentações; saldo vive em products)
         $r->get('/stock/moves', [StockController::class, 'moves'], self::ESTOQUE_READ);
         $r->post('/stock/moves', [StockController::class, 'create'], self::ESTOQUE_MOVE);
+        // Entrada por NF-e (XML)
+        $r->post('/nfe/preview', [NfeController::class, 'preview'], self::ESTOQUE_MOVE);
+        $r->post('/nfe/import', [NfeController::class, 'import'], self::ESTOQUE_MOVE);
+        $r->get('/nfe/history', [NfeController::class, 'history'], self::ESTOQUE_READ);
 
         // Quotations
         $r->get('/quotations', [QuotationsController::class, 'list'], self::READ);

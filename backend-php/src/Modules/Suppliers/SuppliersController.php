@@ -11,7 +11,7 @@ use App\Core\Request;
 final class SuppliersController
 {
     private const COLUMNS = [
-        'name', 'contact_name', 'phone', 'email', 'category_id',
+        'name', 'cnpj', 'contact_name', 'phone', 'email', 'category_id',
         'order_type', 'portal_url', 'whatsapp_number', 'notes',
     ];
 
