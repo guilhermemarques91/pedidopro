@@ -13,6 +13,9 @@ import { Button, Card, Select, Input, Badge, Spinner, ErrorBox } from '../../com
 // Estado de alocação de uma linha.
 interface Alloc { source: string; supplierId: string; itemId: number | null; name: string; unit: string; price: string }
 
+// Chave única da oferta (um item pode ter vários fornecedores vinculados).
+const offerKey = (o: { item_id: number; supplier_id: number }) => `o:${o.item_id}:${o.supplier_id}`;
+
 // Fornecedor "principal" = oferta de menor preço base (ou a primeira cadastrada, se nenhuma tem preço).
 function principalOffer(it: RequestItem): RequestItemOffer | null {
   const priced = it.offers.filter((o) => o.base_price != null);
@@ -23,7 +26,7 @@ function principalOffer(it: RequestItem): RequestItemOffer | null {
 function initAlloc(it: RequestItem): Alloc {
   if (it.alloc_supplier_id) {
     return {
-      source: it.alloc_item_id ? `item:${it.alloc_item_id}` : 'manual',
+      source: it.alloc_item_id ? `o:${it.alloc_item_id}:${it.alloc_supplier_id}` : 'manual',
       supplierId: String(it.alloc_supplier_id),
       itemId: it.alloc_item_id,
       name: it.alloc_name ?? '',
@@ -34,7 +37,7 @@ function initAlloc(it: RequestItem): Alloc {
   // Pré-seleciona o fornecedor principal (menor preço, ou o primeiro se nenhum tem preço).
   const best = principalOffer(it);
   if (best) {
-    return { source: `item:${best.item_id}`, supplierId: String(best.supplier_id), itemId: best.item_id, name: best.name, unit: best.unit, price: numToInput(best.base_price) };
+    return { source: offerKey(best), supplierId: String(best.supplier_id), itemId: best.item_id, name: best.name, unit: best.unit, price: numToInput(best.base_price) };
   }
   return { source: '', supplierId: '', itemId: null, name: it.free_text ?? it.product_name ?? '', unit: it.unit, price: '' };
 }
@@ -114,7 +117,7 @@ export function RequestDetailPage() {
     if (source === 'manual') {
       update(it.id, { source, itemId: null, name: it.free_text ?? it.product_name ?? '', unit: it.unit, supplierId: '', price: '' });
     } else {
-      const offer = it.offers.find((o) => `item:${o.item_id}` === source)!;
+      const offer = it.offers.find((o) => offerKey(o) === source)!;
       update(it.id, { source, itemId: offer.item_id, supplierId: String(offer.supplier_id), name: offer.name, unit: offer.unit, price: numToInput(offer.base_price) });
     }
   }
@@ -232,8 +235,8 @@ function AllocCell({
       <Select value={a.source} onChange={(e) => onSource(it, e.target.value)}>
         <option value="">— de onde comprar —</option>
         {it.offers.map((o) => (
-          <option key={o.item_id} value={`item:${o.item_id}`}>
-            {o.supplier_name}
+          <option key={offerKey(o)} value={offerKey(o)}>
+            {o.supplier_name}{o.base_price != null ? ` — R$ ${Number(o.base_price).toFixed(2).replace('.', ',')}` : ''}
           </option>
         ))}
         <option value="manual">Outro fornecedor…</option>

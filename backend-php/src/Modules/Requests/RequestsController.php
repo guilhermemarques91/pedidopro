@@ -64,17 +64,30 @@ final class RequestsController
         if ($productIds) {
             $ids = array_keys($productIds);
             $place = Db::inClause($ids);
+            // Fornecedores JÁ RELACIONADOS: origem do item + vínculos extras (item_suppliers).
             $offers = Db::query(
                 "SELECT i.product_id, i.id AS item_id, i.supplier_id, s.name AS supplier_name,
                         i.name, i.unit, i.base_price
                    FROM items i JOIN suppliers s ON s.id = i.supplier_id
-                  WHERE i.active = 1 AND i.product_id IN ({$place})
-                  ORDER BY (i.base_price IS NULL), i.base_price ASC, s.name",
+                  WHERE i.active = 1 AND i.product_id IN ({$place})",
                 $ids
             );
-            foreach ($offers as $o) {
+            $extras = Db::query(
+                "SELECT i.product_id, i.id AS item_id, x.supplier_id, s.name AS supplier_name,
+                        i.name, i.unit, COALESCE(x.base_price, i.base_price) AS base_price
+                   FROM items i
+                   JOIN item_suppliers x ON x.item_id = i.id AND x.active = 1 AND x.supplier_id <> i.supplier_id
+                   JOIN suppliers s ON s.id = x.supplier_id
+                  WHERE i.active = 1 AND i.product_id IN ({$place})",
+                $ids
+            );
+            foreach (array_merge($offers, $extras) as $o) {
                 $offersByProduct[(int) $o['product_id']][] = $o;
             }
+            foreach ($offersByProduct as &$list) {
+                self::sortOffers($list);
+            }
+            unset($list);
         }
         // Ofertas para itens sem produto canônico mas com referência ao item escolhido (não agrupado).
         $sourceIds = [];
@@ -94,9 +107,53 @@ final class RequestsController
                   WHERE i.id IN ({$place})",
                 $ids
             );
-            foreach ($rows as $o) {
-                $offerBySourceItem[(int) $o['item_id']] = $o;
+            $extras = Db::query(
+                "SELECT i.id AS item_id, i.product_id, x.supplier_id, s.name AS supplier_name,
+                        i.name, i.unit, COALESCE(x.base_price, i.base_price) AS base_price
+                   FROM items i
+                   JOIN item_suppliers x ON x.item_id = i.id AND x.active = 1 AND x.supplier_id <> i.supplier_id
+                   JOIN suppliers s ON s.id = x.supplier_id
+                  WHERE i.id IN ({$place})",
+                $ids
+            );
+            foreach (array_merge($rows, $extras) as $o) {
+                $offerBySourceItem[(int) $o['item_id']][] = $o;
             }
+            foreach ($offerBySourceItem as &$list) {
+                self::sortOffers($list);
+            }
+            unset($list);
+        }
+
+        // Itens digitados livres: casa por nome com itens cadastrados p/ sugerir fornecedores.
+        $freeNames = [];
+        foreach ($items as $it) {
+            if ($it['product_id'] === null && $it['source_item_id'] === null && $it['free_text']) {
+                $freeNames[mb_strtolower(trim($it['free_text']))] = true;
+            }
+        }
+        $offersByName = [];
+        if ($freeNames) {
+            $names = array_keys($freeNames);
+            $place = Db::inClause($names);
+            $rows = Db::query(
+                "SELECT LOWER(TRIM(i.name)) AS match_name, i.product_id, i.id AS item_id, x.supplier_id,
+                        s.name AS supplier_name, i.name, i.unit, COALESCE(x.base_price, i.base_price) AS base_price
+                   FROM items i
+                   JOIN item_suppliers x ON x.item_id = i.id AND x.active = 1
+                   JOIN suppliers s ON s.id = x.supplier_id
+                  WHERE i.active = 1 AND LOWER(TRIM(i.name)) IN ({$place})",
+                $names
+            );
+            foreach ($rows as $o) {
+                $key = $o['match_name'];
+                unset($o['match_name']);
+                $offersByName[$key][] = $o;
+            }
+            foreach ($offersByName as &$list) {
+                self::sortOffers($list);
+            }
+            unset($list);
         }
 
         foreach ($items as &$it) {
@@ -105,7 +162,9 @@ final class RequestsController
             if ($pid !== null && isset($offersByProduct[$pid])) {
                 $it['offers'] = $offersByProduct[$pid];
             } elseif ($sid !== null && isset($offerBySourceItem[$sid])) {
-                $it['offers'] = [$offerBySourceItem[$sid]];
+                $it['offers'] = $offerBySourceItem[$sid];
+            } elseif ($it['free_text'] && isset($offersByName[mb_strtolower(trim($it['free_text']))])) {
+                $it['offers'] = $offersByName[mb_strtolower(trim($it['free_text']))];
             } else {
                 $it['offers'] = [];
             }
@@ -415,5 +474,21 @@ final class RequestsController
             ];
         }
         return $out;
+    }
+
+    /** Ordena ofertas: com preço primeiro (mais barato), depois por fornecedor. */
+    private static function sortOffers(array &$list): void
+    {
+        usort($list, static function ($a, $b) {
+            $pa = $a['base_price'];
+            $pb = $b['base_price'];
+            if (($pa === null) !== ($pb === null)) {
+                return $pa === null ? 1 : -1;
+            }
+            if ($pa !== null && $pb !== null && (float) $pa !== (float) $pb) {
+                return (float) $pa <=> (float) $pb;
+            }
+            return strcasecmp((string) $a['supplier_name'], (string) $b['supplier_name']);
+        });
     }
 }
