@@ -53,9 +53,11 @@ export function CompanyOrder() {
   });
 
   // Carrega o pedido existente do dia (ou começa com uma linha em branco).
+  // Só aguarda a 1ª carga da chave (isLoading); em refetch de uma chave já em
+  // cache o dado vem na hora — não pode "voltar" a data e a lista sumir.
   useEffect(() => {
+    if (orderQuery.isLoading) return;
     const order = orderQuery.data;
-    if (orderQuery.isFetching) return;
     if (order && order.marmitas.length) {
       setLines(order.marmitas.map((m) => ({
         key: `l${keySeq++}`,
