@@ -158,7 +158,10 @@ final class OrderNormalizer
             'delivery_fee' => self::cents($price['delivery_price'] ?? null),
             'discount_merchant' => $discMerchant,
             'discount_platform' => $discPlatform,
-            'customer_paid' => self::cents($price['customer_need_paying_money'] ?? ($price['real_pay_price'] ?? null)),
+            // Entrega parceira (rider DiDi) só expõe order_price; os demais valores
+            // (customer_need_paying_money/real_pay_price/real_price) vêm nulos por
+            // privacidade. Cai pro melhor disponível p/ sempre mostrar um valor.
+            'customer_paid' => self::cents($price['customer_need_paying_money'] ?? $price['real_pay_price'] ?? $price['real_price'] ?? $price['order_price'] ?? null),
             'placed_at' => self::ts($o['create_time'] ?? null),
         ];
 
