@@ -163,6 +163,37 @@ final class NineNineClient
         return $token;
     }
 
+    /**
+     * URL da página de autorização (bind) da loja. POST auth/authorizationpage/getUrl
+     * com app_id + app_shop_id (não usa secret nem token). O lojista abre a URL, loga na
+     * conta 99Food do estabelecimento e autoriza — vinculando a loja real ao app.
+     */
+    public static function authorizationUrl(array $channel): string
+    {
+        if (self::mock()) {
+            return 'https://example.test/authorize?mock=1';
+        }
+        $creds = self::creds($channel);
+        if ($creds['app_id'] === '' || $creds['app_shop_id'] === '') {
+            throw HttpError::unprocessable('Configure o Client ID (app_id) e o Merchant ID (app_shop_id) do canal antes de gerar o link.');
+        }
+        $r = self::call('POST', '/v1/auth/authorizationpage/getUrl', [], [
+            'app_id' => self::orderIdValue($creds['app_id']),
+            'app_shop_id' => $creds['app_shop_id'],
+        ]);
+        if (!$r['ok']) {
+            $rid = $r['requestId'] !== '' ? " [reqId {$r['requestId']}]" : '';
+            throw HttpError::unprocessable("Falha ao gerar link de autorização no 99Food (errno {$r['errno']}: {$r['errmsg']}){$rid}.");
+        }
+        // data pode vir como string (URL) ou array com a URL no índice 0.
+        $data = $r['data'];
+        $url = is_array($data) ? (string) ($data[0] ?? '') : (string) $data;
+        if ($url === '') {
+            throw HttpError::unprocessable('O 99Food não retornou a URL de autorização.');
+        }
+        return $url;
+    }
+
     /** 99Food entrega pedidos por callback — não há polling. */
     public static function pollEvents(array $channel): array
     {

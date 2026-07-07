@@ -180,6 +180,7 @@ final class Routes
         $r->post('/delivery/channels', [DeliveryController::class, 'createChannel'], self::ADMIN);
         $r->put('/delivery/channels/:id', [DeliveryController::class, 'updateChannel'], self::ADMIN);
         $r->post('/delivery/channels/:id/test', [DeliveryController::class, 'testChannel'], self::ADMIN);
+        $r->post('/delivery/channels/:id/authorization-url', [DeliveryController::class, 'authorizationUrl'], self::ADMIN);
 
         // ===== Marmitex (catering B2B) =====
         // Catálogo: leitura liberada à empresa (monta o formulário); escrita só admin.

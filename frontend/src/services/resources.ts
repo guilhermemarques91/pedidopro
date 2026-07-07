@@ -241,6 +241,8 @@ export const channelsApi = {
   update: (id: number, body: Partial<ChannelInput>) => api.put<Channel>(`/delivery/channels/${id}`, body).then((r) => r.data),
   test: (id: number) =>
     api.post<{ ok: boolean; authenticated: boolean; error?: string; merchants?: { id: string; name: string }[] }>(`/delivery/channels/${id}/test`).then((r) => r.data),
+  authorizationUrl: (id: number) =>
+    api.post<{ url: string }>(`/delivery/channels/${id}/authorization-url`).then((r) => r.data),
 };
 
 export const inboxApi = {

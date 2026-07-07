@@ -1,6 +1,6 @@
 import { FormEvent, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Plug, CheckCircle2, XCircle } from 'lucide-react';
+import { Plus, Plug, CheckCircle2, XCircle, Link2, Copy } from 'lucide-react';
 import { channelsApi, ChannelInput } from '../../services/resources';
 import { apiError } from '../../services/api';
 import type { Channel, DeliveryPlatform } from '../../types';
@@ -19,11 +19,16 @@ export function Integrations() {
   const [creating, setCreating] = useState(false);
   type TestInfo = { authenticated: boolean; error?: string; merchants?: { id: string; name: string }[] };
   const [testResult, setTestResult] = useState<Record<number, TestInfo>>({});
+  const [authUrl, setAuthUrl] = useState<Record<number, string>>({});
 
   const { data, isLoading, error } = useQuery({ queryKey: ['channels'], queryFn: channelsApi.list });
   const test = useMutation({
     mutationFn: (id: number) => channelsApi.test(id),
     onSuccess: (r, id) => setTestResult((prev) => ({ ...prev, [id]: { authenticated: r.authenticated, error: r.error, merchants: r.merchants } })),
+  });
+  const authorize = useMutation({
+    mutationFn: (id: number) => channelsApi.authorizationUrl(id),
+    onSuccess: (r, id) => setAuthUrl((prev) => ({ ...prev, [id]: r.url })),
   });
 
   return (
@@ -58,15 +63,34 @@ export function Integrations() {
                 <div className="flex justify-between"><dt className="text-slate-400">Client secret</dt><dd>{c.has_client_secret ? '••••••' : '—'}</dd></div>
                 <div className="flex justify-between"><dt className="text-slate-400">Webhook secret</dt><dd>{c.webhook_secret ? '••••••' : '—'}</dd></div>
               </dl>
-              <div className="mt-4 flex items-center gap-2">
+              <div className="mt-4 flex flex-wrap items-center gap-2">
                 <Button variant="secondary" className="text-xs" onClick={() => setEditing(c)}>Editar</Button>
                 <Button variant="ghost" className="text-xs" disabled={test.isPending} onClick={() => test.mutate(c.id)}>
                   <Plug size={14} /> Testar conexão
                 </Button>
+                {c.platform === '99food' && (
+                  <Button variant="ghost" className="text-xs" disabled={authorize.isPending} onClick={() => authorize.mutate(c.id)}>
+                    <Link2 size={14} /> Gerar link de autorização
+                  </Button>
+                )}
                 {c.id in testResult && (testResult[c.id].authenticated
                   ? <CheckCircle2 size={18} className="text-emerald-600" />
                   : <XCircle size={18} className="text-red-600" />)}
               </div>
+              {authorize.isError && authorize.variables === c.id && (
+                <p className="mt-2 text-xs text-red-600">{apiError(authorize.error)}</p>
+              )}
+              {authUrl[c.id] && (
+                <div className="mt-3 rounded-lg bg-slate-50 p-3 text-xs">
+                  <p className="mb-1 font-medium text-slate-600">Link de autorização da loja — envie ao responsável do estabelecimento:</p>
+                  <div className="flex items-center gap-2">
+                    <a href={authUrl[c.id]} target="_blank" rel="noreferrer" className="min-w-0 flex-1 truncate text-emerald-700 hover:underline">{authUrl[c.id]}</a>
+                    <button type="button" onClick={() => navigator.clipboard?.writeText(authUrl[c.id])} className="shrink-0 text-slate-500 hover:text-slate-700" title="Copiar">
+                      <Copy size={14} />
+                    </button>
+                  </div>
+                </div>
+              )}
               {c.id in testResult && (
                 <div className="mt-3 rounded-lg bg-slate-50 p-3 text-xs">
                   {testResult[c.id].authenticated ? (

@@ -247,6 +247,16 @@ final class DeliveryController
         }
     }
 
+    /** POST /delivery/channels/:id/authorization-url — link de autorização/bind da loja (99food). */
+    public static function authorizationUrl(Request $req): void
+    {
+        $channel = self::channelRow($req->intParam('id'));
+        if ((string) $channel['platform'] !== '99food') {
+            throw HttpError::badRequest('Link de autorização disponível apenas para canais 99Food');
+        }
+        Http::json(['url' => NineNineClient::authorizationUrl($channel)]);
+    }
+
     /** POST /delivery/sync — poll+ACK sob demanda pela UI (admin). Útil sem cron/deploy. */
     public static function sync(Request $req): void
     {
