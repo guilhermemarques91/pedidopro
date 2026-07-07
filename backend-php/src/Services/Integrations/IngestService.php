@@ -137,7 +137,11 @@ final class IngestService
             $client::acknowledge($channel, $ids);
             // Rede de segurança: garante que todo pedido em 'placed' do canal seja confirmado.
             self::autoConfirmSweep($channel);
-            $summary[] = ['channel' => $channel['name'], 'platform' => $platform, 'ingested' => $ingested, 'duplicated' => $dup];
+            // 99Food não tem polling de eventos: reconcilia o estado dos pedidos ativos
+            // direto no order/detail (conclui/cancela pelos timestamps), pra callback
+            // perdido não deixar pedido preso no painel.
+            $reconciled = $platform === '99food' ? self::reconcile99food($channel) : 0;
+            $summary[] = ['channel' => $channel['name'], 'platform' => $platform, 'ingested' => $ingested, 'duplicated' => $dup, 'reconciled' => $reconciled];
         }
         // Conclusão automática (homologação) — local, gated por env.
         self::autoConcludeSweep();
@@ -225,6 +229,66 @@ final class IngestService
         if ($n > 0) {
             self::log("auto-conclude: {$n} pedido(s) despachado(s) há >{$min}min marcados como concluídos");
         }
+    }
+
+    /**
+     * Reconciliação de estado do 99Food (que não tem polling de eventos): busca o
+     * order/detail de cada pedido ainda ativo e o conclui/cancela pelos timestamps
+     * confiáveis do próprio pedido (complete_time/cancel_time). Assim, um callback
+     * orderFinish/orderCancel perdido não deixa o pedido preso no painel.
+     * Best-effort: nunca lança (não interrompe o poll). Retorna quantos mudaram.
+     */
+    private static function reconcile99food(array $channel): int
+    {
+        if (Env::bool('INTEGRATIONS_MOCK', false)) {
+            return 0;
+        }
+        $active = Db::query(
+            "SELECT platform_order_id FROM delivery_orders
+              WHERE channel_id = ? AND status NOT IN ('concluded','cancelled')
+                AND created_at >= (NOW() - INTERVAL 2 DAY)",
+            [(int) $channel['id']]
+        );
+        $updated = 0;
+        foreach ($active as $o) {
+            $oid = (string) $o['platform_order_id'];
+            try {
+                $detail = NineNineClient::getOrder($channel, $oid);
+            } catch (\Throwable $e) {
+                error_log('[delivery] reconcile99food getOrder falhou (' . $oid . '): ' . $e->getMessage());
+                continue;
+            }
+            if (!is_array($detail)) {
+                continue;
+            }
+            $new = self::terminalFromDetail($detail);
+            if ($new === null) {
+                continue;
+            }
+            $tsCol = $new === 'cancelled' ? 'cancelled_at' : 'concluded_at';
+            $n = Db::execute(
+                "UPDATE delivery_orders SET status = ?, {$tsCol} = COALESCE({$tsCol}, NOW())
+                  WHERE platform = '99food' AND platform_order_id = ? AND status NOT IN ('concluded','cancelled')",
+                [$new, $oid]
+            );
+            if ($n > 0) {
+                $updated++;
+                self::log("reconcile 99food {$oid} -> {$new}");
+            }
+        }
+        return $updated;
+    }
+
+    /** Estado terminal do pedido 99Food pelos timestamps do detalhe (ou null). */
+    private static function terminalFromDetail(array $detail): ?string
+    {
+        if ((int) ($detail['cancel_time'] ?? 0) > 0) {
+            return 'cancelled';
+        }
+        if ((int) ($detail['complete_time'] ?? 0) > 0) {
+            return 'concluded';
+        }
+        return null;
     }
 
     /**
