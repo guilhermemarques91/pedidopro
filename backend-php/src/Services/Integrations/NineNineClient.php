@@ -51,7 +51,7 @@ final class NineNineClient
 
     /**
      * Chama a API e interpreta o StandardResponse.
-     * @return array{ok:bool,errno:int,errmsg:string,data:mixed,status:int}
+     * @return array{ok:bool,errno:int,errmsg:string,data:mixed,status:int,requestId:string}
      */
     private static function call(string $method, string $path, array $query = [], ?array $body = null): array
     {
@@ -60,17 +60,54 @@ final class NineNineClient
             $url .= '?' . http_build_query($query);
         }
         $r = HttpClient::request($method, $url, ['Accept: application/json'], $body);
-        $data = is_array($r['data']) ? $r['data'] : [];
+        // order_id/shop_id do DiDi são inteiros de 64 bits. Decodifica o corpo cru
+        // preservando a precisão (JSON_BIGINT_AS_STRING): um json_decode normal pode
+        // arredondar ids grandes e corrompê-los → depois o DiDi devolve errno 10001
+        // ("falha ao recuperar o pedido") ao mandarmos ready/cancel com o id errado.
+        $decoded = ($r['raw'] ?? '') !== '' ? json_decode($r['raw'], true, 512, JSON_BIGINT_AS_STRING) : null;
+        $data = is_array($decoded) ? $decoded : [];
         // status 0 = falha de cURL (timeout/conexão): NÃO pode contar como sucesso.
         $httpOk = $r['status'] >= 200 && $r['status'] < 400;
         $errno = (int) ($data['errno'] ?? ($httpOk ? 0 : -1));
-        return [
+        $result = [
             'ok' => $httpOk && $errno === 0,
             'errno' => $errno,
             'errmsg' => (string) ($data['errmsg'] ?? $r['error'] ?? ''),
             'data' => $data['data'] ?? null,
             'status' => $r['status'],
+            'requestId' => (string) ($data['requestId'] ?? $data['request_id'] ?? ''),
         ];
+
+        // Diagnóstico: registra TODA chamada que não deu ok (errno != 0 ou HTTP ruim),
+        // com o corpo exato enviado e a resposta crua, para depurar erros genéricos do
+        // DiDi (ex.: errno 10001 "falha ao recuperar o pedido"). O auth_token é
+        // redigido. Vai para o error_log do PHP (na HostGator: error_log da conta/app).
+        if (!$result['ok']) {
+            self::debug($method, $path, $query, $body, $r['status'], $result, $r['raw'] ?? '');
+        }
+
+        return $result;
+    }
+
+    /** error_log estruturado de uma chamada ao DiDi (com auth_token redigido). */
+    private static function debug(string $method, string $path, array $query, ?array $body, int $status, array $result, string $raw): void
+    {
+        $redact = static function (?array $a): ?array {
+            if ($a === null) {
+                return null;
+            }
+            if (isset($a['auth_token'])) {
+                $a['auth_token'] = '***';
+            }
+            return $a;
+        };
+        error_log('[99food] ' . $method . ' ' . $path
+            . ' q=' . json_encode($redact($query), JSON_UNESCAPED_UNICODE)
+            . ' body=' . json_encode($redact($body), JSON_UNESCAPED_UNICODE)
+            . ' -> http=' . $status . ' errno=' . $result['errno']
+            . ' errmsg=' . $result['errmsg']
+            . ' requestId=' . $result['requestId']
+            . ' raw=' . substr($raw, 0, 1000));
     }
 
     /** auth_token válido da loja (cacheado em channel_tokens; renova quando expira). */
@@ -151,7 +188,7 @@ final class NineNineClient
             return;
         }
         $token = self::token($channel);
-        $oid = (int) $orderId;
+        $oid = self::orderIdValue($orderId);
 
         $r = match ($command) {
             'confirm' => self::call('POST', '/v1/order/order/confirm', [], ['auth_token' => $token, 'order_id' => $oid]),
@@ -168,10 +205,21 @@ final class NineNineClient
 
         if (!$r['ok']) {
             $msg = $r['errmsg'] !== '' ? $r['errmsg'] : 'sem resposta da API';
+            $rid = $r['requestId'] !== '' ? " [reqId {$r['requestId']}]" : '';
             // 422 (não 5xx): a HostGator troca o corpo de respostas 5xx pela página de
             // erro dela, escondendo esta mensagem do frontend. 422 passa o JSON intacto.
-            throw HttpError::unprocessable("Falha ao enviar '{$command}' ao 99Food (errno {$r['errno']}: {$msg}).");
+            throw HttpError::unprocessable("Falha ao enviar '{$command}' ao 99Food (errno {$r['errno']}: {$msg}){$rid}.");
         }
+    }
+
+    /**
+     * order_id do DiDi para envio: numérico quando cabe em PHP_INT_MAX (o corpo JSON
+     * do DiDi espera número), senão preserva a string — um (int) direto poderia
+     * estourar e corromper ids muito grandes.
+     */
+    private static function orderIdValue(string $orderId): int|string
+    {
+        return (string) (int) $orderId === $orderId ? (int) $orderId : $orderId;
     }
 
     /** Sem endpoint simples de tracking do entregador na API atual. */
@@ -212,13 +260,14 @@ final class NineNineClient
         }
         $r = self::call('POST', '/v1/order/apply/cancel', [], [
             'auth_token' => self::token($channel),
-            'order_id' => (int) $orderId,
-            'apply_id' => (int) $applyId,
+            'order_id' => self::orderIdValue($orderId),
+            'apply_id' => self::orderIdValue($applyId),
             'agree' => $agree,
             'reason' => $reason !== '' ? $reason : ($agree ? 'Aceito pela loja' : 'Recusado pela loja'),
         ]);
         if (!$r['ok']) {
-            throw HttpError::unprocessable("Falha ao resolver cancelamento no 99Food (errno {$r['errno']}: {$r['errmsg']}).");
+            $rid = $r['requestId'] !== '' ? " [reqId {$r['requestId']}]" : '';
+            throw HttpError::unprocessable("Falha ao resolver cancelamento no 99Food (errno {$r['errno']}: {$r['errmsg']}){$rid}.");
         }
     }
 }

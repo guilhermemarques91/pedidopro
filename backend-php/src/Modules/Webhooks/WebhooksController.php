@@ -38,7 +38,14 @@ final class WebhooksController
         $raw = file_get_contents('php://input');
         $raw = is_string($raw) ? $raw : '';
 
-        $body = $req->body;
+        // order_id/shop_id do DiDi são inteiros de 64 bits: decodifica preservando a
+        // precisão (JSON_BIGINT_AS_STRING) para o order_id não ser arredondado/corrompido
+        // ao ser guardado — senão ready/cancel depois falham com errno 10001. Escopo local
+        // ao webhook (não altera o parser global usado pelos demais módulos).
+        $body = $raw !== '' ? json_decode($raw, true, 512, JSON_BIGINT_AS_STRING) : null;
+        if (!is_array($body)) {
+            $body = $req->body;
+        }
         $merchantId = self::merchantFromBody($body);
         $channel = IngestService::findChannel($platform, $merchantId);
 
