@@ -22,6 +22,7 @@ export function DeliveryOrderDetailPage() {
   const orderId = Number(id);
   const qc = useQueryClient();
   const [tracking, setTracking] = useState<Record<string, unknown> | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const { data: order, isLoading, error } = useQuery({
     queryKey: ['delivery-order', orderId],
@@ -53,6 +54,18 @@ export function DeliveryOrderDetailPage() {
         title={`Pedido ${order.display_id ? `#${order.display_id}` : `#${order.id}`}`}
         subtitle={`${order.platform === 'ifood' ? 'iFood' : '99Food'} · ${order.customer_name ?? 'Cliente'}`}
       />
+
+      <div className="mb-3 flex items-center gap-2 text-xs text-slate-500">
+        <span>ID {order.platform === 'ifood' ? 'iFood' : '99Food'}:</span>
+        <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-slate-700">{order.platform_order_id}</code>
+        <button
+          type="button"
+          onClick={() => { navigator.clipboard?.writeText(order.platform_order_id); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
+          className="text-emerald-700 hover:underline"
+        >
+          {copied ? 'copiado ✓' : 'copiar'}
+        </button>
+      </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">

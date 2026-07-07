@@ -29,6 +29,9 @@ final class NineNineClient
     /** Comando unificado → reason_id padrão de cancelamento (enum DiDi). */
     private const CANCEL_REASON_ID = 1010;
 
+    /** errno do DiDi para "token/autorização da loja expirou". */
+    private const TOKEN_EXPIRED = 10102;
+
     private static function base(): string
     {
         return rtrim((string) Env::get('NINE_NINE_API_BASE', 'https://openapi.didi-food.com'), '/');
@@ -110,16 +113,25 @@ final class NineNineClient
             . ' raw=' . substr($raw, 0, 1000));
     }
 
-    /** auth_token válido da loja (cacheado em channel_tokens; renova quando expira). */
-    public static function token(array $channel): string
+    /**
+     * auth_token válido da loja (cacheado em channel_tokens; renova quando expira).
+     * $forceRefresh ignora o cache e força um token novo — usado quando um comando
+     * levou errno 10102 (o cache local achava válido um token já expirado no DiDi).
+     */
+    public static function token(array $channel, bool $forceRefresh = false): string
     {
         if (self::mock()) {
             return 'mock-token';
         }
         $cid = (int) $channel['id'];
-        $row = Db::queryOne('SELECT access_token, expires_at FROM channel_tokens WHERE channel_id = ?', [$cid]);
-        if ($row && $row['expires_at'] !== null && strtotime((string) $row['expires_at']) - 60 > time()) {
-            return (string) $row['access_token'];
+        if (!$forceRefresh) {
+            $row = Db::queryOne('SELECT access_token, expires_at FROM channel_tokens WHERE channel_id = ?', [$cid]);
+            if ($row && $row['expires_at'] !== null && strtotime((string) $row['expires_at']) - 60 > time()) {
+                return (string) $row['access_token'];
+            }
+        } else {
+            // Mint um token novo no servidor antes de buscar (o antigo pode estar morto).
+            self::call('GET', '/v1/auth/authtoken/refresh', self::creds($channel));
         }
 
         $token = self::fetchToken($channel);
@@ -187,10 +199,9 @@ final class NineNineClient
         if (self::mock()) {
             return;
         }
-        $token = self::token($channel);
         $oid = self::orderIdValue($orderId);
 
-        $r = match ($command) {
+        $send = static fn(string $token): array => match ($command) {
             'confirm' => self::call('POST', '/v1/order/order/confirm', [], ['auth_token' => $token, 'order_id' => $oid]),
             'ready' => self::call('GET', '/v1/order/order/ready', ['auth_token' => $token, 'order_id' => $oid]),
             'dispatch' => self::call('GET', '/v1/order/order/delivered', ['auth_token' => $token, 'order_id' => $oid]),
@@ -202,6 +213,13 @@ final class NineNineClient
             ]),
             default => throw HttpError::badRequest("Comando '{$command}' não suportado pelo 99Food"),
         };
+
+        $r = $send(self::token($channel));
+        // Vida do token é "aleatória" no DiDi: o cache local pode achar válido um
+        // token que o servidor já expirou → errno 10102. Força refresh e reenvia 1x.
+        if (!$r['ok'] && $r['errno'] === self::TOKEN_EXPIRED) {
+            $r = $send(self::token($channel, true));
+        }
 
         if (!$r['ok']) {
             $msg = $r['errmsg'] !== '' ? $r['errmsg'] : 'sem resposta da API';
