@@ -185,13 +185,32 @@ final class NineNineClient
             $rid = $r['requestId'] !== '' ? " [reqId {$r['requestId']}]" : '';
             throw HttpError::unprocessable("Falha ao gerar link de autorização no 99Food (errno {$r['errno']}: {$r['errmsg']}){$rid}.");
         }
-        // data pode vir como string (URL) ou array com a URL no índice 0.
-        $data = $r['data'];
-        $url = is_array($data) ? (string) ($data[0] ?? '') : (string) $data;
+        // A URL pode vir como string, lista ['http...'] ou objeto {campo: 'http...'} —
+        // procura a 1ª string http em qualquer nível do data (robusto ao formato).
+        $url = self::firstUrl($r['data']);
         if ($url === '') {
-            throw HttpError::unprocessable('O 99Food não retornou a URL de autorização.');
+            // errno 0 mas sem URL: registra o data cru p/ diagnosticar o formato/vazio.
+            error_log('[99food] getUrl sem URL — data=' . json_encode($r['data'], JSON_UNESCAPED_UNICODE) . ' requestId=' . $r['requestId']);
+            throw HttpError::unprocessable('O 99Food não retornou a URL de autorização (data vazio — veja o log; pode faltar aprovação do app de produção).');
         }
         return $url;
+    }
+
+    /** Acha a 1ª string que começa com http em $data (string ou array aninhado). */
+    private static function firstUrl(mixed $data): string
+    {
+        if (is_string($data)) {
+            return str_starts_with($data, 'http') ? $data : '';
+        }
+        if (is_array($data)) {
+            foreach ($data as $v) {
+                $u = self::firstUrl($v);
+                if ($u !== '') {
+                    return $u;
+                }
+            }
+        }
+        return '';
     }
 
     /** 99Food entrega pedidos por callback — não há polling. */
