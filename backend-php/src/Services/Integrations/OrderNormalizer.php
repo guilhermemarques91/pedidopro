@@ -89,7 +89,7 @@ final class OrderNormalizer
             'status' => self::mapStatus('ifood', $o['status'] ?? null),
             'order_type' => strtolower((string) ($o['orderType'] ?? 'delivery')),
             'delivery_mode' => self::ifoodMode($delivery),
-            'delivery_address' => $address,
+            'delivery_address' => self::address('ifood', is_array($address) ? $address : []),
             'delivery_distance_m' => isset($delivery['distance']) ? (int) round(((float) $delivery['distance']) * 1000) : null,
             'eta' => self::ts($delivery['deliveryDateTime'] ?? null),
             'customer_name' => $customer['name'] ?? null,
@@ -149,7 +149,7 @@ final class OrderNormalizer
             'order_type' => 'delivery',
             // delivery_type: 1 = DiDi (parceira), 2 = Store (própria).
             'delivery_mode' => ((int) ($o['delivery_type'] ?? 1)) === 2 ? 'own' : 'partner',
-            'delivery_address' => $addr ?: null,
+            'delivery_address' => self::address('99food', $addr),
             'delivery_distance_m' => null,
             'eta' => self::ts($o['expected_arrived_eta'] ?? ($o['delivery_eta'] ?? null)),
             'customer_name' => $name,
@@ -240,6 +240,63 @@ final class OrderNormalizer
         }
         // DEFAULT/MERCHANT = própria; demais (logística iFood) = parceira.
         return in_array($mode, ['DEFAULT', 'MERCHANT'], true) ? 'own' : 'partner';
+    }
+
+    /**
+     * Normaliza o endereço de entrega (iFood camelCase / 99Food snake_case) num
+     * formato único, pro frontend e os relatórios lerem sempre as mesmas chaves.
+     * Inclui um 'formatted' pronto pra exibir. Devolve null se não houver endereço.
+     * @return array<string,mixed>|null
+     */
+    private static function address(string $platform, array $a): ?array
+    {
+        if (!$a) {
+            return null;
+        }
+        if ($platform === '99food') {
+            $out = [
+                'street' => self::str($a['street_name'] ?? null),
+                'number' => self::str($a['street_number'] ?? null),
+                'complement' => self::str($a['complement'] ?? null),
+                'neighborhood' => self::str($a['district'] ?? null),
+                'city' => self::str($a['city'] ?? null),
+                'state' => self::str($a['state'] ?? null),
+                'postal_code' => self::str($a['postal_code'] ?? null),
+                'reference' => self::str($a['reference'] ?? null),
+                'lat' => $a['poi_lat'] ?? null,
+                'lng' => $a['poi_lng'] ?? null,
+                'formatted' => self::str($a['poi_address'] ?? null),
+            ];
+        } else { // ifood
+            $coords = $a['coordinates'] ?? [];
+            $out = [
+                'street' => self::str($a['streetName'] ?? null),
+                'number' => self::str($a['streetNumber'] ?? null),
+                'complement' => self::str($a['complement'] ?? null),
+                'neighborhood' => self::str($a['neighborhood'] ?? null),
+                'city' => self::str($a['city'] ?? null),
+                'state' => self::str($a['state'] ?? null),
+                'postal_code' => self::str($a['postalCode'] ?? null),
+                'reference' => self::str($a['reference'] ?? null),
+                'lat' => (is_array($coords) ? ($coords['latitude'] ?? null) : null),
+                'lng' => (is_array($coords) ? ($coords['longitude'] ?? null) : null),
+                'formatted' => self::str($a['formattedAddress'] ?? null),
+            ];
+        }
+        // Monta um 'formatted' quando a plataforma não manda um pronto.
+        if ($out['formatted'] === null) {
+            $line = trim(($out['street'] ?? '') . ' ' . ($out['number'] ?? ''));
+            $parts = array_filter([$line, $out['neighborhood'], $out['city']]);
+            $out['formatted'] = $parts ? implode(', ', $parts) : null;
+        }
+        return $out;
+    }
+
+    /** Trim → string não-vazia, ou null. */
+    private static function str(mixed $v): ?string
+    {
+        $s = is_scalar($v) ? trim((string) $v) : '';
+        return $s !== '' ? $s : null;
     }
 
     private static function money(mixed $v): ?float

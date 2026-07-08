@@ -88,6 +88,9 @@ export function DeliveryOrderDetailPage() {
             <Card>
               <h3 className="mb-2 flex items-center gap-1 text-sm font-semibold text-slate-700"><MapPin size={15} /> Entrega</h3>
               <p className="text-sm text-slate-600">{formatAddress(addr)}</p>
+              {typeof addr.reference === 'string' && addr.reference.trim() !== '' && (
+                <p className="mt-1 text-xs text-slate-500">Obs.: {addr.reference}</p>
+              )}
               {order.delivery_mode && (
                 <p className="mt-1 text-xs text-slate-400">{order.delivery_mode === 'own' ? 'Entrega própria' : 'Entrega parceira'}{order.delivery_distance_m ? ` · ${(order.delivery_distance_m / 1000).toFixed(1)} km` : ''}</p>
               )}
@@ -158,13 +161,23 @@ function Row({ label, value, bold }: { label: string; value: string; bold?: bool
 }
 
 function formatAddress(addr: Record<string, unknown>): string {
-  const get = (k: string) => (addr[k] != null ? String(addr[k]) : '');
+  // Lê as chaves normalizadas (pedidos novos) com fallback pras cruas de cada
+  // plataforma (iFood camelCase / 99Food snake_case) — cobre pedidos antigos.
+  const get = (...keys: string[]) => {
+    for (const k of keys) {
+      const v = addr[k];
+      if (v != null && String(v).trim() !== '') return String(v).trim();
+    }
+    return '';
+  };
+  const line = [get('street', 'streetName', 'street_name'), get('number', 'streetNumber', 'street_number')].filter(Boolean).join(', ');
   const parts = [
-    [get('streetName') || get('street'), get('streetNumber') || get('number')].filter(Boolean).join(', '),
+    line,
     get('complement'),
-    get('neighborhood') || get('district'),
+    get('neighborhood', 'district'),
     get('city'),
-    get('postalCode') || get('zipCode'),
+    get('state'),
+    get('postal_code', 'postalCode', 'zipCode'),
   ].filter(Boolean);
-  return parts.join(' · ') || JSON.stringify(addr);
+  return parts.join(' · ') || get('formatted', 'poi_address', 'formattedAddress') || JSON.stringify(addr);
 }
