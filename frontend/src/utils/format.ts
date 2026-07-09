@@ -12,6 +12,38 @@ export function parseSides(v: unknown): { id: number; name: string }[] {
   return [];
 }
 
+/**
+ * Formata o endereço de entrega numa linha legível. Aceita o objeto normalizado
+ * ({street,number,neighborhood,...}) ou o cru de iFood (camelCase) / 99Food
+ * (snake_case), e até string JSON (parseia) — cobre pedidos novos e antigos.
+ */
+export function formatAddress(input: unknown): string {
+  let addr: Record<string, unknown> | null = null;
+  if (typeof input === 'string' && input.trim()) {
+    try { const p = JSON.parse(input); addr = p && typeof p === 'object' ? (p as Record<string, unknown>) : null; } catch { addr = null; }
+  } else if (input && typeof input === 'object') {
+    addr = input as Record<string, unknown>;
+  }
+  if (!addr) return '';
+  const get = (...keys: string[]) => {
+    for (const k of keys) {
+      const v = addr![k];
+      if (v != null && String(v).trim() !== '') return String(v).trim();
+    }
+    return '';
+  };
+  const line = [get('street', 'streetName', 'street_name'), get('number', 'streetNumber', 'street_number')].filter(Boolean).join(', ');
+  const parts = [
+    line,
+    get('complement'),
+    get('neighborhood', 'district'),
+    get('city'),
+    get('state'),
+    get('postal_code', 'postalCode', 'zipCode'),
+  ].filter(Boolean);
+  return parts.join(' · ') || get('formatted', 'poi_address', 'formattedAddress');
+}
+
 /** Formata número/string como moeda BRL. */
 export function brl(value: number | string | null | undefined): string {
   if (value === null || value === undefined || value === '') return '—';

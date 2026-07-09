@@ -89,7 +89,7 @@ final class OrderNormalizer
             'status' => self::mapStatus('ifood', $o['status'] ?? null),
             'order_type' => strtolower((string) ($o['orderType'] ?? 'delivery')),
             'delivery_mode' => self::ifoodMode($delivery),
-            'delivery_address' => self::address('ifood', is_array($address) ? $address : []),
+            'delivery_address' => self::address('ifood', $address),
             'delivery_distance_m' => isset($delivery['distance']) ? (int) round(((float) $delivery['distance']) * 1000) : null,
             'eta' => self::ts($delivery['deliveryDateTime'] ?? null),
             'customer_name' => $customer['name'] ?? null,
@@ -248,9 +248,12 @@ final class OrderNormalizer
      * Inclui um 'formatted' pronto pra exibir. Devolve null se não houver endereço.
      * @return array<string,mixed>|null
      */
-    private static function address(string $platform, array $a): ?array
+    private static function address(string $platform, mixed $a): ?array
     {
-        if (!$a) {
+        if (is_string($a)) {
+            $a = json_decode($a, true); // a API às vezes manda o endereço como string JSON
+        }
+        if (!is_array($a) || !$a) {
             return null;
         }
         if ($platform === '99food') {

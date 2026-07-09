@@ -7,7 +7,7 @@ import { apiError } from '../../services/api';
 import type { DeliveryStatus } from '../../types';
 import { PageHeader } from '../../components/PageHeader';
 import { Button, Card, Spinner, ErrorBox } from '../../components/ui';
-import { brl, datetime } from '../../utils/format';
+import { brl, datetime, formatAddress } from '../../utils/format';
 
 const STATUS_FLOW: { key: DeliveryStatus; label: string; tsField: string }[] = [
   { key: 'placed', label: 'Recebido', tsField: 'placed_at' },
@@ -160,24 +160,3 @@ function Row({ label, value, bold }: { label: string; value: string; bold?: bool
   );
 }
 
-function formatAddress(addr: Record<string, unknown>): string {
-  // Lê as chaves normalizadas (pedidos novos) com fallback pras cruas de cada
-  // plataforma (iFood camelCase / 99Food snake_case) — cobre pedidos antigos.
-  const get = (...keys: string[]) => {
-    for (const k of keys) {
-      const v = addr[k];
-      if (v != null && String(v).trim() !== '') return String(v).trim();
-    }
-    return '';
-  };
-  const line = [get('street', 'streetName', 'street_name'), get('number', 'streetNumber', 'street_number')].filter(Boolean).join(', ');
-  const parts = [
-    line,
-    get('complement'),
-    get('neighborhood', 'district'),
-    get('city'),
-    get('state'),
-    get('postal_code', 'postalCode', 'zipCode'),
-  ].filter(Boolean);
-  return parts.join(' · ') || get('formatted', 'poi_address', 'formattedAddress') || JSON.stringify(addr);
-}

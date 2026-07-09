@@ -49,13 +49,14 @@ final class DeliveryController
             $conditions[] = "(o.status NOT IN ('concluded','cancelled') OR o.created_at >= (NOW() - INTERVAL 1 DAY))";
         }
         $where = $conditions ? 'WHERE ' . implode(' AND ', $conditions) : '';
-        Http::json(Db::query(
+        $rows = Db::query(
             "SELECT o.*, (SELECT COUNT(*) FROM delivery_order_items i WHERE i.order_id = o.id) AS items_count
                FROM delivery_orders o
                {$where}
                ORDER BY o.created_at DESC",
             $params
-        ));
+        );
+        Http::json(array_map([self::class, 'hydrate'], $rows));
     }
 
     public static function getOrder(Request $req): void
@@ -287,8 +288,22 @@ final class DeliveryController
 
     private static function detailed(int $id): array
     {
-        $order = self::row($id);
+        $order = self::hydrate(self::row($id));
         $order['items'] = Db::query('SELECT * FROM delivery_order_items WHERE order_id = ? ORDER BY id', [$id]);
+        return $order;
+    }
+
+    /**
+     * A coluna delivery_address é JSON armazenado como texto; sem decodificar, o
+     * Http::json reencoda e o frontend recebe uma STRING escapada em vez do objeto.
+     * Decodifica aqui pro endereço chegar como objeto.
+     */
+    private static function hydrate(array $order): array
+    {
+        if (isset($order['delivery_address']) && is_string($order['delivery_address'])) {
+            $decoded = json_decode($order['delivery_address'], true);
+            $order['delivery_address'] = is_array($decoded) ? $decoded : null;
+        }
         return $order;
     }
 
