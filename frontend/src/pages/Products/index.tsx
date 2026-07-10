@@ -1,17 +1,37 @@
-import { FormEvent, ReactNode, useState } from 'react';
+import { FormEvent, ReactNode, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Items } from '../Items';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Pencil, Trash2, Sparkles, Check, Tags as TagsIcon, Filter, Eye, ArrowDownUp } from 'lucide-react';
-import { productsApi, productTypesApi, categoriesApi, suppliersApi, stockApi, ProductFilters, ProductInput, SuggestedGroup } from '../../services/resources';
+import { Plus, Pencil, Trash2, Sparkles, Check, Tags as TagsIcon, FolderTree, Layers, Filter, ArrowDownUp, Receipt, Printer,
+  LayoutGrid, ShoppingBag, Sandwich, Boxes, PlusCircle, Carrot, CookingPot, SprayCan, Building2, type LucideIcon } from 'lucide-react';
+import { productsApi, productTypesApi, subclassesApi, printersApi, categoriesApi, suppliersApi, itemsApi, stockApi, ProductFilters, ProductInput, RecipeLineInput, SuggestedGroup } from '../../services/resources';
 import { apiError } from '../../services/api';
 import { brl } from '../../utils/format';
-import type { Product, ProductType, StockMove } from '../../types';
+import type { Product, ProductType, Subclass, ProductionPrinter, RecipeLine, StockMove } from '../../types';
 import { useAuth } from '../../store/auth.store';
 import { PageHeader } from '../../components/PageHeader';
-import { Button, Card, Input, Select, Modal, ViewModal, IconBtn, Spinner, ErrorBox, EmptyState } from '../../components/ui';
+import { Button, Card, Input, Select, Textarea, Modal, IconBtn, Spinner, ErrorBox, EmptyState } from '../../components/ui';
 
 const numOrNull = (v: string): number | null => (v.trim() === '' ? null : Number(v));
+
+// Eixo "Tipo" (abas de topo) — valores fixos, espelham o PDV/ERP do usuário.
+const TIPOS: { value: string; label: string; Icon: LucideIcon }[] = [
+  { value: 'Mercadoria', label: 'Mercadoria', Icon: ShoppingBag },
+  { value: 'Produto', label: 'Produto', Icon: Sandwich },
+  { value: 'Combo', label: 'Combo', Icon: Boxes },
+  { value: 'Adicional', label: 'Adicional', Icon: PlusCircle },
+  { value: 'Matéria-prima', label: 'Matéria-prima', Icon: Carrot },
+  { value: 'Item intermediário', label: 'Item intermediário', Icon: CookingPot },
+  { value: 'Uso e consumo', label: 'Uso e consumo', Icon: SprayCan },
+  { value: 'Ativo imobilizado', label: 'Ativo imobilizado', Icon: Building2 },
+];
+
+// Tipos manipulados dentro da empresa (montados a partir de insumos): têm ficha
+// técnica (receita p/ baixa de estoque) e NÃO têm fornecedor principal — os insumos
+// é que vêm de fornecedores. Os demais tipos são mercadorias/insumos comprados:
+// têm fornecedor e unidades de compra/venda, mas não têm ficha técnica.
+const RECIPE_TIPOS = new Set(['Produto', 'Combo', 'Item intermediário']);
+const usaFichaTecnica = (tipo: string) => RECIPE_TIPOS.has(tipo);
 
 export function Products() {
   const qc = useQueryClient();
@@ -19,9 +39,11 @@ export function Products() {
   const [params, setParams] = useSearchParams();
   const view = params.get('view') === 'itens' ? 'itens' : 'produtos';
   const setView = (v: string) => setParams(v === 'itens' ? { view: 'itens' } : {}, { replace: true });
-  const [category, setCategory] = useState<number | ''>('');   // filtro do topo
+  const [tipo, setTipo] = useState('');                        // aba de topo (eixo Tipo)
+  const [category, setCategory] = useState<number | ''>('');
   const [q, setQ] = useState('');
-  const [type, setType] = useState<number | ''>('');
+  const [type, setType] = useState<number | ''>('');           // Classe de itens
+  const [subClasse, setSubClasse] = useState<number | ''>('');
   const [supplier, setSupplier] = useState<number | ''>('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -29,21 +51,29 @@ export function Products() {
   const [costMax, setCostMax] = useState('');
   const [saleMin, setSaleMin] = useState('');
   const [saleMax, setSaleMax] = useState('');
+  const [showInactive, setShowInactive] = useState(false);
   const [editing, setEditing] = useState<Product | 'new' | null>(null);
-  const [viewing, setViewing] = useState<Product | null>(null);
+  const [fiscalOf, setFiscalOf] = useState<Product | null>(null);
   const [typesOpen, setTypesOpen] = useState(false);
+  const [catsOpen, setCatsOpen] = useState(false);
+  const [subsOpen, setSubsOpen] = useState(false);
+  const [printersOpen, setPrintersOpen] = useState(false);
   const [stockOf, setStockOf] = useState<Product | null>(null);
   const canMove = useAuth((st) => st.can('estoque:mover'));
   const [suggestOpen, setSuggestOpen] = useState(false);
 
   const categories = useQuery({ queryKey: ['categories'], queryFn: categoriesApi.list });
   const types = useQuery({ queryKey: ['product-types'], queryFn: productTypesApi.list });
+  const subclasses = useQuery({ queryKey: ['product-subclasses'], queryFn: () => subclassesApi.list() });
+  const printers = useQuery({ queryKey: ['production-printers'], queryFn: printersApi.list });
   const suppliers = useQuery({ queryKey: ['suppliers'], queryFn: suppliersApi.list });
 
   const filters: ProductFilters = {
     q: q.trim() || undefined,
+    tipo: tipo || undefined,
     category_id: category || undefined,
     type_id: type || undefined,
+    sub_classe_id: subClasse || undefined,
     supplier_id: supplier || undefined,
     created_from: from || undefined,
     created_to: to || undefined,
@@ -51,12 +81,16 @@ export function Products() {
     cost_max: costMax ? Number(costMax) : undefined,
     sale_min: saleMin ? Number(saleMin) : undefined,
     sale_max: saleMax ? Number(saleMax) : undefined,
+    includeInactive: showInactive || undefined,
   };
   const products = useQuery({ queryKey: ['products', filters], queryFn: () => productsApi.list(filters) });
 
-  const hasFilters = q || type || supplier || from || to || costMin || costMax || saleMin || saleMax;
+  // Sub-classes visíveis no filtro lateral: todas, ou as da Classe selecionada.
+  const subOptions = (subclasses.data ?? []).filter((s) => !type || s.type_id === type);
+  const hasFilters = q || type || subClasse || category || supplier || from || to || costMin || costMax || saleMin || saleMax || showInactive;
   function clearFilters() {
-    setQ(''); setType(''); setSupplier(''); setFrom(''); setTo(''); setCostMin(''); setCostMax(''); setSaleMin(''); setSaleMax('');
+    setQ(''); setType(''); setSubClasse(''); setCategory(''); setSupplier(''); setFrom(''); setTo('');
+    setCostMin(''); setCostMax(''); setSaleMin(''); setSaleMax(''); setShowInactive(false);
   }
   const remove = useMutation({
     mutationFn: (id: number) => productsApi.remove(id),
@@ -74,7 +108,10 @@ export function Products() {
         action={view === 'produtos' ? (
           <div className="flex flex-wrap gap-2">
             <Button variant="secondary" onClick={() => setSuggestOpen(true)}><Sparkles size={16} /> Agrupar (IA)</Button>
-            <Button variant="secondary" onClick={() => setTypesOpen(true)}><TagsIcon size={16} /> Tipos</Button>
+            <Button variant="secondary" onClick={() => setCatsOpen(true)}><FolderTree size={16} /> Categorias</Button>
+            <Button variant="secondary" onClick={() => setTypesOpen(true)}><TagsIcon size={16} /> Classes</Button>
+            <Button variant="secondary" onClick={() => setSubsOpen(true)}><Layers size={16} /> Sub-classes</Button>
+            <Button variant="secondary" onClick={() => setPrintersOpen(true)}><Printer size={16} /> Impressoras</Button>
             <Button onClick={() => setEditing('new')}><Plus size={16} /> Novo cadastro</Button>
           </div>
         ) : undefined}
@@ -90,32 +127,63 @@ export function Products() {
         <Items embedded />
       ) : (
       <>
-      {/* Filtro de categorias no topo (chips) */}
-      <div className="mb-4 flex flex-wrap gap-2">
-        <Chip active={category === ''} onClick={() => setCategory('')}>Todas</Chip>
-        {categories.data?.map((c) => (
-          <Chip key={c.id} active={category === c.id} onClick={() => setCategory(c.id)}>{c.name}</Chip>
+      {/* Abas por Tipo (eixo fixo, estilo PDV) */}
+      <div className="mb-4 flex gap-1 overflow-x-auto rounded-lg bg-slate-800 p-1">
+        <TipoTab active={tipo === ''} onClick={() => setTipo('')} Icon={LayoutGrid} label="TODOS" />
+        {TIPOS.map((t) => (
+          <TipoTab key={t.value} active={tipo === t.value} onClick={() => setTipo(t.value)} Icon={t.Icon} label={t.label} />
         ))}
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[16rem_1fr]">
+      <div className="grid gap-4 lg:grid-cols-[15rem_1fr]">
         {/* Filtros laterais */}
         <Card className="h-max space-y-3">
           <div className="flex items-center gap-2 text-sm font-semibold text-slate-600"><Filter size={15} /> Filtros</div>
-          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Nome…" />
           <div>
-            <label className="mb-1 block text-xs font-medium text-slate-500">Tipo</label>
-            <Select value={type} onChange={(e) => setType(e.target.value ? Number(e.target.value) : '')}>
-              <option value="">Todos</option>
+            <label className="mb-1 block text-xs font-medium text-slate-500">Cód / Descrição</label>
+            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar…" />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-500">Classe de itens</label>
+            <Select value={type} onChange={(e) => { setType(e.target.value ? Number(e.target.value) : ''); setSubClasse(''); }}>
+              <option value="">TODAS</option>
               {types.data?.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </Select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-500">Sub-classe</label>
+            <Select value={subClasse} onChange={(e) => setSubClasse(e.target.value ? Number(e.target.value) : '')}>
+              <option value="">TODAS</option>
+              {subOptions.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </Select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-500">Categoria</label>
+            <Select value={category} onChange={(e) => setCategory(e.target.value ? Number(e.target.value) : '')}>
+              <option value="">TODAS</option>
+              {categories.data?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </Select>
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-slate-500">Fornecedor</label>
             <Select value={supplier} onChange={(e) => setSupplier(e.target.value ? Number(e.target.value) : '')}>
-              <option value="">Todos</option>
+              <option value="">TODOS</option>
               {suppliers.data?.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </Select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-500">Custo de compra (R$ min / máx)</label>
+            <div className="grid grid-cols-2 gap-2">
+              <Input type="number" step="0.01" value={costMin} onChange={(e) => setCostMin(e.target.value)} placeholder="mín" className="min-w-0" />
+              <Input type="number" step="0.01" value={costMax} onChange={(e) => setCostMax(e.target.value)} placeholder="máx" className="min-w-0" />
+            </div>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-500">Valor de venda (R$ min / máx)</label>
+            <div className="grid grid-cols-2 gap-2">
+              <Input type="number" step="0.01" value={saleMin} onChange={(e) => setSaleMin(e.target.value)} placeholder="mín" className="min-w-0" />
+              <Input type="number" step="0.01" value={saleMax} onChange={(e) => setSaleMax(e.target.value)} placeholder="máx" className="min-w-0" />
+            </div>
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-slate-500">Cadastrado (de / até)</label>
@@ -124,20 +192,10 @@ export function Products() {
               <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="min-w-0" />
             </div>
           </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-500">Compra (R$ min / máx)</label>
-            <div className="grid grid-cols-2 gap-2">
-              <Input type="number" step="0.01" value={costMin} onChange={(e) => setCostMin(e.target.value)} placeholder="mín" className="min-w-0" />
-              <Input type="number" step="0.01" value={costMax} onChange={(e) => setCostMax(e.target.value)} placeholder="máx" className="min-w-0" />
-            </div>
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-500">Venda (R$ min / máx)</label>
-            <div className="grid grid-cols-2 gap-2">
-              <Input type="number" step="0.01" value={saleMin} onChange={(e) => setSaleMin(e.target.value)} placeholder="mín" className="min-w-0" />
-              <Input type="number" step="0.01" value={saleMax} onChange={(e) => setSaleMax(e.target.value)} placeholder="máx" className="min-w-0" />
-            </div>
-          </div>
+          <label className="flex items-center gap-2 text-sm text-slate-600">
+            <input type="checkbox" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} className="h-4 w-4 accent-emerald-600" />
+            Exibir desativados
+          </label>
           {hasFilters ? <button onClick={clearFilters} className="text-sm text-emerald-600 hover:underline">Limpar filtros</button> : null}
         </Card>
 
@@ -146,67 +204,74 @@ export function Products() {
           {products.isLoading && <Spinner />}
           {products.error && <ErrorBox message={apiError(products.error)} />}
           {products.data && (products.data.length === 0 ? (
-            <EmptyState message={hasFilters || category ? 'Nenhum cadastro com esses filtros.' : 'Nenhum cadastro ainda. Clique em “Novo cadastro”.'} />
+            <EmptyState message={hasFilters || tipo ? 'Nenhum cadastro com esses filtros.' : 'Nenhum cadastro ainda. Clique em “Novo cadastro”.'} />
           ) : (
             <>
-              {/* Mobile: só Nome, Tipo e Unidade + 👁 (detalhes), editar e excluir */}
+              {/* Mobile: cartões compactos */}
               <div className="space-y-2 sm:hidden">
                 {products.data.map((p) => (
                   <Card key={p.id} className="flex items-center justify-between gap-3 p-3">
                     <div className="min-w-0">
-                      <p className="truncate font-medium text-slate-800">{p.name}</p>
+                      <p className="truncate font-medium text-slate-800"><span className="mr-1 text-xs text-slate-400">{p.id}</span>{p.name}</p>
                       <p className="mt-0.5 truncate text-xs text-slate-500">
-                        {p.type_name ?? 'sem tipo'} · {p.unit ?? p.default_unit ?? 's/ un.'} · estoque {fmtQty(p.stock_qty)}
+                        {p.tipo ?? 'sem tipo'} · {p.type_name ?? 's/ classe'} · {p.unit ?? p.default_unit ?? 's/ un.'}
                       </p>
                     </div>
                     <div className="flex shrink-0 items-center gap-1">
+                      <IconBtn title="Situação tributária" onClick={() => setFiscalOf(p)}><Receipt size={16} /></IconBtn>
                       {canMove && <IconBtn title="Movimentar estoque" hover="emerald" onClick={() => setStockOf(p)}><ArrowDownUp size={16} /></IconBtn>}
-                      <IconBtn title="Ver detalhes" onClick={() => setViewing(p)}><Eye size={17} /></IconBtn>
                       <IconBtn title="Editar" hover="emerald" onClick={() => setEditing(p)}><Pencil size={16} /></IconBtn>
                       <IconBtn title="Excluir" hover="red" onClick={() => { if (confirm(`Excluir o cadastro "${p.name}"?`)) remove.mutate(p.id); }}><Trash2 size={16} /></IconBtn>
                     </div>
                   </Card>
                 ))}
+                <p className="px-1 pt-1 text-right text-xs font-medium text-slate-500">Itens: {products.data.length}</p>
               </div>
 
-              {/* Desktop: tabela completa */}
+              {/* Desktop: tabela no padrão do PDV */}
               <Card className="hidden overflow-x-auto p-0 sm:block">
                 <table className="w-full text-sm">
-                  <thead className="border-b border-slate-200 text-left text-slate-500">
+                  <thead className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
                     <tr>
-                      <th className="px-4 py-3 font-medium">Nome</th>
-                      <th className="px-4 py-3 font-medium">Tipo</th>
-                      <th className="px-4 py-3 font-medium">Categoria</th>
-                      <th className="px-4 py-3 font-medium">Fornecedor</th>
-                      <th className="px-4 py-3 font-medium">Un.</th>
-                      <th className="px-4 py-3 text-right font-medium">Estoque</th>
-                      <th className="px-4 py-3 text-right font-medium">Compra</th>
-                      <th className="px-4 py-3 text-right font-medium">Venda</th>
-                      <th className="px-4 py-3" />
+                      <th className="px-3 py-2.5 font-semibold">Cód. Int.</th>
+                      <th className="px-3 py-2.5 font-semibold">Descrição interna</th>
+                      <th className="px-3 py-2.5 font-semibold">Tipo</th>
+                      <th className="px-3 py-2.5 font-semibold">Classe de itens</th>
+                      <th className="px-3 py-2.5 font-semibold">Sub-classe</th>
+                      <th className="px-3 py-2.5 font-semibold">Un. venda</th>
+                      <th className="px-3 py-2.5 font-semibold">Un. compra</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">Valor de venda</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">Custo médio</th>
+                      <th className="px-3 py-2.5" />
                     </tr>
                   </thead>
                   <tbody>
-                    {products.data.map((p) => (
-                      <tr key={p.id} className="border-b border-slate-100 last:border-0">
-                        <td className="px-4 py-3 font-medium text-slate-800">{p.name}
+                    {products.data.map((p) => {
+                      const custo = p.avg_cost ?? p.cost_price;
+                      return (
+                      <tr key={p.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
+                        <td className="px-3 py-2.5 font-semibold text-slate-500">{p.id}</td>
+                        <td className="px-3 py-2.5 font-medium text-slate-800">{p.name}
                           {Number(p.item_count ?? 0) > 0 && <span className="ml-2 text-xs text-slate-400">{p.item_count} item(ns)</span>}
                         </td>
-                        <td className="px-4 py-3">{p.type_name ? <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600">{p.type_name}</span> : <span className="text-slate-300">—</span>}</td>
-                        <td className="px-4 py-3 text-slate-600">{p.category_name ?? <span className="text-slate-300">—</span>}</td>
-                        <td className="px-4 py-3 text-slate-600">{p.supplier_name ?? <span className="text-slate-300">—</span>}</td>
-                        <td className="px-4 py-3 text-slate-600">{p.unit ?? p.default_unit ?? <span className="text-slate-300">—</span>}</td>
-                        <td className={`px-4 py-3 text-right font-medium ${Number(p.stock_qty ?? 0) < 0 ? 'text-red-600' : Number(p.stock_qty ?? 0) === 0 ? 'text-slate-400' : 'text-slate-800'}`}>{fmtQty(p.stock_qty)}</td>
-                        <td className="px-4 py-3 text-right text-slate-600">{p.cost_price != null ? brl(p.cost_price) : <span className="text-slate-300">—</span>}</td>
-                        <td className="px-4 py-3 text-right font-medium text-slate-800">{p.sale_price != null ? brl(p.sale_price) : <span className="text-slate-300">—</span>}</td>
-                        <td className="px-4 py-3 text-right">
-                          {canMove && <button onClick={() => setStockOf(p)} className="mr-3 text-slate-400 hover:text-emerald-600" title="Movimentar estoque"><ArrowDownUp size={16} /></button>}
-                          <button onClick={() => setEditing(p)} className="mr-3 text-slate-400 hover:text-emerald-600" title="Editar"><Pencil size={16} /></button>
+                        <td className="px-3 py-2.5 text-slate-600">{p.tipo ?? <span className="text-slate-300">—</span>}</td>
+                        <td className="px-3 py-2.5 text-slate-600">{p.type_name ?? <span className="text-slate-300">—</span>}</td>
+                        <td className="px-3 py-2.5 text-slate-600">{p.sub_classe_name ?? <span className="text-slate-300">—</span>}</td>
+                        <td className="px-3 py-2.5 text-emerald-600">{p.unit ?? p.default_unit ?? <span className="text-slate-300">***</span>}</td>
+                        <td className="px-3 py-2.5 text-slate-500">{p.purchase_unit ?? <span className="text-slate-300">***</span>}</td>
+                        <td className="px-3 py-2.5 text-right font-medium text-slate-800">{p.sale_price != null ? brl(p.sale_price) : <span className="text-slate-300">—</span>}</td>
+                        <td className="px-3 py-2.5 text-right text-amber-700">{custo != null ? brl(custo) : <span className="text-slate-300">***</span>}</td>
+                        <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                          <button onClick={() => setFiscalOf(p)} className="mr-2 text-slate-400 hover:text-blue-600" title="Situação tributária"><Receipt size={16} /></button>
+                          {canMove && <button onClick={() => setStockOf(p)} className="mr-2 text-slate-400 hover:text-emerald-600" title="Movimentar estoque"><ArrowDownUp size={16} /></button>}
+                          <button onClick={() => setEditing(p)} className="mr-2 text-slate-400 hover:text-emerald-600" title="Editar"><Pencil size={16} /></button>
                           <button onClick={() => { if (confirm(`Excluir o cadastro "${p.name}"?`)) remove.mutate(p.id); }} className="text-slate-400 hover:text-red-600" title="Excluir"><Trash2 size={16} /></button>
                         </td>
                       </tr>
-                    ))}
+                    ); })}
                   </tbody>
                 </table>
+                <div className="border-t border-slate-200 bg-slate-50 px-4 py-2 text-right text-xs font-semibold text-slate-600">Itens: {products.data.length}</div>
               </Card>
             </>
           ))}
@@ -219,34 +284,22 @@ export function Products() {
       {editing && (
         <ProductForm
           product={editing === 'new' ? null : editing}
+          defaultTipo={tipo || undefined}
           types={types.data ?? []}
+          subclasses={subclasses.data ?? []}
+          printers={printers.data ?? []}
           categories={categories.data ?? []}
           suppliers={suppliers.data ?? []}
           onClose={() => setEditing(null)}
         />
       )}
       {typesOpen && <TypesManager onClose={() => setTypesOpen(false)} />}
+      {catsOpen && <CategoriesManager onClose={() => setCatsOpen(false)} />}
+      {subsOpen && <SubclassesManager onClose={() => setSubsOpen(false)} />}
+      {printersOpen && <PrintersManager onClose={() => setPrintersOpen(false)} />}
       {stockOf && <StockModal product={stockOf} onClose={() => { setStockOf(null); qc.invalidateQueries({ queryKey: ['products'] }); }} />}
       {suggestOpen && <SuggestModal onClose={() => setSuggestOpen(false)} onApplied={() => qc.invalidateQueries({ queryKey: ['products'] })} />}
-      {viewing && (
-        <ViewModal
-          title={viewing.name}
-          onClose={() => setViewing(null)}
-          onEdit={() => { setEditing(viewing); setViewing(null); }}
-          fields={[
-            { label: 'Tipo', value: viewing.type_name },
-            { label: 'Categoria', value: viewing.category_name },
-            { label: 'Fornecedor', value: viewing.supplier_name },
-            { label: 'Unidade', value: viewing.unit ?? viewing.default_unit },
-            { label: 'Preço de compra', value: viewing.cost_price != null ? brl(viewing.cost_price) : null },
-            { label: 'Preço de venda', value: viewing.sale_price != null ? brl(viewing.sale_price) : null },
-            { label: 'Estoque atual', value: fmtQty(viewing.stock_qty) },
-            { label: 'Custo médio', value: viewing.avg_cost != null ? brl(viewing.avg_cost) : null },
-            { label: 'Itens de fornecedor vinculados', value: Number(viewing.item_count ?? 0) || null },
-            { label: 'Cadastrado em', value: new Date(viewing.created_at).toLocaleDateString('pt-BR') },
-          ]}
-        />
-      )}
+      {fiscalOf && <FiscalModal product={fiscalOf} onClose={() => setFiscalOf(null)} />}
     </div>
   );
 }
@@ -365,89 +418,433 @@ function SegBtn({ active, onClick, children }: { active: boolean; onClick: () =>
   );
 }
 
-function Chip({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
+/** Aba de Tipo (barra escura de topo, estilo PDV). */
+function TipoTab({ active, onClick, Icon, label }: { active: boolean; onClick: () => void; Icon: LucideIcon; label: string }) {
   return (
     <button
       onClick={onClick}
-      className={`rounded-full border px-3 py-1 text-sm transition ${active ? 'border-emerald-600 bg-emerald-50 font-medium text-emerald-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+      className={`flex shrink-0 items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition ${active ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-300 hover:bg-slate-700 hover:text-white'}`}
     >
-      {children}
+      <Icon size={16} className={active ? 'text-emerald-600' : ''} /> {label}
     </button>
   );
 }
 
-function ProductForm({ product, types, categories, suppliers, onClose }: {
+// Regimes tributários e operações fiscais de entrada (CFOP) — espelham o PDV.
+const REGIMES = ['1 - Simples Nacional', '2 - Simples Nacional (excesso de sublimite)', '3 - Regime Normal'];
+const CFOP_ENTRADA: [string, string][] = [
+  ['1101', '1101 - Compra Manipulação 18% MG (T)'],
+  ['1102', '1102 - Compra para comercialização MG (T)'],
+  ['1401', '1401 - Compra Manipulação MG (ST)'],
+  ['1403', '1403 - Compra para comercialização MG (ST)'],
+  ['1407', '1407 - Compra Uso e Consumo MG ST'],
+  ['1551', '1551 - Compra de ativo imobilizado'],
+  ['1556', '1556 - Compra para uso e consumo'],
+  ['2101', '2101 - Compra Manipulação outros (T)'],
+  ['2102', '2102 - Compra para comercialização outros (T)'],
+];
+// Operações fiscais de SAÍDA. Dentro do estado = 5xxx; fora do estado (interestadual) = 6xxx.
+const CFOP_SAIDA_DENTRO: [string, string][] = [
+  ['5101', '5101 - Venda de produção do estabelecimento (T)'],
+  ['5102', '5102 - Venda de mercadoria de terceiros (T)'],
+  ['5103', '5103 - Venda de produção — não contribuinte'],
+  ['5405', '5405 - Venda de mercadoria de terceiros (ST)'],
+  ['5401', '5401 - Venda de produção sujeita a ST'],
+  ['5933', '5933 - Prestação de serviço (ISSQN)'],
+];
+const CFOP_SAIDA_FORA: [string, string][] = [
+  ['6101', '6101 - Venda de produção do estabelecimento (T)'],
+  ['6102', '6102 - Venda de mercadoria de terceiros (T)'],
+  ['6108', '6108 - Venda de merc. de terceiros — consumidor final'],
+  ['6403', '6403 - Venda de produção sujeita a ST'],
+  ['6404', '6404 - Venda de mercadoria de terceiros (ST)'],
+  ['6933', '6933 - Prestação de serviço (ISSQN)'],
+];
+
+// component_id → produto insumo; item_id → item de fornecedor ainda sem produto
+// (no save vira um produto matéria-prima); free/component_name → insumo avulso (texto).
+type RecipeRow = { component_id: number | ''; item_id?: number; component_name: string; free: boolean; quantity: string; unit: string };
+
+const ORIGENS = [
+  ['0', '0 - Nacional'],
+  ['1', '1 - Estrangeira (importação direta)'],
+  ['2', '2 - Estrangeira (mercado interno)'],
+  ['3', '3 - Nacional c/ importação > 40%'],
+  ['4', '4 - Nacional (processos produtivos básicos)'],
+  ['5', '5 - Nacional c/ importação ≤ 40%'],
+  ['6', '6 - Estrangeira (import. direta, s/ similar)'],
+  ['7', '7 - Estrangeira (merc. interno, s/ similar)'],
+  ['8', '8 - Nacional c/ importação > 70%'],
+];
+
+function ProductForm({ product, defaultTipo, types, subclasses, printers, categories, suppliers, onClose }: {
   product: Product | null;
+  defaultTipo?: string;
   types: ProductType[];
+  subclasses: Subclass[];
+  printers: ProductionPrinter[];
   categories: { id: number; name: string }[];
   suppliers: { id: number; name: string }[];
   onClose: () => void;
 }) {
   const qc = useQueryClient();
+  // Informações básicas
   const [name, setName] = useState(product?.name ?? '');
+  const [tipo, setTipo] = useState(product?.tipo ?? defaultTipo ?? 'Produto');
   const [typeId, setTypeId] = useState<number | ''>(product?.type_id ?? '');
+  const [subClasseId, setSubClasseId] = useState<number | ''>(product?.sub_classe_id ?? '');
   const [categoryId, setCategoryId] = useState<number | ''>(product?.category_id ?? '');
+  const [printerId, setPrinterId] = useState<number | ''>(product?.production_printer_id ?? '');
   const [supplierId, setSupplierId] = useState<number | ''>(product?.supplier_id ?? '');
   const [unit, setUnit] = useState(product?.unit ?? '');
+  const [purchaseUnit, setPurchaseUnit] = useState(product?.purchase_unit ?? '');
   const [cost, setCost] = useState(product?.cost_price ?? '');
   const [sale, setSale] = useState(product?.sale_price ?? '');
+  // Ficha técnica (campos livres)
+  const [yieldQty, setYieldQty] = useState(product?.yield_qty ?? '');
+  const [yieldUnit, setYieldUnit] = useState(product?.yield_unit ?? '');
+  const [prepTime, setPrepTime] = useState(product?.prep_time_min != null ? String(product.prep_time_min) : '');
+  const [prepMethod, setPrepMethod] = useState(product?.prep_method ?? '');
+  const [techNotes, setTechNotes] = useState(product?.tech_notes ?? '');
+  // Ficha técnica (receita)
+  const [recipe, setRecipe] = useState<RecipeRow[]>([]);
+  // Tributação (situação tributária do item)
+  const [origem, setOrigem] = useState(product?.origem ?? '');
+  const [ncm, setNcm] = useState(product?.ncm ?? '');
+  const [cest, setCest] = useState(product?.cest ?? '');
+  const [cfop, setCfop] = useState(product?.cfop ?? '');
+  const [cfopSaidaFora, setCfopSaidaFora] = useState(product?.cfop_saida_fora ?? '');
+  const [cst, setCst] = useState(product?.cst_csosn ?? '');
+  const [gtin, setGtin] = useState(product?.gtin ?? '');
+  const [regime, setRegime] = useState(product?.regime_tributario ?? REGIMES[0]);
+  const [cfopEntrada, setCfopEntrada] = useState(product?.cfop_entrada ?? '');
+  const [step, setStep] = useState(0);
   const [error, setError] = useState('');
 
+  const usesRecipe = usaFichaTecnica(tipo);
+
+  // Catálogo de produtos para escolher insumos da receita (exclui o próprio produto).
+  const allProducts = useQuery({ queryKey: ['products'], queryFn: () => productsApi.list() });
+  const componentOptions = (allProducts.data ?? []).filter((p) => p.id !== product?.id);
+  // Itens de fornecedor ainda SEM produto: também podem ser insumos (viram produto no save).
+  const allItems = useQuery({ queryKey: ['items'], queryFn: () => itemsApi.list() });
+  const itemById = useMemo(() => new Map((allItems.data ?? []).map((it) => [it.id, it])), [allItems.data]);
+  const unmappedItems = (allItems.data ?? []).filter((it) => it.product_id == null);
+  // Custo do insumo = custo médio de compra (avg_cost) com fallback ao preço de compra,
+  // espelhando a coluna "MÉDIO COMPRA" da ficha técnica do PDV.
+  const costById = useMemo(() => {
+    const m = new Map<number, number>();
+    for (const p of allProducts.data ?? []) {
+      const c = p.avg_cost ?? p.cost_price;
+      if (c != null) m.set(p.id, Number(c));
+    }
+    return m;
+  }, [allProducts.data]);
+  // Custo unitário de uma linha (produto: custo médio; item: preço base).
+  const unitCostOf = (r: RecipeRow): number => r.item_id
+    ? Number(itemById.get(r.item_id)?.base_price ?? 0)
+    : (r.component_id ? costById.get(Number(r.component_id)) ?? 0 : 0);
+
+  // Em edição: carrega a receita salva.
+  const detail = useQuery({ queryKey: ['product', product?.id], queryFn: () => productsApi.get(product!.id), enabled: !!product });
+  useEffect(() => {
+    if (detail.data?.recipe) {
+      setRecipe(detail.data.recipe.map((r: RecipeLine) => ({
+        component_id: r.component_id ?? '',
+        component_name: r.component_name ?? '',
+        free: r.component_id == null,
+        quantity: r.quantity != null ? String(r.quantity) : '',
+        unit: r.unit ?? '',
+      })));
+    }
+  }, [detail.data]);
+
+  const recipeCost = useMemo(() => recipe.reduce((sum, r) => {
+    const q = Number(String(r.quantity).replace(',', '.')) || 0;
+    return sum + unitCostOf(r) * q;
+  }, 0), [recipe, costById, itemById]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const addRow = () => setRecipe((rs) => [...rs, { component_id: '', component_name: '', free: false, quantity: '', unit: '' }]);
+  const setRow = (i: number, patch: Partial<RecipeRow>) => setRecipe((rs) => rs.map((r, idx) => idx === i ? { ...r, ...patch } : r));
+  const delRow = (i: number) => setRecipe((rs) => rs.filter((_, idx) => idx !== i));
+
   const save = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
+      // Insumos escolhidos a partir de itens de fornecedor (sem produto): cria um produto
+      // matéria-prima e vincula o item — mesma lógica da entrada por NF-e.
+      let rows = recipe;
+      if (usesRecipe) {
+        rows = await Promise.all(recipe.map(async (r) => {
+          if (!r.item_id) return r;
+          const it = itemById.get(r.item_id);
+          const np = await productsApi.create({
+            name: it?.name ?? 'Insumo',
+            tipo: 'Matéria-prima',
+            unit: it?.unit ?? null,
+            cost_price: it?.base_price != null ? Number(it.base_price) : null,
+          });
+          await productsApi.assign(np.id, [r.item_id]);
+          return { ...r, component_id: np.id, item_id: undefined };
+        }));
+      }
       const body: ProductInput = {
         name: name.trim(),
+        tipo: tipo || null,
         type_id: typeId || null,
+        sub_classe_id: subClasseId || null,
         category_id: categoryId || null,
-        supplier_id: supplierId || null,
+        production_printer_id: printerId || null,
+        // Produto manipulado não tem fornecedor principal (os insumos é que têm).
+        supplier_id: usesRecipe ? null : (supplierId || null),
         unit: unit.trim() || null,
-        cost_price: numOrNull(String(cost)),
+        // Produto não tem unidade de compra: é produzido, não comprado.
+        purchase_unit: usesRecipe ? null : (purchaseUnit.trim() || null),
+        // Produto: custo = total da ficha técnica; Mercadoria: preço de compra digitado.
+        cost_price: usesRecipe ? (recipeCost > 0 ? recipeCost : null) : numOrNull(String(cost)),
         sale_price: numOrNull(String(sale)),
+        yield_qty: numOrNull(String(yieldQty)),
+        yield_unit: yieldUnit.trim() || null,
+        prep_time_min: prepTime.trim() ? Number(prepTime) : null,
+        prep_method: prepMethod.trim() || null,
+        tech_notes: techNotes.trim() || null,
+        // Tributação (passo 3)
+        origem: origem || null,
+        ncm: ncm.trim() || null,
+        cest: cest.trim() || null,
+        cfop: cfop || null,
+        cfop_saida_fora: cfopSaidaFora || null,
+        cst_csosn: cst.trim() || null,
+        gtin: gtin.trim() || null,
+        regime_tributario: regime || null,
+        cfop_entrada: cfopEntrada || null,
+        // Mercadoria não tem ficha técnica: envia lista vazia (limpa receita anterior).
+        recipe: !usesRecipe ? [] : rows
+          .filter((r) => r.component_id !== '' || r.component_name.trim() !== '')
+          .map((r): RecipeLineInput => ({
+            component_id: r.component_id === '' ? null : Number(r.component_id),
+            component_name: r.component_id === '' ? (r.component_name.trim() || null) : null,
+            quantity: Number(String(r.quantity).replace(',', '.')) || 0,
+            unit: r.unit.trim() || null,
+          })),
       };
       return product ? productsApi.update(product.id, body) : productsApi.create(body);
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['products'] }); onClose(); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['products'] });
+      qc.invalidateQueries({ queryKey: ['items'] });
+      qc.invalidateQueries({ queryKey: ['unmapped'] });
+      if (product) qc.invalidateQueries({ queryKey: ['product', product.id] });
+      onClose();
+    },
     onError: (e) => setError(apiError(e)),
   });
+
+  // Passos do cadastro. Mercadoria não tem ficha técnica: pula o passo 2.
+  const steps = usesRecipe
+    ? ['Informações básicas', 'Ficha técnica', 'Tributação']
+    : ['Informações básicas', 'Tributação'];
+  const idx = Math.min(step, steps.length - 1);
+  const current = steps[idx];
 
   function submit(e: FormEvent) {
     e.preventDefault();
     setError('');
-    if (name.trim().length < 1) { setError('Informe o nome.'); return; }
+    // Enter / botão avança pelos passos; só salva no último.
+    if (idx < steps.length - 1) { setStep(idx + 1); return; }
+    if (name.trim().length < 1) { setStep(0); setError('Informe o nome.'); return; }
     save.mutate();
   }
 
   return (
-    <Modal title={product ? 'Editar cadastro' : 'Novo cadastro'} onClose={onClose}>
-      <form onSubmit={submit} className="space-y-4">
-        {error && <ErrorBox message={error} />}
-        <Field label="Nome"><Input value={name} onChange={(e) => setName(e.target.value)} required autoFocus /></Field>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Tipo">
-            <Select value={typeId} onChange={(e) => setTypeId(e.target.value ? Number(e.target.value) : '')}>
-              <option value="">—</option>
-              {types.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-            </Select>
-          </Field>
-          <Field label="Categoria">
-            <Select value={categoryId} onChange={(e) => setCategoryId(e.target.value ? Number(e.target.value) : '')}>
-              <option value="">—</option>
-              {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </Select>
-          </Field>
-          <Field label="Fornecedor">
-            <Select value={supplierId} onChange={(e) => setSupplierId(e.target.value ? Number(e.target.value) : '')}>
-              <option value="">—</option>
-              {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </Select>
-          </Field>
-          <Field label="Unidade"><Input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="un, kg, L, prato…" /></Field>
-          <Field label="Preço de compra (R$)"><Input type="number" step="0.01" value={cost} onChange={(e) => setCost(e.target.value)} placeholder="0,00" /></Field>
-          <Field label="Preço de venda (R$)"><Input type="number" step="0.01" value={sale} onChange={(e) => setSale(e.target.value)} placeholder="0,00" /></Field>
+    <Modal title={product ? 'Editar cadastro' : 'Novo cadastro'} onClose={onClose} size="xl">
+      <form onSubmit={submit} className="space-y-5">
+        {/* Passos do cadastro */}
+        <div className="flex gap-1 border-b border-slate-200">
+          {steps.map((label, i) => (
+            <TabBtn key={label} active={idx === i} onClick={() => setStep(i)}>{`${i + 1}. ${label}`}</TabBtn>
+          ))}
         </div>
-        <div className="flex justify-end gap-2 pt-2">
+
+        {error && <ErrorBox message={error} />}
+
+        {current === 'Informações básicas' && (
+          <div className="space-y-3">
+            <Field label="Nome"><Input value={name} onChange={(e) => setName(e.target.value)} required autoFocus /></Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Tipo">
+                <Select value={tipo} onChange={(e) => setTipo(e.target.value)}>
+                  {TIPOS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+                </Select>
+              </Field>
+              <Field label="Classe de itens">
+                <Select value={typeId} onChange={(e) => { setTypeId(e.target.value ? Number(e.target.value) : ''); setSubClasseId(''); }}>
+                  <option value="">—</option>
+                  {types.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </Select>
+              </Field>
+              <Field label="Sub-classe">
+                <Select value={subClasseId} onChange={(e) => setSubClasseId(e.target.value ? Number(e.target.value) : '')}>
+                  <option value="">—</option>
+                  {subclasses.filter((s) => !typeId || s.type_id === typeId).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </Select>
+              </Field>
+              <Field label="Categoria">
+                <Select value={categoryId} onChange={(e) => setCategoryId(e.target.value ? Number(e.target.value) : '')}>
+                  <option value="">—</option>
+                  {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </Select>
+              </Field>
+              <Field label="Impressora de produção">
+                <Select value={printerId} onChange={(e) => setPrinterId(e.target.value ? Number(e.target.value) : '')}>
+                  <option value="">— nenhuma —</option>
+                  {printers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </Select>
+              </Field>
+              <Field label="Unidade de venda"><Input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="un, kg, L, prato…" /></Field>
+              {!usesRecipe && (
+                <>
+                  <Field label="Unidade de compra"><Input value={purchaseUnit} onChange={(e) => setPurchaseUnit(e.target.value)} placeholder="cx, kg, fardo…" /></Field>
+                  <Field label="Fornecedor principal">
+                    <Select value={supplierId} onChange={(e) => setSupplierId(e.target.value ? Number(e.target.value) : '')}>
+                      <option value="">—</option>
+                      {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </Select>
+                  </Field>
+                  <Field label="Preço de compra (R$)"><Input type="number" step="0.01" value={cost} onChange={(e) => setCost(e.target.value)} placeholder="0,00" /></Field>
+                </>
+              )}
+              {usesRecipe && (
+                <Field label="Preço de custo (ficha técnica)">
+                  <Input readOnly value={recipeCost > 0 ? brl(recipeCost) : '—'} className="bg-slate-50 text-slate-600" title="Calculado pela ficha técnica (custo médio dos insumos)" />
+                </Field>
+              )}
+              <Field label="Preço de venda (R$)"><Input type="number" step="0.01" value={sale} onChange={(e) => setSale(e.target.value)} placeholder="0,00" /></Field>
+            </div>
+          </div>
+        )}
+
+        {current === 'Ficha técnica' && (
+          <div className="space-y-3">
+            <div>
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-sm font-medium text-slate-600">Receita (insumos)</span>
+                <Button type="button" variant="secondary" onClick={addRow}><Plus size={15} /> Insumo</Button>
+              </div>
+              {recipe.length === 0 ? (
+                <p className="rounded-lg border border-dashed border-slate-200 px-3 py-4 text-center text-sm text-slate-400">Nenhum insumo. Clique em “Insumo” para montar a receita.</p>
+              ) : (
+                <div className="space-y-2">
+                  {recipe.map((r, i) => {
+                    const lineCost = unitCostOf(r) * (Number(String(r.quantity).replace(',', '.')) || 0);
+                    return (
+                      <div key={i} className="grid grid-cols-[1fr_5rem_4rem_auto] items-center gap-2">
+                        {r.free ? (
+                          <Input value={r.component_name} onChange={(e) => setRow(i, { component_name: e.target.value })} placeholder="Insumo avulso…" autoFocus />
+                        ) : (
+                          <Select
+                            value={r.item_id ? `item:${r.item_id}` : r.component_id}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              if (v === 'free') setRow(i, { free: true, component_id: '', item_id: undefined, component_name: '' });
+                              else if (v.startsWith('item:')) setRow(i, { item_id: Number(v.slice(5)), component_id: '', component_name: '' });
+                              else setRow(i, { component_id: v ? Number(v) : '', item_id: undefined, component_name: '' });
+                            }}
+                          >
+                            <option value="">— escolher insumo —</option>
+                            <option value="free">✎ digitar avulso</option>
+                            {componentOptions.length > 0 && (
+                              <optgroup label="Produtos">
+                                {componentOptions.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                              </optgroup>
+                            )}
+                            {unmappedItems.length > 0 && (
+                              <optgroup label="Itens de fornecedor">
+                                {unmappedItems.map((it) => <option key={`item:${it.id}`} value={`item:${it.id}`}>{it.name}</option>)}
+                              </optgroup>
+                            )}
+                          </Select>
+                        )}
+                        <Input value={r.quantity} onChange={(e) => setRow(i, { quantity: e.target.value })} placeholder="qtd" inputMode="decimal" className="text-right" />
+                        <Input value={r.unit} onChange={(e) => setRow(i, { unit: e.target.value })} placeholder="un" />
+                        <div className="flex w-16 items-center justify-end gap-1">
+                          {lineCost > 0 && <span className="text-xs text-slate-400">{brl(lineCost)}</span>}
+                          <button type="button" onClick={() => delRow(i)} className="text-slate-300 hover:text-red-600" title="Remover"><Trash2 size={15} /></button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {recipeCost > 0 && (
+                    <p className="pt-1 text-right text-sm text-slate-600">Custo total da ficha técnica <span className="text-xs text-slate-400">(custo médio de compra)</span>: <strong className="text-slate-800">{brl(recipeCost)}</strong></p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              <Field label="Rendimento"><Input value={yieldQty} onChange={(e) => setYieldQty(e.target.value)} placeholder="ex.: 10" inputMode="decimal" /></Field>
+              <Field label="Unidade do rendimento"><Input value={yieldUnit} onChange={(e) => setYieldUnit(e.target.value)} placeholder="porções, kg…" /></Field>
+              <Field label="Tempo de preparo (min)"><Input value={prepTime} onChange={(e) => setPrepTime(e.target.value)} placeholder="min" inputMode="numeric" /></Field>
+            </div>
+            <Field label="Modo de preparo"><Textarea value={prepMethod} onChange={(e) => setPrepMethod(e.target.value)} rows={3} placeholder="Passo a passo do preparo…" /></Field>
+            <Field label="Observações"><Textarea value={techNotes} onChange={(e) => setTechNotes(e.target.value)} rows={2} placeholder="Validade, armazenamento, alergênicos…" /></Field>
+          </div>
+        )}
+
+        {current === 'Tributação' && (
+          <div className="space-y-4">
+            <Field label="Origem da mercadoria">
+              <Select value={origem} onChange={(e) => setOrigem(e.target.value)}>
+                <option value="">—</option>
+                {ORIGENS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </Select>
+            </Field>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <Field label="NCM"><Input value={ncm} onChange={(e) => setNcm(e.target.value)} placeholder="00000000" maxLength={8} /></Field>
+              <Field label="CEST"><Input value={cest} onChange={(e) => setCest(e.target.value)} placeholder="0000000" maxLength={7} /></Field>
+              <Field label="CST / CSOSN"><Input value={cst} onChange={(e) => setCst(e.target.value)} placeholder="102" maxLength={4} /></Field>
+              <Field label="GTIN / EAN"><Input value={gtin} onChange={(e) => setGtin(e.target.value)} placeholder="cód. de barras" maxLength={14} /></Field>
+            </div>
+            <Field label="Regime tributário">
+              <Select value={regime} onChange={(e) => setRegime(e.target.value)}>
+                {REGIMES.map((r) => <option key={r} value={r}>{r}</option>)}
+              </Select>
+            </Field>
+            <div className="rounded-lg border border-slate-200 p-3">
+              <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">Operações fiscais de saída</p>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <Field label="SAÍDA — dentro do estado (padrão)">
+                  <Select value={cfop} onChange={(e) => setCfop(e.target.value)}>
+                    <option value="">—</option>
+                    {CFOP_SAIDA_DENTRO.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                  </Select>
+                </Field>
+                <Field label="SAÍDA — fora do estado (interestadual)">
+                  <Select value={cfopSaidaFora} onChange={(e) => setCfopSaidaFora(e.target.value)}>
+                    <option value="">—</option>
+                    {CFOP_SAIDA_FORA.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                  </Select>
+                </Field>
+              </div>
+              <p className="mt-2 text-xs text-slate-400">Aplicado conforme o endereço do cliente da nota. Sem cliente vinculado, usa a saída <span className="font-medium text-slate-500">dentro do estado</span>.</p>
+            </div>
+            <Field label="Operação fiscal — ENTRADA (Compras)">
+              <Select value={cfopEntrada} onChange={(e) => setCfopEntrada(e.target.value)}>
+                <option value="">—</option>
+                {CFOP_ENTRADA.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </Select>
+            </Field>
+            <p className="text-xs text-red-500">ATENÇÃO: o preenchimento da situação tributária é de responsabilidade do usuário. Em caso de dúvida, consulte seu contador.</p>
+          </div>
+        )}
+
+        <div className="flex items-center justify-between gap-2 border-t border-slate-100 pt-3">
           <Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button>
-          <Button type="submit" disabled={save.isPending}>Salvar</Button>
+          <div className="flex gap-2">
+            {idx > 0 && <Button type="button" variant="secondary" onClick={() => setStep(idx - 1)}>Voltar</Button>}
+            {idx < steps.length - 1
+              ? <Button type="button" onClick={() => setStep(idx + 1)}>Próximo</Button>
+              : <Button type="submit" disabled={save.isPending}>Salvar</Button>}
+          </div>
         </div>
       </form>
     </Modal>
@@ -464,6 +861,185 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
+/** Modal "Atualizar situação tributária" — abas Dados fiscais + Operações fiscais. */
+function FiscalModal({ product, onClose }: { product: Product; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [tab, setTab] = useState<'dados' | 'operacoes'>('dados');
+  const [origem, setOrigem] = useState(product.origem ?? '');
+  const [ncm, setNcm] = useState(product.ncm ?? '');
+  const [cest, setCest] = useState(product.cest ?? '');
+  const [cfop, setCfop] = useState(product.cfop ?? '');
+  const [cfopSaidaFora, setCfopSaidaFora] = useState(product.cfop_saida_fora ?? '');
+  const [cst, setCst] = useState(product.cst_csosn ?? '');
+  const [gtin, setGtin] = useState(product.gtin ?? '');
+  const [regime, setRegime] = useState(product.regime_tributario ?? REGIMES[0]);
+  const [cfopEntrada, setCfopEntrada] = useState(product.cfop_entrada ?? '');
+  const [error, setError] = useState('');
+
+  const save = useMutation({
+    mutationFn: () => productsApi.update(product.id, {
+      origem: origem || null, ncm: ncm.trim() || null, cest: cest.trim() || null,
+      cfop: cfop || null, cfop_saida_fora: cfopSaidaFora || null, cst_csosn: cst.trim() || null, gtin: gtin.trim() || null,
+      regime_tributario: regime || null, cfop_entrada: cfopEntrada || null,
+    }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['products'] }); onClose(); },
+    onError: (e) => setError(apiError(e)),
+  });
+
+  return (
+    <Modal title="Atualizar a situação tributária do item" onClose={onClose} size="xl">
+      {/* Abas */}
+      <div className="mb-4 flex gap-1 border-b border-slate-200">
+        <TabBtn active={tab === 'dados'} onClick={() => setTab('dados')}>Dados fiscais do item</TabBtn>
+        <TabBtn active={tab === 'operacoes'} onClick={() => setTab('operacoes')}>Operações fiscais / Tributação</TabBtn>
+      </div>
+
+      {error && <ErrorBox message={error} />}
+
+      {/* Cabeçalho: dados do item */}
+      <div className="mb-4 grid grid-cols-3 gap-2 rounded-lg bg-slate-50 p-3 text-sm">
+        <div><span className="block text-xs text-slate-400">Tipo</span><span className="font-medium text-slate-700">{product.tipo ?? '—'}</span></div>
+        <div><span className="block text-xs text-slate-400">Código</span><span className="font-medium text-slate-700">{product.id}</span></div>
+        <div><span className="block text-xs text-slate-400">Descrição</span><span className="font-medium text-blue-700">{product.name}</span></div>
+      </div>
+
+      {tab === 'dados' ? (
+        <div className="space-y-4">
+          <Field label="Origem da mercadoria">
+            <Select value={origem} onChange={(e) => setOrigem(e.target.value)}>
+              <option value="">—</option>
+              {ORIGENS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </Select>
+          </Field>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <Field label="NCM"><Input value={ncm} onChange={(e) => setNcm(e.target.value)} placeholder="00000000" maxLength={8} /></Field>
+            <Field label="CEST"><Input value={cest} onChange={(e) => setCest(e.target.value)} placeholder="0000000" maxLength={7} /></Field>
+            <Field label="CST / CSOSN"><Input value={cst} onChange={(e) => setCst(e.target.value)} placeholder="102" maxLength={4} /></Field>
+            <Field label="GTIN / EAN"><Input value={gtin} onChange={(e) => setGtin(e.target.value)} placeholder="cód. de barras" maxLength={14} /></Field>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <Field label="Regime tributário">
+            <Select value={regime} onChange={(e) => setRegime(e.target.value)}>
+              {REGIMES.map((r) => <option key={r} value={r}>{r}</option>)}
+            </Select>
+          </Field>
+          <div className="rounded-lg border border-slate-200 p-3">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">Operações fiscais de saída</p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Field label="SAÍDA — dentro do estado (padrão)">
+                <Select value={cfop} onChange={(e) => setCfop(e.target.value)}>
+                  <option value="">—</option>
+                  {CFOP_SAIDA_DENTRO.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                </Select>
+              </Field>
+              <Field label="SAÍDA — fora do estado (interestadual)">
+                <Select value={cfopSaidaFora} onChange={(e) => setCfopSaidaFora(e.target.value)}>
+                  <option value="">—</option>
+                  {CFOP_SAIDA_FORA.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                </Select>
+              </Field>
+            </div>
+            <p className="mt-2 text-xs text-slate-400">Aplicado conforme o endereço do cliente da nota. Sem cliente vinculado, usa a saída <span className="font-medium text-slate-500">dentro do estado</span>.</p>
+          </div>
+          <div className="rounded-lg border border-slate-200 p-3">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Operação fiscal de entrada</p>
+            <Field label="ENTRADA (Compras)">
+              <Select value={cfopEntrada} onChange={(e) => setCfopEntrada(e.target.value)}>
+                <option value="">—</option>
+                {CFOP_ENTRADA.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </Select>
+            </Field>
+          </div>
+        </div>
+      )}
+
+      <p className="mt-4 text-xs text-red-500">ATENÇÃO: O preenchimento das informações da situação tributária é de responsabilidade do usuário. Em caso de dúvida, consulte seu contador.</p>
+      <div className="mt-4 flex justify-end gap-2">
+        <Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button>
+        <Button onClick={() => save.mutate()} disabled={save.isPending}><Check size={16} /> Atualizar</Button>
+      </div>
+    </Modal>
+  );
+}
+
+function TabBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium transition ${active ? 'border-emerald-600 text-emerald-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+/** Gestor de sub-classes (filhas de uma Classe). */
+function SubclassesManager({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const subs = useQuery({ queryKey: ['product-subclasses'], queryFn: () => subclassesApi.list() });
+  const types = useQuery({ queryKey: ['product-types'], queryFn: productTypesApi.list });
+  const [name, setName] = useState('');
+  const [typeId, setTypeId] = useState<number | ''>('');
+  const invalidate = () => { qc.invalidateQueries({ queryKey: ['product-subclasses'] }); qc.invalidateQueries({ queryKey: ['products'] }); };
+  const create = useMutation({ mutationFn: () => subclassesApi.create({ name: name.trim(), type_id: typeId || null }), onSuccess: () => { setName(''); invalidate(); }, onError: (e) => alert(apiError(e)) });
+  const remove = useMutation({ mutationFn: (id: number) => subclassesApi.remove(id), onSuccess: invalidate, onError: (e) => alert(apiError(e)) });
+
+  return (
+    <Modal title="Sub-classes" onClose={onClose}>
+      <p className="mb-3 text-sm text-slate-500">Subdivisão de uma Classe de itens (ex.: Classe "Refeição" → Sub-classe "Executivo").</p>
+      <div className="mb-3 grid grid-cols-[1fr_auto] gap-2">
+        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nova sub-classe…" onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (name.trim()) create.mutate(); } }} />
+        <Button onClick={() => name.trim() && create.mutate()} disabled={create.isPending}><Plus size={16} /></Button>
+        <Select value={typeId} onChange={(e) => setTypeId(e.target.value ? Number(e.target.value) : '')} className="col-span-2">
+          <option value="">— sem classe (solta) —</option>
+          {types.data?.map((t) => <option key={t.id} value={t.id}>Classe: {t.name}</option>)}
+        </Select>
+      </div>
+      <div className="divide-y divide-slate-100 rounded-lg border border-slate-200">
+        {subs.data?.map((s) => (
+          <div key={s.id} className="flex items-center justify-between px-4 py-2.5">
+            <span className="text-slate-800">{s.name} {s.type_name && <span className="ml-1 text-xs text-slate-400">· {s.type_name}</span>}</span>
+            <button onClick={() => { if (confirm(`Excluir a sub-classe "${s.name}"?`)) remove.mutate(s.id); }} className="text-slate-400 hover:text-red-600"><Trash2 size={16} /></button>
+          </div>
+        ))}
+        {subs.data?.length === 0 && <p className="px-4 py-3 text-sm text-slate-400">Nenhuma sub-classe.</p>}
+      </div>
+    </Modal>
+  );
+}
+
+/** Gestor de impressoras de produção (direcionamento de impressão dos pedidos). */
+function PrintersManager({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const printers = useQuery({ queryKey: ['production-printers'], queryFn: printersApi.list });
+  const [name, setName] = useState('');
+  const invalidate = () => { qc.invalidateQueries({ queryKey: ['production-printers'] }); qc.invalidateQueries({ queryKey: ['products'] }); };
+  const create = useMutation({ mutationFn: () => printersApi.create({ name: name.trim() }), onSuccess: () => { setName(''); invalidate(); }, onError: (e) => alert(apiError(e)) });
+  const remove = useMutation({ mutationFn: (id: number) => printersApi.remove(id), onSuccess: invalidate, onError: (e) => alert(apiError(e)) });
+
+  return (
+    <Modal title="Impressoras de produção" onClose={onClose}>
+      <p className="mb-3 text-sm text-slate-500">Para onde os pedidos deste item serão impressos (ex.: Cozinha, Bar, Chapa). Usado pelo futuro módulo de vendas.</p>
+      <div className="mb-3 flex gap-2">
+        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nova impressora…" onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (name.trim()) create.mutate(); } }} />
+        <Button onClick={() => name.trim() && create.mutate()} disabled={create.isPending}><Plus size={16} /></Button>
+      </div>
+      <div className="divide-y divide-slate-100 rounded-lg border border-slate-200">
+        {printers.data?.map((p) => (
+          <div key={p.id} className="flex items-center justify-between px-4 py-2.5">
+            <span className="flex items-center gap-2 text-slate-800"><Printer size={15} className="text-slate-400" /> {p.name}</span>
+            <button onClick={() => { if (confirm(`Excluir a impressora "${p.name}"? Os itens ficam sem impressora.`)) remove.mutate(p.id); }} className="text-slate-400 hover:text-red-600"><Trash2 size={16} /></button>
+          </div>
+        ))}
+        {printers.data?.length === 0 && <p className="px-4 py-3 text-sm text-slate-400">Nenhuma impressora cadastrada.</p>}
+      </div>
+    </Modal>
+  );
+}
+
 function TypesManager({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
   const types = useQuery({ queryKey: ['product-types'], queryFn: productTypesApi.list });
@@ -473,20 +1049,65 @@ function TypesManager({ onClose }: { onClose: () => void }) {
   const remove = useMutation({ mutationFn: (id: number) => productTypesApi.remove(id), onSuccess: invalidate, onError: (e) => alert(apiError(e)) });
 
   return (
-    <Modal title="Tipos de produto" onClose={onClose}>
+    <Modal title="Classes de produto" onClose={onClose}>
       <p className="mb-3 text-sm text-slate-500">Classificação usada no cadastro e nos filtros (matéria-prima, uso e consumo, cardápio, bebida…).</p>
       <div className="mb-3 flex gap-2">
-        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Novo tipo…" onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (name.trim()) create.mutate(); } }} />
+        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nova classe…" onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (name.trim()) create.mutate(); } }} />
         <Button onClick={() => name.trim() && create.mutate()} disabled={create.isPending}><Plus size={16} /></Button>
       </div>
       <div className="divide-y divide-slate-100 rounded-lg border border-slate-200">
         {types.data?.map((t) => (
           <div key={t.id} className="flex items-center justify-between px-4 py-2.5">
             <span className="text-slate-800">{t.name}</span>
-            <button onClick={() => { if (confirm(`Excluir o tipo "${t.name}"? Os produtos ficam sem tipo.`)) remove.mutate(t.id); }} className="text-slate-400 hover:text-red-600"><Trash2 size={16} /></button>
+            <button onClick={() => { if (confirm(`Excluir a classe "${t.name}"? Os produtos ficam sem classe.`)) remove.mutate(t.id); }} className="text-slate-400 hover:text-red-600"><Trash2 size={16} /></button>
           </div>
         ))}
-        {types.data?.length === 0 && <p className="px-4 py-3 text-sm text-slate-400">Nenhum tipo.</p>}
+        {types.data?.length === 0 && <p className="px-4 py-3 text-sm text-slate-400">Nenhuma classe.</p>}
+      </div>
+    </Modal>
+  );
+}
+
+/** Gestor de categorias (eixo do topo do cadastro): criar, renomear e excluir. */
+function CategoriesManager({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const cats = useQuery({ queryKey: ['categories'], queryFn: categoriesApi.list });
+  const [name, setName] = useState('');
+  const [editId, setEditId] = useState<number | null>(null);
+  const [editName, setEditName] = useState('');
+  const invalidate = () => { qc.invalidateQueries({ queryKey: ['categories'] }); qc.invalidateQueries({ queryKey: ['products'] }); };
+  const create = useMutation({ mutationFn: () => categoriesApi.create({ name: name.trim() }), onSuccess: () => { setName(''); invalidate(); }, onError: (e) => alert(apiError(e)) });
+  const update = useMutation({ mutationFn: () => categoriesApi.update(editId!, { name: editName.trim() }), onSuccess: () => { setEditId(null); setEditName(''); invalidate(); }, onError: (e) => alert(apiError(e)) });
+  const remove = useMutation({ mutationFn: (id: number) => categoriesApi.remove(id), onSuccess: invalidate, onError: (e) => alert(apiError(e)) });
+
+  return (
+    <Modal title="Categorias" onClose={onClose}>
+      <p className="mb-3 text-sm text-slate-500">Filtro do topo do cadastro. Um produto pertence a uma categoria (ex.: Carnes, Hortifruti, Bebidas…).</p>
+      <div className="mb-3 flex gap-2">
+        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nova categoria…" onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (name.trim()) create.mutate(); } }} />
+        <Button onClick={() => name.trim() && create.mutate()} disabled={create.isPending}><Plus size={16} /></Button>
+      </div>
+      <div className="divide-y divide-slate-100 rounded-lg border border-slate-200">
+        {cats.data?.map((c) => (
+          <div key={c.id} className="flex items-center justify-between gap-2 px-4 py-2.5">
+            {editId === c.id ? (
+              <>
+                <Input value={editName} onChange={(e) => setEditName(e.target.value)} autoFocus onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (editName.trim()) update.mutate(); } }} />
+                <Button onClick={() => editName.trim() && update.mutate()} disabled={update.isPending}><Check size={16} /></Button>
+                <Button variant="secondary" onClick={() => { setEditId(null); setEditName(''); }}>Cancelar</Button>
+              </>
+            ) : (
+              <>
+                <span className="text-slate-800">{c.name}</span>
+                <div className="flex shrink-0 items-center gap-1">
+                  <button onClick={() => { setEditId(c.id); setEditName(c.name); }} className="text-slate-400 hover:text-emerald-600" title="Renomear"><Pencil size={16} /></button>
+                  <button onClick={() => { if (confirm(`Excluir a categoria "${c.name}"? Os produtos ficam sem categoria.`)) remove.mutate(c.id); }} className="text-slate-400 hover:text-red-600" title="Excluir"><Trash2 size={16} /></button>
+                </div>
+              </>
+            )}
+          </div>
+        ))}
+        {cats.data?.length === 0 && <p className="px-4 py-3 text-sm text-slate-400">Nenhuma categoria.</p>}
       </div>
     </Modal>
   );

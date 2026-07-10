@@ -1,7 +1,7 @@
 import { FormEvent, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Pencil, Trash2, Eye } from 'lucide-react';
-import { itemsApi, suppliersApi, productsApi } from '../../services/resources';
+import { itemsApi, suppliersApi, productsApi, productTypesApi, categoriesApi, ItemFilters } from '../../services/resources';
 import { apiError } from '../../services/api';
 import { useAuth } from '../../store/auth.store';
 import type { Item } from '../../types';
@@ -14,16 +14,25 @@ export function Items({ embedded = false }: { embedded?: boolean } = {}) {
   const canWrite = useAuth((s) => s.can('compras:write'));
   const isAdmin = useAuth((s) => s.can('compras:admin'));
   const [filter, setFilter] = useState<string>('');
+  const [typeFilter, setTypeFilter] = useState<string>('');
+  const [categoryFilter, setCategoryFilter] = useState<string>('');
   const [search, setSearch] = useState('');
   const [editing, setEditing] = useState<Item | null>(null);
   const [viewing, setViewing] = useState<Item | null>(null);
   const [open, setOpen] = useState(false);
 
   const { data: suppliers } = useQuery({ queryKey: ['suppliers'], queryFn: suppliersApi.list });
+  const { data: types } = useQuery({ queryKey: ['product-types'], queryFn: productTypesApi.list });
+  const { data: categories } = useQuery({ queryKey: ['categories'], queryFn: categoriesApi.list });
   const supplierId = filter ? Number(filter) : undefined;
+  const itemFilters: ItemFilters = {
+    supplier_id: supplierId,
+    type_id: typeFilter ? Number(typeFilter) : undefined,
+    category_id: categoryFilter ? Number(categoryFilter) : undefined,
+  };
   const { data, isLoading, error } = useQuery({
-    queryKey: ['items', supplierId],
-    queryFn: () => itemsApi.list(supplierId),
+    queryKey: ['items', itemFilters],
+    queryFn: () => itemsApi.list(itemFilters),
   });
   const remove = useMutation({
     mutationFn: itemsApi.remove,
@@ -50,16 +59,24 @@ export function Items({ embedded = false }: { embedded?: boolean } = {}) {
         />
       )}
 
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
         <Input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Buscar item pelo nome…"
-          className="sm:max-w-sm"
+          className="sm:max-w-xs"
         />
-        <Select value={filter} onChange={(e) => setFilter(e.target.value)} className="sm:max-w-xs">
+        <Select value={filter} onChange={(e) => setFilter(e.target.value)} className="sm:max-w-[12rem]">
           <option value="">Todos os fornecedores</option>
           {suppliers?.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+        </Select>
+        <Select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="sm:max-w-[10rem]">
+          <option value="">Todas as classes</option>
+          {types?.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+        </Select>
+        <Select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="sm:max-w-[10rem]">
+          <option value="">Todas as categorias</option>
+          {categories?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </Select>
         {embedded && canWrite && (
           <Button onClick={() => { setEditing(null); setOpen(true); }} className="sm:ml-auto"><Plus size={16} /> Novo item</Button>
@@ -134,7 +151,7 @@ export function Items({ embedded = false }: { embedded?: boolean } = {}) {
         </>
       ))}
 
-      {open && <ItemForm item={editing} defaultSupplier={supplierId} onClose={() => setOpen(false)} />}
+      {open && <ItemForm item={editing} onClose={() => setOpen(false)} />}
       {viewing && (
         <ViewModal
           title={viewing.name}
@@ -145,7 +162,12 @@ export function Items({ embedded = false }: { embedded?: boolean } = {}) {
             { label: 'Fornecedor', value: viewing.supplier_name },
             { label: 'Unidade', value: viewing.unit },
             { label: 'Preço base', value: viewing.base_price != null ? brl(viewing.base_price) : null },
-            { label: 'Código no fornecedor', value: viewing.supplier_code },
+            { label: 'NCM', value: viewing.ncm },
+            { label: 'CEST', value: viewing.cest },
+            { label: 'CFOP', value: viewing.cfop },
+            { label: 'CST/CSOSN', value: viewing.cst_csosn },
+            { label: 'Origem', value: viewing.origem },
+            { label: 'GTIN/EAN', value: viewing.gtin },
           ]}
         />
       )}
@@ -153,17 +175,22 @@ export function Items({ embedded = false }: { embedded?: boolean } = {}) {
   );
 }
 
-function ItemForm({ item, defaultSupplier, onClose }: { item: Item | null; defaultSupplier?: number; onClose: () => void }) {
+function ItemForm({ item, onClose }: { item: Item | null; onClose: () => void }) {
   const qc = useQueryClient();
   const { data: suppliers } = useQuery({ queryKey: ['suppliers'], queryFn: suppliersApi.list });
   const { data: products } = useQuery({ queryKey: ['products'], queryFn: () => productsApi.list() });
-  const [supplierId, setSupplierId] = useState<string>(String(item?.supplier_id ?? defaultSupplier ?? ''));
   const [name, setName] = useState(item?.name ?? '');
-  const [supplierCode, setSupplierCode] = useState(item?.supplier_code ?? '');
   const [unit, setUnit] = useState(item?.unit ?? 'un');
   const [price, setPrice] = useState(item?.base_price ?? '');
   const [productId, setProductId] = useState<string>(item?.product_id ? String(item.product_id) : '');
   const [newProduct, setNewProduct] = useState('');
+  // Dados tributários de entrada
+  const [ncm, setNcm] = useState(item?.ncm ?? '');
+  const [cest, setCest] = useState(item?.cest ?? '');
+  const [cfop, setCfop] = useState(item?.cfop ?? '');
+  const [origem, setOrigem] = useState(item?.origem ?? '');
+  const [cstCsosn, setCstCsosn] = useState(item?.cst_csosn ?? '');
+  const [gtin, setGtin] = useState(item?.gtin ?? '');
   const [error, setError] = useState('');
 
   // Em edição: carrega o item completo (com a lista de fornecedores vinculados).
@@ -223,12 +250,17 @@ function ItemForm({ item, defaultSupplier, onClose }: { item: Item | null; defau
   function submit(e: FormEvent) {
     e.preventDefault();
     setError('');
-    if (!supplierId) { setError('Selecione o fornecedor'); return; }
     const parsedPrice = parseNum(String(price));
     save.mutate({
-      supplier_id: Number(supplierId), name, unit,
-      supplier_code: supplierCode.trim() || null,
+      name, unit,
       base_price: parsedPrice === null ? undefined : (parsedPrice as unknown as string),
+      // Dados tributários de entrada (opcionais)
+      ncm: ncm.trim() || null,
+      cest: cest.trim() || null,
+      cfop: cfop.trim() || null,
+      origem: origem.trim() || null,
+      cst_csosn: cstCsosn.trim() || null,
+      gtin: gtin.trim() || null,
     });
   }
 
@@ -236,16 +268,7 @@ function ItemForm({ item, defaultSupplier, onClose }: { item: Item | null; defau
     <Modal title={item ? 'Editar item' : 'Novo item'} onClose={onClose}>
       <form onSubmit={submit} className="space-y-4">
         {error && <ErrorBox message={error} />}
-        <Field label="Fornecedor">
-          <Select value={supplierId} onChange={(e) => setSupplierId(e.target.value)} disabled={!!item} required>
-            <option value="">— selecione —</option>
-            {suppliers?.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </Select>
-        </Field>
         <Field label="Nome"><Input value={name} onChange={(e) => setName(e.target.value)} required autoFocus /></Field>
-        <Field label="Código do fornecedor (opcional)">
-          <Input value={supplierCode} onChange={(e) => setSupplierCode(e.target.value)} placeholder="ex.: 0466" />
-        </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Unidade"><Input value={unit} onChange={(e) => setUnit(e.target.value)} required /></Field>
           <Field label="Preço base"><Input value={price} onChange={(e) => setPrice(e.target.value)} placeholder="12,90" /></Field>
@@ -259,9 +282,36 @@ function ItemForm({ item, defaultSupplier, onClose }: { item: Item | null; defau
         </Field>
         {productId === 'new' && <Input value={newProduct} onChange={(e) => setNewProduct(e.target.value)} placeholder="Nome do produto (ex.: Acém)" />}
 
+        {/* Dados tributários de entrada */}
+        <div className="rounded-lg border border-slate-200 p-3">
+          <p className="mb-3 text-sm font-medium text-slate-700">Dados tributários de entrada</p>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <Field label="NCM"><Input value={ncm} onChange={(e) => setNcm(e.target.value)} placeholder="0000.00.00" maxLength={8} /></Field>
+            <Field label="CEST"><Input value={cest} onChange={(e) => setCest(e.target.value)} placeholder="00.000.00" maxLength={7} /></Field>
+            <Field label="CFOP"><Input value={cfop} onChange={(e) => setCfop(e.target.value)} placeholder="1102" maxLength={4} /></Field>
+            <Field label="CST/CSOSN"><Input value={cstCsosn} onChange={(e) => setCstCsosn(e.target.value)} placeholder="102" maxLength={4} /></Field>
+            <Field label="Origem">
+              <Select value={origem} onChange={(e) => setOrigem(e.target.value)}>
+                <option value="">—</option>
+                <option value="0">0 - Nacional</option>
+                <option value="1">1 - Estrangeira (importação direta)</option>
+                <option value="2">2 - Estrangeira (mercado interno)</option>
+                <option value="3">3 - Nacional (imp. 40–70%)</option>
+                <option value="4">4 - Nacional (proc. produtivo básico)</option>
+                <option value="5">5 - Nacional (imp. ≤40%)</option>
+                <option value="6">6 - Estrangeira (imp. direta, sem similar)</option>
+                <option value="7">7 - Estrangeira (merc. interno, sem similar)</option>
+                <option value="8">8 - Nacional (imp. &gt;70%)</option>
+              </Select>
+            </Field>
+            <Field label="GTIN/EAN"><Input value={gtin} onChange={(e) => setGtin(e.target.value)} placeholder="7891234567890" maxLength={14} /></Field>
+          </div>
+        </div>
+
         {item && (
           <div className="rounded-lg border border-slate-200 p-3">
-            <p className="mb-2 text-sm font-medium text-slate-700">Fornecedores deste item</p>
+            <p className="text-sm font-medium text-slate-700">Fornecedores deste item</p>
+            <p className="mb-2 text-xs text-slate-400">Preenchidos automaticamente ao lançar a NF-e de entrada, ou adicione manualmente abaixo.</p>
             <ul className="space-y-1">
               {links.map((l) => {
                 const isOrigin = l.supplier_id === item.supplier_id;
@@ -281,15 +331,15 @@ function ItemForm({ item, defaultSupplier, onClose }: { item: Item | null; defau
                 );
               })}
             </ul>
-            <div className="mt-3 flex gap-2">
-              <Select value={linkSupplierId} onChange={(e) => setLinkSupplierId(e.target.value)} className="flex-1">
+            <div className="mt-3 flex items-center gap-2">
+              <Select value={linkSupplierId} onChange={(e) => setLinkSupplierId(e.target.value)} className="min-w-0 flex-1">
                 <option value="">— vincular fornecedor —</option>
                 {suppliers?.filter((s) => !links.some((l) => l.supplier_id === s.id)).map((s) => (
                   <option key={s.id} value={s.id}>{s.name}</option>
                 ))}
               </Select>
-              <Input value={linkPrice} onChange={(e) => setLinkPrice(e.target.value)} placeholder="Preço" className="w-24" />
-              <Button type="button" variant="secondary" disabled={!linkSupplierId || link.isPending} onClick={() => link.mutate()}>
+              <Input value={linkPrice} onChange={(e) => setLinkPrice(e.target.value)} placeholder="0,00" className="shrink-0" style={{ width: '5.5rem' }} />
+              <Button type="button" variant="secondary" disabled={!linkSupplierId || link.isPending} onClick={() => link.mutate()} className="shrink-0">
                 <Plus size={15} /> Vincular
               </Button>
             </div>

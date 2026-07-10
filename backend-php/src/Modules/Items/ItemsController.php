@@ -11,7 +11,11 @@ use PDO;
 
 final class ItemsController
 {
-    private const COLUMNS = ['supplier_id', 'product_id', 'name', 'supplier_code', 'unit', 'package_size', 'package_unit', 'base_price'];
+    private const COLUMNS = [
+        'supplier_id', 'product_id', 'name', 'supplier_code', 'unit', 'package_size', 'package_unit', 'base_price',
+        // Dados tributários de entrada
+        'ncm', 'cest', 'cfop', 'origem', 'cst_csosn', 'gtin',
+    ];
 
     public static function list(Request $req): void
     {
@@ -26,6 +30,14 @@ final class ItemsController
 
         if (!$includeInactive) {
             $conditions[] = 'i.active = 1';
+        }
+        // Filtros por classe (tipo) e categoria: via produto vinculado ao item.
+        foreach (['type_id' => 'p.type_id', 'category_id' => 'p.category_id'] as $q => $col) {
+            $v = $req->query($q);
+            if ($v !== null && ctype_digit((string) $v)) {
+                $conditions[] = "{$col} = ?";
+                $whereParams[] = (int) $v;
+            }
         }
         if ($supplierId !== null) {
             // Disponível ao fornecedor = item de origem OU vínculo ativo em item_suppliers.
@@ -42,15 +54,19 @@ final class ItemsController
         Http::json(Db::query(
             "SELECT i.id, i.supplier_id, i.product_id, i.name, i.unit,
                     i.package_size, i.package_unit, i.active, i.created_at,
-                    s.name AS supplier_name, p.name AS product_name,
-                    (SELECT COUNT(*) FROM item_suppliers xs WHERE xs.item_id = i.id) AS supplier_count,
+                    COALESCE(s.name, (
+                        SELECT su.name FROM item_suppliers xs JOIN suppliers su ON su.id = xs.supplier_id
+                         WHERE xs.item_id = i.id AND xs.active = 1 ORDER BY su.name LIMIT 1
+                    )) AS supplier_name,
+                    p.name AS product_name,
+                    (SELECT COUNT(*) FROM item_suppliers xs WHERE xs.item_id = i.id AND xs.active = 1) AS supplier_count,
                     {$priceSel}
                FROM items i
-               JOIN suppliers s ON s.id = i.supplier_id
+               LEFT JOIN suppliers s ON s.id = i.supplier_id
                LEFT JOIN products p ON p.id = i.product_id
                {$join}
                {$where}
-               ORDER BY s.name, i.name" . self::pagination($req),
+               ORDER BY supplier_name, i.name" . self::pagination($req),
             $params
         ));
     }
@@ -66,10 +82,14 @@ final class ItemsController
     public static function create(Request $req): void
     {
         $in = $req->input();
-        $supplierId = $in->integer('supplier_id', true);
+        // Fornecedor é opcional: o item é catálogo puro e ganha fornecedores em item_suppliers
+        // (via lançamento da NF-e de entrada ou manualmente na tela do item).
+        $supplierId = $in->integer('supplier_id');
         $in->requireString('name');
         $in->requireString('unit');
-        self::assertSupplier($supplierId, $req->orgId());
+        if ($supplierId !== null) {
+            self::assertSupplier($supplierId, $req->orgId());
+        }
 
         $values = array_map(static fn ($c) => self::col($in, $c), self::COLUMNS);
         $placeholders = implode(', ', array_fill(0, count(self::COLUMNS), '?'));
@@ -81,9 +101,11 @@ final class ItemsController
             $pdo->prepare('INSERT INTO items (' . implode(', ', self::COLUMNS) . ", org_id) VALUES ({$placeholders}, ?)")
                 ->execute($values);
             $itemId = (int) $pdo->lastInsertId();
-            // Vínculo de origem em item_suppliers (espelha items.supplier_id).
-            $pdo->prepare('INSERT INTO item_suppliers (item_id, supplier_id, supplier_code, base_price) VALUES (?, ?, ?, ?)')
-                ->execute([$itemId, $supplierId, $supplierCode, $basePrice]);
+            // Vínculo de origem em item_suppliers só quando um fornecedor foi informado.
+            if ($supplierId !== null) {
+                $pdo->prepare('INSERT INTO item_suppliers (item_id, supplier_id, supplier_code, base_price) VALUES (?, ?, ?, ?)')
+                    ->execute([$itemId, $supplierId, $supplierCode, $basePrice]);
+            }
             return $itemId;
         });
 
@@ -98,7 +120,10 @@ final class ItemsController
         self::find($id, $req->orgId());
         $in = $req->input();
         if ($in->has('supplier_id')) {
-            self::assertSupplier($in->integer('supplier_id', true), $req->orgId());
+            $sid = $in->integer('supplier_id');
+            if ($sid !== null) {
+                self::assertSupplier($sid, $req->orgId());
+            }
         }
         $fields = [];
         $values = [];
@@ -162,10 +187,11 @@ final class ItemsController
         $itemId = $req->intParam('id');
         $supplierId = $req->intParam('supplierId');
         $item = self::find($itemId, $req->orgId());
-        if ((int) $item['supplier_id'] === $supplierId) {
-            throw HttpError::badRequest('Não é possível remover o fornecedor de origem do item');
-        }
         Db::execute('DELETE FROM item_suppliers WHERE item_id = ? AND supplier_id = ?', [$itemId, $supplierId]);
+        // Se era o fornecedor de origem (legado), desvincula do item para virar catálogo puro.
+        if ((int) $item['supplier_id'] === $supplierId) {
+            Db::execute('UPDATE items SET supplier_id = NULL WHERE id = ?', [$itemId]);
+        }
         $item['suppliers'] = self::suppliersOf($itemId);
         Http::json($item);
     }
@@ -205,9 +231,9 @@ final class ItemsController
     {
         $row = Db::queryOne(
             'SELECT i.*, s.name AS supplier_name, p.name AS product_name,
-                    (SELECT COUNT(*) FROM item_suppliers xs WHERE xs.item_id = i.id) AS supplier_count
+                    (SELECT COUNT(*) FROM item_suppliers xs WHERE xs.item_id = i.id AND xs.active = 1) AS supplier_count
                FROM items i
-               JOIN suppliers s ON s.id = i.supplier_id
+               LEFT JOIN suppliers s ON s.id = i.supplier_id
                LEFT JOIN products p ON p.id = i.product_id
               WHERE i.id = ? AND i.org_id = ?',
             [$id, $orgId]

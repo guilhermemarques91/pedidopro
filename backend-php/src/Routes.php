@@ -10,6 +10,8 @@ use App\Modules\Suppliers\SuppliersController;
 use App\Modules\Items\ItemsController;
 use App\Modules\Products\ProductsController;
 use App\Modules\Products\ProductTypesController;
+use App\Modules\Products\SubclassesController;
+use App\Modules\Products\PrintersController;
 use App\Modules\Quotations\QuotationsController;
 use App\Modules\Orders\OrdersController;
 use App\Modules\Requests\RequestsController;
@@ -113,6 +115,18 @@ final class Routes
         $r->post('/product-types', [ProductTypesController::class, 'create'], self::WRITE);
         $r->put('/product-types/:id', [ProductTypesController::class, 'update'], self::WRITE);
         $r->delete('/product-types/:id', [ProductTypesController::class, 'remove'], self::WRITE);
+
+        // Sub-classes (filhas da Classe)
+        $r->get('/product-subclasses', [SubclassesController::class, 'list'], self::READ);
+        $r->post('/product-subclasses', [SubclassesController::class, 'create'], self::WRITE);
+        $r->put('/product-subclasses/:id', [SubclassesController::class, 'update'], self::WRITE);
+        $r->delete('/product-subclasses/:id', [SubclassesController::class, 'remove'], self::WRITE);
+
+        // Impressoras de produção (direcionamento de impressão dos pedidos — módulo de vendas)
+        $r->get('/production-printers', [PrintersController::class, 'list'], self::READ);
+        $r->post('/production-printers', [PrintersController::class, 'create'], self::WRITE);
+        $r->put('/production-printers/:id', [PrintersController::class, 'update'], self::WRITE);
+        $r->delete('/production-printers/:id', [PrintersController::class, 'remove'], self::WRITE);
 
         // Estoque (movimentações; saldo vive em products)
         $r->get('/stock/moves', [StockController::class, 'moves'], self::ESTOQUE_READ);

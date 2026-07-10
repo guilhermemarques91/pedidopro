@@ -1,7 +1,7 @@
 import { api } from './api';
 import type {
   Category, Supplier, Item, Product, Quotation, QuotationDetail, ComparisonRow,
-  Order, OrderDetail, User, UserRole, Role, PermissionCatalog, AuditEntry, ProductType, StockMove, PurchaseRequest, RequestDetail,
+  Order, OrderDetail, User, UserRole, Role, PermissionCatalog, AuditEntry, ProductType, Subclass, ProductionPrinter, RecipeLine, StockMove, PurchaseRequest, RequestDetail,
   DeliveryOrder, DeliveryOrderDetail, DeliveryStatus, DeliveryPlatform, Channel, DeliveryAlert, ReportSummary,
   Interruption, OpeningShift,
   MarmitexCompany, MarmitexCatalog, CatalogType, MarmitexOrder, MarmitexOrderDetail,
@@ -26,8 +26,10 @@ export const suppliersApi = {
 
 // ---- Items ----
 export const itemsApi = {
-  list: (supplierId?: number) =>
-    api.get<Item[]>('/items', { params: supplierId ? { supplier_id: supplierId } : {} }).then((r) => r.data),
+  list: (filters?: number | ItemFilters) => {
+    const params = typeof filters === 'number' ? { supplier_id: filters } : (filters ?? {});
+    return api.get<Item[]>('/items', { params }).then((r) => r.data);
+  },
   get: (id: number) => api.get<Item>(`/items/${id}`).then((r) => r.data),
   create: (body: Partial<Item>) => api.post<Item>('/items', body).then((r) => r.data),
   update: (id: number, body: Partial<Item>) => api.put<Item>(`/items/${id}`, body).then((r) => r.data),
@@ -38,25 +40,56 @@ export const itemsApi = {
     api.delete<Item>(`/items/${id}/suppliers/${supplierId}`).then((r) => r.data),
 };
 
+export interface ItemFilters { supplier_id?: number; type_id?: number; category_id?: number }
+
 // ---- Products (produtos canônicos) ----
 export interface ProductItem { id: number; name: string; unit: string; base_price: string | null; supplier_name: string }
-export interface ProductDetail extends Product { items: ProductItem[] }
+export interface ProductDetail extends Product { items: ProductItem[]; recipe: RecipeLine[] }
 export interface UnmappedItem { id: number; name: string; unit: string; supplier_name: string }
 export interface SuggestedGroup { suggested_name: string; item_ids: number[]; items: { id: number; name: string; supplier_name: string }[] }
 
+export interface RecipeLineInput {
+  component_id: number | null;
+  component_name: string | null;
+  quantity: number | string;
+  unit: string | null;
+}
 export interface ProductInput {
   name: string;
+  tipo?: string | null;
   category_id?: number | null;
   type_id?: number | null;
+  sub_classe_id?: number | null;
+  production_printer_id?: number | null;
   supplier_id?: number | null;
   unit?: string | null;
+  purchase_unit?: string | null;
   cost_price?: number | null;
   sale_price?: number | null;
+  // Fiscais
+  ncm?: string | null;
+  cest?: string | null;
+  cfop?: string | null;
+  cfop_saida_fora?: string | null;
+  cfop_entrada?: string | null;
+  regime_tributario?: string | null;
+  origem?: string | null;
+  cst_csosn?: string | null;
+  gtin?: string | null;
+  // Ficha técnica (campos livres)
+  yield_qty?: number | null;
+  yield_unit?: string | null;
+  prep_time_min?: number | null;
+  prep_method?: string | null;
+  tech_notes?: string | null;
+  // Ficha técnica (receita)
+  recipe?: RecipeLineInput[];
 }
 export interface ProductFilters {
-  q?: string; category_id?: number; type_id?: number; supplier_id?: number;
+  q?: string; tipo?: string; category_id?: number; type_id?: number; sub_classe_id?: number; supplier_id?: number;
   created_from?: string; created_to?: string;
   cost_min?: number; cost_max?: number; sale_min?: number; sale_max?: number;
+  includeInactive?: boolean;
 }
 
 export const productsApi = {
@@ -93,6 +126,23 @@ export const productTypesApi = {
   create: (body: { name: string; sort_order?: number }) => api.post<ProductType>('/product-types', body).then((r) => r.data),
   update: (id: number, body: { name?: string; sort_order?: number }) => api.put<ProductType>(`/product-types/${id}`, body).then((r) => r.data),
   remove: (id: number) => api.delete(`/product-types/${id}`).then((r) => r.data),
+};
+
+// ---- Sub-classes (filhas da Classe) ----
+export const subclassesApi = {
+  list: (typeId?: number) =>
+    api.get<Subclass[]>('/product-subclasses', { params: typeId ? { type_id: typeId } : {} }).then((r) => r.data),
+  create: (body: { name: string; type_id?: number | null; sort_order?: number }) => api.post<Subclass>('/product-subclasses', body).then((r) => r.data),
+  update: (id: number, body: { name?: string; type_id?: number | null; sort_order?: number }) => api.put<Subclass>(`/product-subclasses/${id}`, body).then((r) => r.data),
+  remove: (id: number) => api.delete(`/product-subclasses/${id}`).then((r) => r.data),
+};
+
+// ---- Impressoras de produção ----
+export const printersApi = {
+  list: () => api.get<ProductionPrinter[]>('/production-printers').then((r) => r.data),
+  create: (body: { name: string; sort_order?: number }) => api.post<ProductionPrinter>('/production-printers', body).then((r) => r.data),
+  update: (id: number, body: { name?: string; sort_order?: number }) => api.put<ProductionPrinter>(`/production-printers/${id}`, body).then((r) => r.data),
+  remove: (id: number) => api.delete(`/production-printers/${id}`).then((r) => r.data),
 };
 
 // ---- Import ----

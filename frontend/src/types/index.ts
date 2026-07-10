@@ -72,21 +72,55 @@ export interface Supplier {
 export interface Product {
   id: number;
   name: string;
+  tipo: string | null;         // eixo fixo (Mercadoria, Produto, Combo, Adicional…)
   category_id: number | null;
   category_name?: string | null;
-  type_id: number | null;
+  type_id: number | null;      // Classe de itens (product_types)
   type_name?: string | null;
+  sub_classe_id: number | null;
+  sub_classe_name?: string | null;
+  production_printer_id?: number | null;   // impressora de produção (direcionamento de pedidos)
+  production_printer_name?: string | null;
   supplier_id: number | null;
   supplier_name?: string | null;
-  unit: string | null;
+  unit: string | null;          // unidade de venda
+  purchase_unit?: string | null; // unidade de compra/produção
   cost_price: string | null;   // preço de compra
   sale_price: string | null;   // preço de venda
+  // Informações fiscais
+  ncm?: string | null;
+  cest?: string | null;
+  cfop?: string | null;             // CFOP de saída DENTRO do estado (padrão)
+  cfop_saida_fora?: string | null;  // CFOP de saída FORA do estado (interestadual)
+  cfop_entrada?: string | null;     // CFOP de entrada (compras)
+  regime_tributario?: string | null;
+  origem?: string | null;      // 0..8 (origem da mercadoria)
+  cst_csosn?: string | null;
+  gtin?: string | null;        // código de barras (EAN/GTIN)
+  // Ficha técnica (campos livres)
+  yield_qty?: string | null;
+  yield_unit?: string | null;
+  prep_time_min?: number | string | null;
+  prep_method?: string | null;
+  tech_notes?: string | null;
   stock_qty?: string;          // saldo atual (etapa 2 do estoque)
   avg_cost?: string | null;    // custo médio ponderado
   item_count?: string;
   default_unit?: string | null;
   active: boolean;
   created_at: string;
+}
+
+/** Linha da ficha técnica (insumo/ingrediente de um produto). */
+export interface RecipeLine {
+  id?: number;
+  component_id: number | null;
+  component_name: string | null;
+  component_product_name?: string | null;
+  component_cost?: string | null;   // preço de compra do componente (para custo)
+  quantity: string | number;
+  unit: string | null;
+  sort_order?: number;
 }
 
 export interface StockMove {
@@ -110,6 +144,20 @@ export interface ProductType {
   sort_order?: number;
 }
 
+export interface Subclass {
+  id: number;
+  name: string;
+  type_id: number | null;      // Classe pai (product_types)
+  type_name?: string | null;
+  sort_order?: number;
+}
+
+export interface ProductionPrinter {
+  id: number;
+  name: string;
+  sort_order?: number;
+}
+
 export interface ItemSupplierLink {
   supplier_id: number;
   supplier_name: string;
@@ -119,8 +167,8 @@ export interface ItemSupplierLink {
 
 export interface Item {
   id: number;
-  supplier_id: number;
-  supplier_name?: string;
+  supplier_id: number | null;   // fornecedor de origem (legado); item é catálogo — fornecedores vivem em suppliers[]
+  supplier_name?: string | null;
   product_id: number | null;
   product_name?: string | null;
   name: string;
@@ -129,6 +177,13 @@ export interface Item {
   package_size: string | null;
   package_unit: string | null;
   base_price: string | null;
+  // Dados tributários de entrada
+  ncm?: string | null;
+  cest?: string | null;
+  cfop?: string | null;
+  origem?: string | null;       // 0..8 (origem da mercadoria)
+  cst_csosn?: string | null;
+  gtin?: string | null;         // código de barras (EAN/GTIN)
   active: boolean;
   created_at: string;
   supplier_count?: number;

@@ -15,11 +15,15 @@ final class ProductsController
     {
         // Cadastro de estoque: filtros de categoria (topo) + laterais (nome, tipo,
         // fornecedor, data, faixas de preço de compra/venda).
-        $where = ['p.active = 1', 'p.org_id = ?'];
+        $where = ['p.org_id = ?'];
         $params = [$req->orgId()];
+        if ($req->query('includeInactive') !== 'true') {
+            $where[] = 'p.active = 1';
+        }
         $eq = [
             'category_id' => 'p.category_id',
             'type_id' => 'p.type_id',
+            'sub_classe_id' => 'p.sub_classe_id',
             'supplier_id' => 'p.supplier_id',
         ];
         foreach ($eq as $q => $col) {
@@ -29,9 +33,21 @@ final class ProductsController
                 $params[] = (int) $v;
             }
         }
+        // Tipo (eixo fixo das abas de topo) é texto, não id.
+        if (($v = $req->query('tipo')) !== null && $v !== '') {
+            $where[] = 'p.tipo = ?';
+            $params[] = $v;
+        }
         if (($v = $req->query('q')) !== null) {
-            $where[] = 'p.name LIKE ?';
-            $params[] = '%' . $v . '%';
+            // Busca por descrição ou código interno (id).
+            if (ctype_digit($v)) {
+                $where[] = '(p.name LIKE ? OR p.id = ?)';
+                $params[] = '%' . $v . '%';
+                $params[] = (int) $v;
+            } else {
+                $where[] = 'p.name LIKE ?';
+                $params[] = '%' . $v . '%';
+            }
         }
         if (($v = $req->query('created_from')) !== null) {
             $where[] = 'p.created_at >= ?';
@@ -53,7 +69,9 @@ final class ProductsController
             }
         }
 
-        $sql = "SELECT p.*, c.name AS category_name, t.name AS type_name, s.name AS supplier_name,
+        $sql = "SELECT p.*, c.name AS category_name, t.name AS type_name,
+                       sc.name AS sub_classe_name, s.name AS supplier_name,
+                       pp.name AS production_printer_name,
                        COALESCE(SUM(i.active = 1), 0) AS item_count,
                        (SELECT i2.unit FROM items i2
                          WHERE i2.product_id = p.id AND i2.active = 1
@@ -62,10 +80,12 @@ final class ProductsController
                   FROM products p
                   LEFT JOIN categories c ON c.id = p.category_id
                   LEFT JOIN product_types t ON t.id = p.type_id
+                  LEFT JOIN product_subclasses sc ON sc.id = p.sub_classe_id
                   LEFT JOIN suppliers s ON s.id = p.supplier_id
+                  LEFT JOIN production_printers pp ON pp.id = p.production_printer_id
                   LEFT JOIN items i ON i.product_id = p.id
                  WHERE " . implode(' AND ', $where) . "
-                 GROUP BY p.id, c.name, t.name, s.name
+                 GROUP BY p.id, c.name, t.name, sc.name, s.name, pp.name
                  ORDER BY p.name" . self::pagination($req);
         Http::json(Db::query($sql, $params));
     }
@@ -81,7 +101,7 @@ final class ProductsController
             : '';
         Http::json(Db::query(
             "SELECT i.id, i.name, i.unit, s.name AS supplier_name
-               FROM items i JOIN suppliers s ON s.id = i.supplier_id
+               FROM items i LEFT JOIN suppliers s ON s.id = i.supplier_id
               WHERE i.active = 1 AND i.product_id IS NULL{$extra}
               ORDER BY LOWER(i.name)"
         ));
@@ -92,27 +112,53 @@ final class ProductsController
         $product = self::find($req->intParam('id'), $req->orgId());
         $product['items'] = Db::query(
             "SELECT i.id, i.name, i.unit, i.base_price, s.name AS supplier_name
-               FROM items i JOIN suppliers s ON s.id = i.supplier_id
+               FROM items i LEFT JOIN suppliers s ON s.id = i.supplier_id
               WHERE i.product_id = ? AND i.active = 1
               ORDER BY s.name, i.name",
+            [$product['id']]
+        );
+        // Ficha técnica: insumos da receita (com custo do componente, quando cadastrado).
+        $product['recipe'] = Db::query(
+            "SELECT r.id, r.component_id, r.component_name, r.quantity, r.unit, r.sort_order,
+                    c.name AS component_product_name, c.cost_price AS component_cost
+               FROM product_recipe r
+               LEFT JOIN products c ON c.id = r.component_id
+              WHERE r.product_id = ?
+              ORDER BY r.sort_order, r.id",
             [$product['id']]
         );
         Http::json($product);
     }
 
+    /** Colunas escalares do produto além de name (taxonomia + fiscais + ficha técnica livre). */
+    private const SCALAR = [
+        'tipo' => 'str', 'category_id' => 'int', 'type_id' => 'int', 'sub_classe_id' => 'int',
+        'production_printer_id' => 'int',
+        'supplier_id' => 'int', 'unit' => 'str', 'purchase_unit' => 'str',
+        'cost_price' => 'num', 'sale_price' => 'num',
+        'ncm' => 'str', 'cest' => 'str', 'cfop' => 'str', 'cfop_saida_fora' => 'str', 'cfop_entrada' => 'str',
+        'origem' => 'str', 'cst_csosn' => 'str', 'gtin' => 'str', 'regime_tributario' => 'str',
+        'yield_qty' => 'num', 'yield_unit' => 'str', 'prep_time_min' => 'int',
+        'prep_method' => 'str', 'tech_notes' => 'str',
+    ];
+
     public static function create(Request $req): void
     {
         $in = $req->input();
         $name = $in->requireString('name', 1, 200);
-        Db::execute(
-            'INSERT INTO products (org_id, name, category_id, type_id, supplier_id, unit, cost_price, sale_price)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            [
-                $req->orgId(), $name, $in->integer('category_id'), $in->integer('type_id'),
-                $in->integer('supplier_id'), $in->string('unit'), $in->number('cost_price'), $in->number('sale_price'),
-            ]
-        );
-        Http::json(self::find(Db::lastInsertId()), 201);
+        $cols = ['org_id', 'name'];
+        $vals = [$req->orgId(), $name];
+        foreach (self::SCALAR as $key => $kind) {
+            $cols[] = $key;
+            $vals[] = self::scalar($in, $key, $kind);
+        }
+        $place = implode(', ', array_fill(0, count($cols), '?'));
+        Db::execute('INSERT INTO products (' . implode(', ', $cols) . ") VALUES ({$place})", $vals);
+        $id = Db::lastInsertId();
+        if ($in->has('recipe')) {
+            self::saveRecipe($id, $req->orgId(), $in->array('recipe'));
+        }
+        Http::json(self::find($id), 201);
     }
 
     public static function update(Request $req): void
@@ -121,29 +167,66 @@ final class ProductsController
         self::find($id, $req->orgId());
         $in = $req->input();
         // Campos escalares opcionais: só atualiza os enviados.
-        $map = [
-            'name' => fn () => $in->requireString('name', 1, 200),
-            'category_id' => fn () => $in->integer('category_id'),
-            'type_id' => fn () => $in->integer('type_id'),
-            'supplier_id' => fn () => $in->integer('supplier_id'),
-            'unit' => fn () => $in->string('unit'),
-            'cost_price' => fn () => $in->number('cost_price'),
-            'sale_price' => fn () => $in->number('sale_price'),
-        ];
         $fields = [];
         $values = [];
-        foreach ($map as $key => $resolve) {
+        if ($in->has('name')) {
+            $fields[] = 'name = ?';
+            $values[] = $in->requireString('name', 1, 200);
+        }
+        foreach (self::SCALAR as $key => $kind) {
             if ($in->has($key)) {
                 $fields[] = "{$key} = ?";
-                $values[] = $resolve();
+                $values[] = self::scalar($in, $key, $kind);
             }
         }
-        if (!$fields) {
+        if ($fields) {
+            $values[] = $id;
+            Db::execute('UPDATE products SET ' . implode(', ', $fields) . ' WHERE id = ?', $values);
+        }
+        // Receita: se enviada, substitui a ficha inteira (lista completa por edição).
+        if ($in->has('recipe')) {
+            self::saveRecipe($id, $req->orgId(), $in->array('recipe'));
+        }
+        if (!$fields && !$in->has('recipe')) {
             throw HttpError::badRequest('Informe ao menos um campo');
         }
-        $values[] = $id;
-        Db::execute('UPDATE products SET ' . implode(', ', $fields) . ' WHERE id = ?', $values);
         Http::json(self::find($id));
+    }
+
+    /** Coerção de um campo escalar conforme o tipo declarado em SCALAR. */
+    private static function scalar(\App\Core\Input $in, string $key, string $kind): mixed
+    {
+        return match ($kind) {
+            'int' => $in->integer($key),
+            'num' => $in->number($key),
+            default => $in->string($key),
+        };
+    }
+
+    /** Regrava a receita de um produto (apaga a atual e insere a lista recebida). */
+    private static function saveRecipe(int $productId, int $orgId, array $rows): void
+    {
+        Db::execute('DELETE FROM product_recipe WHERE product_id = ?', [$productId]);
+        $sort = 0;
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $componentId = isset($row['component_id']) && $row['component_id'] !== '' ? (int) $row['component_id'] : null;
+            $componentName = isset($row['component_name']) ? trim((string) $row['component_name']) : '';
+            $componentName = $componentName === '' ? null : $componentName;
+            // Linha vazia (sem insumo nem texto) é ignorada.
+            if ($componentId === null && $componentName === null) {
+                continue;
+            }
+            $quantity = isset($row['quantity']) && is_numeric($row['quantity']) ? (float) $row['quantity'] : 0;
+            $unit = isset($row['unit']) && trim((string) $row['unit']) !== '' ? trim((string) $row['unit']) : null;
+            Db::execute(
+                'INSERT INTO product_recipe (org_id, product_id, component_id, component_name, quantity, unit, sort_order)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)',
+                [$orgId, $productId, $componentId, $componentName, $quantity, $unit, $sort++]
+            );
+        }
     }
 
     public static function remove(Request $req): void
@@ -188,7 +271,7 @@ final class ProductsController
     {
         $items = Db::query(
             "SELECT i.id, i.name, s.name AS supplier_name
-               FROM items i JOIN suppliers s ON s.id = i.supplier_id
+               FROM items i LEFT JOIN suppliers s ON s.id = i.supplier_id
               WHERE i.active = 1 AND i.product_id IS NULL
               ORDER BY LOWER(i.name)"
         );
