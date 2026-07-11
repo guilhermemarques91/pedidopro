@@ -1,13 +1,18 @@
+import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { Bike, Store, Clock, MapPin, ExternalLink, RefreshCw } from 'lucide-react';
+import { Bike, Store, Clock, MapPin, ExternalLink, RefreshCw, Printer } from 'lucide-react';
 import { deliveryApi } from '../../services/resources';
 import { apiError } from '../../services/api';
 import { useAuth } from '../../store/auth.store';
 import type { DeliveryOrder, DeliveryStatus, DeliveryAlert } from '../../types';
 import { PageHeader } from '../../components/PageHeader';
-import { Button, Card, Spinner, ErrorBox, EmptyState } from '../../components/ui';
+import { Button, Card, Spinner, ErrorBox, EmptyState, Modal } from '../../components/ui';
 import { brl, formatAddress } from '../../utils/format';
+import { getPrinters, setPrinters, listSystemPrinters, isPrintConfigured, printReceipt } from '../../services/print';
+
+// Status em que a comanda deve ser impressa automaticamente ao aparecer no painel.
+const AUTOPRINT_STATUS: DeliveryStatus[] = ['placed', 'confirmed', 'preparing'];
 
 // Colunas operacionais do painel (kanban). 'preparing' entra junto de 'confirmed'.
 const COLUMNS: { key: DeliveryStatus; title: string; match: DeliveryStatus[] }[] = [
@@ -26,6 +31,7 @@ const PLATFORM_META: Record<string, { label: string; cls: string }> = {
 export function Delivery() {
   const qc = useQueryClient();
   const isAdmin = useAuth((s) => s.hasRole('admin'));
+  const [showPrinters, setShowPrinters] = useState(false);
   const { data, isLoading, error } = useQuery({
     queryKey: ['delivery-orders'],
     queryFn: () => deliveryApi.list(),
@@ -49,17 +55,46 @@ export function Delivery() {
   const acceptAlert = useMutation({ mutationFn: deliveryApi.acceptAlert, onSuccess: invalidateAlerts });
   const rejectAlert = useMutation({ mutationFn: deliveryApi.rejectAlert, onSuccess: invalidateAlerts });
 
+  // Impressão automática da comanda (2 impressoras via QZ Tray) ao chegar/confirmar o pedido.
+  const printAttempts = useRef<Set<number>>(new Set());
+  useEffect(() => {
+    if (!data || !isPrintConfigured()) return;
+    const pending = data.filter(
+      (o) => !o.printed_at && AUTOPRINT_STATUS.includes(o.status) && !printAttempts.current.has(o.id),
+    );
+    for (const o of pending) {
+      printAttempts.current.add(o.id);
+      (async () => {
+        try {
+          const full = await deliveryApi.get(o.id);
+          await printReceipt(full);
+          await deliveryApi.printed(o.id); // marca só após imprimir com sucesso (dedup entre telas)
+        } catch (e) {
+          printAttempts.current.delete(o.id); // libera p/ nova tentativa no próximo poll (ex.: QZ offline)
+          console.error('Impressão automática falhou para o pedido', o.id, e);
+        }
+      })();
+    }
+  }, [data]);
+
   return (
     <div>
       <PageHeader
         title="Painel de Pedidos"
         subtitle="Pedidos de delivery em tempo real — iFood e 99Food"
         action={isAdmin && (
-          <Button variant="secondary" disabled={sync.isPending} onClick={() => sync.mutate()}>
-            <RefreshCw size={16} className={sync.isPending ? 'animate-spin' : ''} /> Sincronizar agora
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" onClick={() => setShowPrinters(true)}>
+              <Printer size={16} /> Impressoras
+            </Button>
+            <Button variant="secondary" disabled={sync.isPending} onClick={() => sync.mutate()}>
+              <RefreshCw size={16} className={sync.isPending ? 'animate-spin' : ''} /> Sincronizar agora
+            </Button>
+          </div>
         )}
       />
+
+      {showPrinters && <PrinterConfig onClose={() => setShowPrinters(false)} />}
 
       {isLoading && <Spinner />}
       {error && <ErrorBox message={apiError(error)} />}
@@ -232,5 +267,68 @@ function OrderCard({
         ) : null;
       })()}
     </Card>
+  );
+}
+
+/**
+ * Configuração das impressoras da comanda (por PC). Detecta as impressoras do SO via
+ * QZ Tray e deixa marcar quais recebem a comanda (ex.: cozinha + balcão). A seleção
+ * fica no localStorage desta máquina — é ela que dispara a impressão automática.
+ */
+function PrinterConfig({ onClose }: { onClose: () => void }) {
+  const [available, setAvailable] = useState<string[]>([]);
+  const [selected, setSelected] = useState<string[]>(getPrinters());
+  const [detecting, setDetecting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const detect = async () => {
+    setDetecting(true);
+    setError(null);
+    try {
+      setAvailable(await listSystemPrinters());
+    } catch (e) {
+      setError('Não foi possível conectar ao QZ Tray. Verifique se ele está instalado e aberto neste PC.');
+      console.error(e);
+    } finally {
+      setDetecting(false);
+    }
+  };
+
+  const toggle = (name: string) =>
+    setSelected((s) => (s.includes(name) ? s.filter((n) => n !== name) : [...s, name]));
+
+  const save = () => { setPrinters(selected); onClose(); };
+
+  // Mostra também impressoras já salvas que ainda não foram redetectadas.
+  const options = Array.from(new Set([...available, ...selected]));
+
+  return (
+    <Modal title="Impressoras da comanda" onClose={onClose}>
+      <p className="mb-3 text-xs text-slate-500">
+        As selecionadas recebem a comanda automaticamente quando o pedido chega. Requer o QZ Tray
+        instalado e aberto neste computador.
+      </p>
+
+      <Button variant="secondary" className="text-xs" disabled={detecting} onClick={detect}>
+        <RefreshCw size={14} className={detecting ? 'animate-spin' : ''} /> Detectar impressoras
+      </Button>
+
+      {error && <div className="mt-3"><ErrorBox message={error} /></div>}
+
+      <div className="mt-3 space-y-1">
+        {options.length === 0 && <p className="text-xs text-slate-400">Nenhuma impressora detectada ainda.</p>}
+        {options.map((name) => (
+          <label key={name} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm text-slate-700 hover:bg-slate-50">
+            <input type="checkbox" checked={selected.includes(name)} onChange={() => toggle(name)} />
+            {name}
+          </label>
+        ))}
+      </div>
+
+      <div className="mt-4 flex justify-end gap-2">
+        <Button variant="ghost" className="text-xs" onClick={onClose}>Cancelar</Button>
+        <Button className="text-xs" onClick={save}>Salvar</Button>
+      </div>
+    </Modal>
   );
 }

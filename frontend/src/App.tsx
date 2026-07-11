@@ -18,6 +18,7 @@ import { RequestDetailPage } from './pages/RequestDetail';
 import { UsersPage } from './pages/Users';
 import { Delivery } from './pages/Delivery';
 import { DeliveryOrderDetailPage } from './pages/Delivery/OrderDetail';
+import { OrderReceipt } from './pages/Delivery/OrderReceipt';
 import { Integrations } from './pages/Integrations';
 import { Reports } from './pages/Reports';
 import { Store } from './pages/Store';
@@ -50,6 +51,15 @@ export default function App() {
         element={
           <Protected>
             <LabelsPrint />
+          </Protected>
+        }
+      />
+      {/* Comanda de delivery: rota isolada (sem o chrome do app) para o window.print(). */}
+      <Route
+        path="/delivery/:id/print"
+        element={
+          <Protected>
+            <OrderReceipt />
           </Protected>
         }
       />

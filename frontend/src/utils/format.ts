@@ -1,3 +1,44 @@
+export interface ParsedOption { name: string; quantity: number | null; group: string | null; }
+
+/**
+ * Normaliza os complementos/opções de um item de delivery. Trata os dois formatos
+ * (iFood `options[]` e 99Food `sub_item_list[]`), aceita objeto já decodificado ou
+ * string JSON crua, e achata um nível de aninhamento. Extrai nome, quantidade e grupo.
+ * Preço é omitido de propósito: iFood vem em reais e 99Food em centavos — misturar
+ * enganaria; para a comanda o que importa é o nome/quantidade do complemento.
+ */
+export function parseOptions(v: unknown): ParsedOption[] {
+  let arr: unknown = v;
+  if (typeof v === 'string' && v.trim()) {
+    try { arr = JSON.parse(v); } catch { return []; }
+  }
+  if (!Array.isArray(arr)) return [];
+  const pickStr = (o: Record<string, unknown>, keys: string[]): string | null => {
+    for (const k of keys) { const x = o[k]; if (x != null && String(x).trim() !== '') return String(x).trim(); }
+    return null;
+  };
+  const pickNum = (o: Record<string, unknown>, keys: string[]): number | null => {
+    for (const k of keys) { const x = o[k]; if (x != null && x !== '' && Number.isFinite(Number(x))) return Number(x); }
+    return null;
+  };
+  const out: ParsedOption[] = [];
+  for (const raw of arr) {
+    if (!raw || typeof raw !== 'object') continue;
+    const o = raw as Record<string, unknown>;
+    const name = pickStr(o, ['name', 'sub_item_name', 'itemName', 'complementName', 'description']);
+    if (name) {
+      out.push({
+        name,
+        quantity: pickNum(o, ['quantity', 'amount', 'count']),
+        group: pickStr(o, ['group_name', 'groupName', 'property_name', 'propertyName', 'category']),
+      });
+    }
+    const nested = o['sub_item_list'] ?? o['options'] ?? o['garnishItems'];
+    if (Array.isArray(nested)) out.push(...parseOptions(nested));
+  }
+  return out;
+}
+
 /** Normaliza sides_json (pode vir como array já decodificado ou string JSON crua). */
 export function parseSides(v: unknown): { id: number; name: string }[] {
   if (Array.isArray(v)) return v as { id: number; name: string }[];

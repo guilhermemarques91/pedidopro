@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, MapPin } from 'lucide-react';
+import { ArrowLeft, MapPin, Printer } from 'lucide-react';
 import { deliveryApi } from '../../services/resources';
 import { apiError } from '../../services/api';
 import type { DeliveryStatus } from '../../types';
 import { PageHeader } from '../../components/PageHeader';
 import { Button, Card, Spinner, ErrorBox } from '../../components/ui';
-import { brl, datetime, formatAddress } from '../../utils/format';
+import { brl, datetime, formatAddress, parseOptions } from '../../utils/format';
 
 const STATUS_FLOW: { key: DeliveryStatus; label: string; tsField: string }[] = [
   { key: 'placed', label: 'Recebido', tsField: 'placed_at' },
@@ -73,16 +73,39 @@ export function DeliveryOrderDetailPage() {
             <h3 className="mb-3 text-sm font-semibold text-slate-700">Itens</h3>
             <table className="w-full text-sm">
               <tbody>
-                {order.items.map((it) => (
-                  <tr key={it.id} className="border-b border-slate-100 last:border-0">
-                    <td className="py-2 text-slate-500">{Number(it.quantity)}x</td>
-                    <td className="py-2 text-slate-800">{it.name}{it.observations && <span className="block text-xs text-slate-400">{it.observations}</span>}</td>
-                    <td className="py-2 text-right text-slate-600">{brl(it.total)}</td>
-                  </tr>
-                ))}
+                {order.items.map((it) => {
+                  const opts = parseOptions(it.options);
+                  return (
+                    <tr key={it.id} className="border-b border-slate-100 last:border-0 align-top">
+                      <td className="py-2 text-slate-500">{Number(it.quantity)}x</td>
+                      <td className="py-2 text-slate-800">
+                        {it.name}
+                        {opts.length > 0 && (
+                          <ul className="mt-0.5 space-y-0.5">
+                            {opts.map((op, i) => (
+                              <li key={i} className="text-xs text-slate-500">
+                                + {op.quantity && op.quantity > 1 ? `${op.quantity}x ` : ''}{op.name}
+                                {op.group && <span className="text-slate-400"> · {op.group}</span>}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                        {it.observations && <span className="block text-xs italic text-slate-400">{it.observations}</span>}
+                      </td>
+                      <td className="py-2 text-right text-slate-600">{brl(it.total)}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </Card>
+
+          {order.customer_notes && (
+            <Card>
+              <h3 className="mb-2 text-sm font-semibold text-slate-700">Observações do pedido</h3>
+              <p className="whitespace-pre-line text-sm font-medium text-amber-700">{order.customer_notes}</p>
+            </Card>
+          )}
 
           {addr && (
             <Card>
@@ -140,6 +163,9 @@ export function DeliveryOrderDetailPage() {
               {order.status === 'placed' && <Button className="text-xs" disabled={confirm.isPending} onClick={() => confirm.mutate()}>Confirmar</Button>}
               {(order.status === 'confirmed' || order.status === 'preparing') && <Button className="text-xs" disabled={ready.isPending} onClick={() => ready.mutate()}>Marcar pronto</Button>}
               {order.status === 'ready' && <Button className="text-xs" disabled={dispatch.isPending} onClick={() => dispatch.mutate()}>Despachar</Button>}
+              <a href={`/delivery/${order.id}/print`} target="_blank" rel="noopener noreferrer">
+                <Button variant="secondary" className="text-xs"><Printer size={14} /> Imprimir comanda</Button>
+              </a>
               {!['dispatched', 'concluded', 'cancelled'].includes(order.status) && (
                 <Button variant="ghost" className="text-xs" disabled={cancel.isPending} onClick={() => { if (window.confirm('Cancelar este pedido?')) cancel.mutate(); }}>Cancelar</Button>
               )}

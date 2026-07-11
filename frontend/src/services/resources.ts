@@ -228,6 +228,7 @@ export const deliveryApi = {
   ready: (id: number) => api.post<DeliveryOrderDetail>(`/delivery/orders/${id}/ready`).then((r) => r.data),
   dispatch: (id: number) => api.post<DeliveryOrderDetail>(`/delivery/orders/${id}/dispatch`).then((r) => r.data),
   cancel: (id: number) => api.post<DeliveryOrderDetail>(`/delivery/orders/${id}/cancel`).then((r) => r.data),
+  printed: (id: number) => api.post<{ claimed: boolean }>(`/delivery/orders/${id}/printed`).then((r) => r.data),
   tracking: (id: number) => api.get<Record<string, unknown>>(`/delivery/orders/${id}/tracking`).then((r) => r.data),
   sync: () => api.post<{ ok: boolean; channels: { channel: string; platform: string; ingested: number; duplicated: number }[] }>('/delivery/sync').then((r) => r.data),
   alerts: () => api.get<DeliveryAlert[]>('/delivery/alerts').then((r) => r.data),

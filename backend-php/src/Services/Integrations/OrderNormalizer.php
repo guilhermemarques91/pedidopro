@@ -94,6 +94,8 @@ final class OrderNormalizer
             'eta' => self::ts($delivery['deliveryDateTime'] ?? null),
             'customer_name' => $customer['name'] ?? null,
             'customer_phone' => $phone,
+            // Observação em nível de pedido (talheres, "cancelar só o que faltar", etc.).
+            'customer_notes' => self::firstStr($o, ['observations', 'note', 'deliveryObservations', 'additionalInfo']),
             'items_amount' => self::money($total['subTotal'] ?? null),
             'delivery_fee' => self::money($total['deliveryFee'] ?? ($delivery['deliveryFee'] ?? null)),
             'discount_merchant' => $discMerchant,
@@ -154,6 +156,9 @@ final class OrderNormalizer
             'eta' => self::ts($o['expected_arrived_eta'] ?? ($o['delivery_eta'] ?? null)),
             'customer_name' => $name,
             'customer_phone' => $phone,
+            // Observação em nível de pedido (talheres, "cancelar só o que faltar", etc.).
+            // Chaves defensivas: o OrderModel do 99Food varia; refine ao inspecionar um `raw` real.
+            'customer_notes' => self::firstStr($o, ['remark', 'user_remark', 'order_remark', 'buyer_remark', 'user_note', 'note', 'caution']),
             'items_amount' => self::cents($price['order_price'] ?? null),
             'delivery_fee' => self::cents($price['delivery_price'] ?? null),
             'discount_merchant' => $discMerchant,
@@ -300,6 +305,17 @@ final class OrderNormalizer
     {
         $s = is_scalar($v) ? trim((string) $v) : '';
         return $s !== '' ? $s : null;
+    }
+
+    /** Primeiro valor de texto não-vazio entre as chaves candidatas (tolerante a payloads variados). */
+    private static function firstStr(array $src, array $keys): ?string
+    {
+        foreach ($keys as $k) {
+            if (isset($src[$k]) && is_scalar($src[$k]) && trim((string) $src[$k]) !== '') {
+                return trim((string) $src[$k]);
+            }
+        }
+        return null;
     }
 
     private static function money(mixed $v): ?float

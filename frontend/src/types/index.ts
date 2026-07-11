@@ -245,6 +245,7 @@ export interface DeliveryOrder {
   customer_id: number | null;
   customer_name: string | null;
   customer_phone: string | null;
+  customer_notes: string | null;
   items_amount: string | null;
   delivery_fee: string | null;
   discount_merchant: string | null;
@@ -258,6 +259,7 @@ export interface DeliveryOrder {
   dispatched_at: string | null;
   concluded_at: string | null;
   cancelled_at: string | null;
+  printed_at: string | null;
   created_at: string;
   items_count?: number;
 }

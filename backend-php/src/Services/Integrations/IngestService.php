@@ -427,6 +427,7 @@ final class IngestService
                 'customer_id' => $customerId,
                 'customer_name' => $o['customer_name'] ?? null,
                 'customer_phone' => $o['customer_phone'] ?? null,
+                'customer_notes' => $o['customer_notes'] ?? null,
                 'items_amount' => $o['items_amount'] ?? null,
                 'delivery_fee' => $o['delivery_fee'] ?? null,
                 'discount_merchant' => $o['discount_merchant'] ?? null,
@@ -442,6 +443,7 @@ final class IngestService
             $coalesce = [
                 'display_id', 'merchant_id', 'order_type', 'delivery_mode', 'delivery_address',
                 'delivery_distance_m', 'eta', 'customer_id', 'customer_name', 'customer_phone',
+                'customer_notes',
                 'items_amount', 'delivery_fee', 'discount_merchant', 'discount_platform',
                 'customer_paid', 'commission', 'net_amount', 'placed_at',
             ];

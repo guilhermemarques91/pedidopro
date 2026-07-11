@@ -93,6 +93,19 @@ final class DeliveryController
     public static function dispatch(Request $req): void { self::command($req, 'dispatch'); }
     public static function cancel(Request $req): void   { self::command($req, 'cancel'); }
 
+    /**
+     * POST /delivery/orders/:id/printed — reivindica a impressão da comanda.
+     * Atômico: só o primeiro cliente a chamar "reivindica" (claimed=true); os demais
+     * (ex.: painel aberto em 2 telas) recebem claimed=false e não reimprimem.
+     */
+    public static function markPrinted(Request $req): void
+    {
+        $id = $req->intParam('id');
+        self::row($id); // 404 se não existir
+        $claimed = Db::execute('UPDATE delivery_orders SET printed_at = NOW() WHERE id = ? AND printed_at IS NULL', [$id]) > 0;
+        Http::json(['claimed' => $claimed]);
+    }
+
     /** GET /delivery/orders/:id/tracking — posição/ETA do entregador. */
     public static function tracking(Request $req): void
     {
@@ -289,7 +302,17 @@ final class DeliveryController
     private static function detailed(int $id): array
     {
         $order = self::hydrate(self::row($id));
-        $order['items'] = Db::query('SELECT * FROM delivery_order_items WHERE order_id = ? ORDER BY id', [$id]);
+        $items = Db::query('SELECT * FROM delivery_order_items WHERE order_id = ? ORDER BY id', [$id]);
+        // options é JSON armazenado como texto; decodifica p/ o frontend receber os
+        // complementos como objeto (mesmo motivo do delivery_address em hydrate()).
+        foreach ($items as &$it) {
+            if (isset($it['options']) && is_string($it['options'])) {
+                $decoded = json_decode($it['options'], true);
+                $it['options'] = is_array($decoded) ? $decoded : null;
+            }
+        }
+        unset($it);
+        $order['items'] = $items;
         return $order;
     }
 
