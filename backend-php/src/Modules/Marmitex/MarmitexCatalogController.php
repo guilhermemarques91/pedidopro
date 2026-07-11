@@ -52,14 +52,20 @@ final class MarmitexCatalogController
         if ($table === 'marmitex_sizes') {
             $price = (float) ($in->number('price') ?? 0);
             $row = Db::insertReturning(
-                "INSERT INTO {$table} (org_id, name, price, sort_order) VALUES (?, ?, ?, ?)",
-                [$req->orgId(), $name, $price, $sort],
+                "INSERT INTO {$table} (org_id, name, price, sort_order, product_id) VALUES (?, ?, ?, ?, ?)",
+                [$req->orgId(), $name, $price, $sort, self::productId($req)],
+                $table
+            );
+        } elseif ($table === 'marmitex_observations') {
+            $row = Db::insertReturning(
+                "INSERT INTO {$table} (org_id, name, sort_order) VALUES (?, ?, ?)",
+                [$req->orgId(), $name, $sort],
                 $table
             );
         } else {
             $row = Db::insertReturning(
-                "INSERT INTO {$table} (org_id, name, sort_order) VALUES (?, ?, ?)",
-                [$req->orgId(), $name, $sort],
+                "INSERT INTO {$table} (org_id, name, sort_order, product_id) VALUES (?, ?, ?, ?)",
+                [$req->orgId(), $name, $sort, self::productId($req)],
                 $table
             );
         }
@@ -90,6 +96,10 @@ final class MarmitexCatalogController
             $fields[] = 'price = ?';
             $values[] = (float) ($in->number('price') ?? 0);
         }
+        if ($table !== 'marmitex_observations' && $in->has('product_id')) {
+            $fields[] = 'product_id = ?'; // vazio/null = item não controla estoque
+            $values[] = self::productId($req);
+        }
         if (!$fields) {
             throw HttpError::badRequest('Nada para atualizar');
         }
@@ -117,6 +127,19 @@ final class MarmitexCatalogController
             $row = Db::queryOne("SELECT * FROM {$table} WHERE id = ?", [$id]);
             Http::json($row ?? ['id' => $id, 'active' => 0]);
         }
+    }
+
+    /** Produto cuja ficha técnica é explodida na baixa; null = item não movimenta estoque. */
+    private static function productId(Request $req): ?int
+    {
+        $id = $req->input()->integer('product_id');
+        if ($id === null) {
+            return null;
+        }
+        if (!Db::queryOne('SELECT id FROM products WHERE id = ? AND org_id = ?', [$id, $req->orgId()])) {
+            throw HttpError::badRequest('Produto vinculado não encontrado');
+        }
+        return $id;
     }
 
     private static function table(Request $req): string

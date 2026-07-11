@@ -480,12 +480,16 @@ export interface MarmitexSize {
   price: string;
   sort_order: number;
   active: boolean;
+  /** Produto cuja ficha técnica é explodida na baixa; null = não controla estoque. */
+  product_id: number | null;
 }
 export interface MarmitexOption {
   id: number;
   name: string;
   sort_order: number;
   active: boolean;
+  /** Ausente em `observations` (não vira consumo). */
+  product_id?: number | null;
 }
 export interface MarmitexCatalog {
   sizes: MarmitexSize[];
@@ -516,12 +520,30 @@ export interface Marmita {
   billed_invoice_id: number | null;
 }
 
+/** Uma saída de estoque prevista (prévia) ou efetivada (retorno de `produce`). */
+export interface ProductionMove {
+  product_id: number;
+  product_name: string;
+  unit: string | null;
+  quantity: number;
+  /** Só na prévia: saldo antes da baixa. */
+  stock_qty?: number;
+  balance_after: number;
+}
+export interface ProductionSummary {
+  moves: ProductionMove[];
+  /** Itens do cardápio sem produto vinculado — não movimentam estoque. */
+  unlinked: string[];
+}
+
 export interface MarmitexOrder {
   id: number;
   company_id: number;
   company_name?: string;
   service_date: string;
-  status: 'submitted' | 'cancelled';
+  /** 'produced' = produção fechada, estoque baixado; congela a edição. */
+  status: 'submitted' | 'cancelled' | 'produced';
+  produced_at?: string | null;
   notes: string | null;
   marmita_count?: number;
   total_amount?: string;

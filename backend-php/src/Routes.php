@@ -269,6 +269,10 @@ final class Routes
         $r->get('/marmitex/orders/:id', [MarmitexOrdersController::class, 'getById'], self::MARMITEX);
         $r->post('/marmitex/orders', [MarmitexOrdersController::class, 'save'], self::MARMITEX);
         $r->delete('/marmitex/orders/:id', [MarmitexOrdersController::class, 'remove'], self::MARMITEX);
+        // Fechar a produção baixa o estoque pela ficha técnica — só quem administra o marmitex.
+        $r->get('/marmitex/orders/:id/production', [MarmitexOrdersController::class, 'productionPreview'], self::MARMITEX_ADMIN);
+        $r->post('/marmitex/orders/:id/produce', [MarmitexOrdersController::class, 'produce'], self::MARMITEX_ADMIN);
+        $r->post('/marmitex/orders/:id/reopen', [MarmitexOrdersController::class, 'reopen'], self::MARMITEX_ADMIN);
 
         // Etiquetas (dados planos para impressão).
         $r->get('/marmitex/labels', [MarmitexLabelsController::class, 'labels'], self::MARMITEX);

@@ -7,6 +7,7 @@ use App\Core\Env;
 use App\Core\Http;
 use App\Core\HttpError;
 use App\Core\Request;
+use App\Services\Production;
 use PDO;
 
 /**
@@ -14,6 +15,9 @@ use PDO;
  * Cada marmita é uma linha (nome + tamanho + proteína + acompanhamentos + obs), com
  * snapshot do nome/preço do catálogo no momento do envio. O login 'company' só altera
  * antes do horário de corte; admin não tem corte. Pedidos já faturados não mudam.
+ *
+ * Fechar a produção (status 'produced') baixa o estoque dos insumos pela ficha técnica e
+ * congela o pedido: para editar, reabra — o que estorna a baixa.
  */
 final class MarmitexOrdersController
 {
@@ -77,12 +81,15 @@ final class MarmitexOrdersController
         $marmitas = self::parseMarmitas($in->array('marmitas', true), $companyId);
 
         $id = Db::transaction(function (PDO $pdo) use ($companyId, $serviceDate, $notes, $marmitas, $req) {
-            $find = $pdo->prepare('SELECT id FROM marmitex_orders WHERE company_id = ? AND service_date = ?');
+            $find = $pdo->prepare('SELECT id, status FROM marmitex_orders WHERE company_id = ? AND service_date = ?');
             $find->execute([$companyId, $serviceDate]);
             $existing = $find->fetch();
 
             if ($existing) {
                 $orderId = (int) $existing['id'];
+                if ($existing['status'] === 'produced') {
+                    throw HttpError::badRequest('Produção já fechada: reabra o pedido para alterá-lo');
+                }
                 $billed = $pdo->prepare('SELECT COUNT(*) AS n FROM marmitex_marmitas WHERE order_id = ? AND billed_invoice_id IS NOT NULL');
                 $billed->execute([$orderId]);
                 if ((int) $billed->fetch()['n'] > 0) {
@@ -117,6 +124,9 @@ final class MarmitexOrdersController
         }
         self::scopeCompany($req, (int) $order['company_id']);
 
+        if ($order['status'] === 'produced') {
+            throw HttpError::badRequest('Produção já fechada: reabra o pedido para cancelá-lo');
+        }
         $billed = Db::queryOne('SELECT COUNT(*) AS n FROM marmitex_marmitas WHERE order_id = ? AND billed_invoice_id IS NOT NULL', [$id]);
         if ((int) $billed['n'] > 0) {
             throw HttpError::badRequest('Pedido já faturado não pode ser cancelado');
@@ -128,7 +138,84 @@ final class MarmitexOrdersController
         Http::noContent();
     }
 
+    /**
+     * GET /marmitex/orders/:id/production — prévia do consumo, sem gravar nada.
+     * Alimenta o modal de confirmação de "Fechar produção".
+     */
+    public static function productionPreview(Request $req): void
+    {
+        $id = $req->intParam('id');
+        self::loadOrder($id); // 404 se não existir
+        $demand = Production::demand(Db::pdo(), $req->orgId(), $id); // só leitura
+
+        $moves = [];
+        foreach ($demand['items'] as $productId => $qty) {
+            $p = Db::queryOne('SELECT name, unit, stock_qty FROM products WHERE id = ?', [$productId]);
+            $moves[] = [
+                'product_id' => $productId,
+                'product_name' => $p['name'] ?? "#{$productId}",
+                'unit' => $p['unit'] ?? null,
+                'quantity' => $qty,
+                'stock_qty' => (float) ($p['stock_qty'] ?? 0),
+                'balance_after' => (float) ($p['stock_qty'] ?? 0) - $qty,
+            ];
+        }
+        Http::json(['moves' => $moves, 'unlinked' => $demand['unlinked']]);
+    }
+
+    /** POST /marmitex/orders/:id/produce — fecha a produção e baixa o estoque dos insumos. */
+    public static function produce(Request $req): void
+    {
+        $id = $req->intParam('id');
+        $result = Db::transaction(function (PDO $pdo) use ($id, $req) {
+            $order = self::lockOrder($pdo, $id);
+            if ($order['status'] !== 'submitted') {
+                throw HttpError::badRequest(
+                    $order['status'] === 'produced' ? 'Produção já fechada' : 'Pedido cancelado não produz'
+                );
+            }
+            $summary = Production::consume($pdo, $req->orgId(), $id, $req->userId());
+            $pdo->prepare("UPDATE marmitex_orders SET status = 'produced', produced_at = NOW(), produced_by = ? WHERE id = ?")
+                ->execute([$req->userId(), $id]);
+            return $summary;
+        });
+        Http::json($result + ['order' => self::loadOrder($id)]);
+    }
+
+    /** POST /marmitex/orders/:id/reopen — estorna a baixa e devolve o pedido para edição. */
+    public static function reopen(Request $req): void
+    {
+        $id = $req->intParam('id');
+        Db::transaction(function (PDO $pdo) use ($id, $req) {
+            $order = self::lockOrder($pdo, $id);
+            if ($order['status'] !== 'produced') {
+                throw HttpError::badRequest('A produção deste pedido não está fechada');
+            }
+            $billed = $pdo->prepare('SELECT COUNT(*) AS n FROM marmitex_marmitas WHERE order_id = ? AND billed_invoice_id IS NOT NULL');
+            $billed->execute([$id]);
+            if ((int) $billed->fetch()['n'] > 0) {
+                throw HttpError::badRequest('Pedido já faturado não pode ser reaberto');
+            }
+            Production::revert($pdo, $req->orgId(), $id, $req->userId());
+            $pdo->prepare("UPDATE marmitex_orders SET status = 'submitted', produced_at = NULL, produced_by = NULL WHERE id = ?")
+                ->execute([$id]);
+        });
+        Http::json(self::loadOrder($id));
+    }
+
     // ---- helpers ----
+
+    /** Trava o pedido: a guarda de dupla-baixa é o status, não o log de movimentos. */
+    private static function lockOrder(PDO $pdo, int $id): array
+    {
+        $st = $pdo->prepare('SELECT id, status FROM marmitex_orders WHERE id = ? FOR UPDATE');
+        $st->execute([$id]);
+        $order = $st->fetch();
+        if (!$order) {
+            throw HttpError::notFound('Pedido não encontrado');
+        }
+        return $order;
+    }
 
     private static function loadOrder(int $id): array
     {

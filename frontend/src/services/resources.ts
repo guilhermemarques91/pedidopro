@@ -4,7 +4,7 @@ import type {
   Order, OrderDetail, User, UserRole, Role, PermissionCatalog, AuditEntry, ProductType, Subclass, ProductionPrinter, RecipeLine, StockMove, PurchaseRequest, RequestDetail,
   DeliveryOrder, DeliveryOrderDetail, DeliveryStatus, DeliveryPlatform, Channel, DeliveryAlert, ReportSummary,
   Interruption, OpeningShift,
-  MarmitexCompany, MarmitexCatalog, CatalogType, MarmitexOrder, MarmitexOrderDetail,
+  MarmitexCompany, MarmitexCatalog, CatalogType, MarmitexOrder, MarmitexOrderDetail, ProductionSummary,
   MarmitexReport, MarmitexInvoice, MarmitexLabelData,
 } from '../types';
 
@@ -373,7 +373,11 @@ export interface SaveOrderBody {
   notes?: string | null;
   marmitas: MarmitaInput[];
 }
-export interface CatalogItemBody { name?: string; price?: number; sort_order?: number; active?: boolean }
+export interface CatalogItemBody {
+  name?: string; price?: number; sort_order?: number; active?: boolean;
+  /** null desvincula o item do produto (deixa de baixar estoque). */
+  product_id?: number | null;
+}
 
 export const marmitexApi = {
   catalog: (companyId?: number | null) =>
@@ -403,6 +407,14 @@ export const marmitexApi = {
     get: (id: number) => api.get<MarmitexOrderDetail>(`/marmitex/orders/${id}`).then((r) => r.data),
     save: (body: SaveOrderBody) => api.post<MarmitexOrderDetail>('/marmitex/orders', body).then((r) => r.data),
     remove: (id: number) => api.delete(`/marmitex/orders/${id}`).then((r) => r.data),
+    /** Consumo previsto, sem gravar nada (alimenta o modal de confirmação). */
+    productionPreview: (id: number) =>
+      api.get<ProductionSummary>(`/marmitex/orders/${id}/production`).then((r) => r.data),
+    /** Fecha a produção: baixa os insumos pela ficha técnica e congela o pedido. */
+    produce: (id: number) =>
+      api.post<ProductionSummary & { order: MarmitexOrderDetail }>(`/marmitex/orders/${id}/produce`).then((r) => r.data),
+    /** Estorna a baixa e devolve o pedido para edição. */
+    reopen: (id: number) => api.post<MarmitexOrderDetail>(`/marmitex/orders/${id}/reopen`).then((r) => r.data),
   },
 
   labels: (params: { date: string; company_id?: number }) =>

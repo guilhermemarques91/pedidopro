@@ -1,17 +1,18 @@
 import { FormEvent, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Pencil, Trash2, Eye, EyeOff } from 'lucide-react';
-import { marmitexApi, CatalogItemBody } from '../../../services/resources';
+import { marmitexApi, productsApi, CatalogItemBody } from '../../../services/resources';
 import { apiError } from '../../../services/api';
-import type { CatalogType, MarmitexSize, MarmitexOption } from '../../../types';
+import type { CatalogType, MarmitexSize, MarmitexOption, Product } from '../../../types';
 import { PageHeader } from '../../../components/PageHeader';
-import { Button, Card, Field, Input, Modal, Spinner, ErrorBox, EmptyState } from '../../../components/ui';
+import { Button, Card, Field, Input, Select, Modal, Spinner, ErrorBox, EmptyState } from '../../../components/ui';
 import { brl, parseNum, numToInput } from '../../../utils/format';
 
-const TABS: { type: CatalogType; label: string; singular: string; hasPrice?: boolean }[] = [
-  { type: 'sizes', label: 'Tamanhos', singular: 'tamanho', hasPrice: true },
-  { type: 'proteins', label: 'Proteínas', singular: 'proteína' },
-  { type: 'sides', label: 'Acompanhamentos', singular: 'acompanhamento' },
+// `observations` não vira consumo: não tem produto vinculado.
+const TABS: { type: CatalogType; label: string; singular: string; hasPrice?: boolean; hasProduct?: boolean }[] = [
+  { type: 'sizes', label: 'Tamanhos', singular: 'tamanho', hasPrice: true, hasProduct: true },
+  { type: 'proteins', label: 'Proteínas', singular: 'proteína', hasProduct: true },
+  { type: 'sides', label: 'Acompanhamentos', singular: 'acompanhamento', hasProduct: true },
   { type: 'observations', label: 'Observações', singular: 'observação' },
 ];
 
@@ -47,6 +48,7 @@ export function MarmitexCatalogPage() {
           type={tab}
           singular={current.singular}
           hasPrice={!!current.hasPrice}
+          hasProduct={!!current.hasProduct}
           rows={(data[tab] as Row[]) ?? []}
         />
       )}
@@ -54,10 +56,18 @@ export function MarmitexCatalogPage() {
   );
 }
 
-function CatalogSection({ type, singular, hasPrice, rows }: { type: CatalogType; singular: string; hasPrice: boolean; rows: Row[] }) {
+function CatalogSection({ type, singular, hasPrice, hasProduct, rows }: {
+  type: CatalogType; singular: string; hasPrice: boolean; hasProduct: boolean; rows: Row[];
+}) {
   const qc = useQueryClient();
   const [editing, setEditing] = useState<Row | null>(null);
   const [open, setOpen] = useState(false);
+
+  // Só para exibir o nome do produto vinculado e alimentar o select do formulário.
+  const { data: products } = useQuery({
+    queryKey: ['products'], queryFn: () => productsApi.list(), enabled: hasProduct,
+  });
+  const productName = (id?: number | null) => products?.find((p) => p.id === id)?.name;
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['marmitex-catalog'] });
   const toggle = useMutation({
@@ -81,6 +91,7 @@ function CatalogSection({ type, singular, hasPrice, rows }: { type: CatalogType;
             <tr>
               <th className="px-5 py-3 font-medium">Nome</th>
               {hasPrice && <th className="px-5 py-3 font-medium">Preço</th>}
+              {hasProduct && <th className="px-5 py-3 font-medium">Produto (baixa de estoque)</th>}
               <th className="px-5 py-3 font-medium">Situação</th>
               <th className="px-5 py-3" />
             </tr>
@@ -90,6 +101,15 @@ function CatalogSection({ type, singular, hasPrice, rows }: { type: CatalogType;
               <tr key={r.id} className={`border-b border-slate-100 last:border-0 ${!r.active ? 'opacity-50' : ''}`}>
                 <td className="px-5 py-3 font-medium text-slate-800">{r.name}</td>
                 {hasPrice && <td className="px-5 py-3 text-slate-700">{brl((r as MarmitexSize).price)}</td>}
+                {hasProduct && (
+                  <td className="px-5 py-3">
+                    {r.product_id ? (
+                      <span className="text-slate-700">{productName(r.product_id) ?? `#${r.product_id}`}</span>
+                    ) : (
+                      <span className="text-amber-600">Sem vínculo — não baixa estoque</span>
+                    )}
+                  </td>
+                )}
                 <td className="px-5 py-3 text-slate-500">{r.active ? 'Ativo' : 'Inativo'}</td>
                 <td className="px-5 py-3 text-right whitespace-nowrap">
                   <button onClick={() => toggle.mutate(r)} className="mr-2 text-slate-400 hover:text-emerald-600" title={r.active ? 'Desativar' : 'Ativar'}>
@@ -109,6 +129,8 @@ function CatalogSection({ type, singular, hasPrice, rows }: { type: CatalogType;
           type={type}
           singular={singular}
           hasPrice={hasPrice}
+          hasProduct={hasProduct}
+          products={products ?? []}
           row={editing}
           onClose={() => setOpen(false)}
           onSaved={() => { invalidate(); setOpen(false); }}
@@ -119,10 +141,14 @@ function CatalogSection({ type, singular, hasPrice, rows }: { type: CatalogType;
 }
 
 function CatalogForm({
-  type, singular, hasPrice, row, onClose, onSaved,
-}: { type: CatalogType; singular: string; hasPrice: boolean; row: Row | null; onClose: () => void; onSaved: () => void }) {
+  type, singular, hasPrice, hasProduct, products, row, onClose, onSaved,
+}: {
+  type: CatalogType; singular: string; hasPrice: boolean; hasProduct: boolean;
+  products: Product[]; row: Row | null; onClose: () => void; onSaved: () => void;
+}) {
   const [name, setName] = useState(row?.name ?? '');
   const [price, setPrice] = useState(row && hasPrice ? numToInput((row as MarmitexSize).price) : '');
+  const [productId, setProductId] = useState(row?.product_id ? String(row.product_id) : '');
   const [error, setError] = useState('');
 
   const save = useMutation({
@@ -136,6 +162,7 @@ function CatalogForm({
     setError('');
     const body: CatalogItemBody = { name };
     if (hasPrice) body.price = parseNum(price) ?? 0;
+    if (hasProduct) body.product_id = productId ? Number(productId) : null;
     save.mutate(body);
   }
 
@@ -147,6 +174,19 @@ function CatalogForm({
         {hasPrice && (
           <Field label="Preço (R$)">
             <Input value={price} onChange={(e) => setPrice(e.target.value)} inputMode="decimal" placeholder="0,00" />
+          </Field>
+        )}
+        {hasProduct && (
+          <Field label="Produto (ficha técnica)">
+            <Select value={productId} onChange={(e) => setProductId(e.target.value)}>
+              <option value="">Não controla estoque</option>
+              {products.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </Select>
+            <p className="mt-1 text-xs text-slate-500">
+              Ao fechar a produção do dia, a receita deste produto é explodida e os insumos saem do estoque.
+            </p>
           </Field>
         )}
         <div className="flex justify-end gap-2 pt-2">
