@@ -15,13 +15,15 @@ export const RECEIPT_CSS = `
 @page { size: 80mm auto; margin: 0; }
 @media print { .no-print { display: none !important; } html, body { margin: 0 !important; background: #fff !important; } }
 .rc { width: 80mm; box-sizing: border-box; padding: 3mm 3.5mm; margin: 0 auto; background: #fff; color: #000;
-  font-family: 'Courier New', ui-monospace, monospace; font-size: 12pt; line-height: 1.3; }
+  font-family: 'Courier New', ui-monospace, monospace; font-size: 12pt; line-height: 1.32; font-weight: bold;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 .rc * { box-sizing: border-box; }
-.rc-plat { text-align: center; font-size: 10pt; }
-.rc-num { text-align: center; font-size: 20pt; font-weight: bold; margin: 1mm 0; }
+.rc-brand { text-align: center; font-size: 20pt; font-weight: bold; letter-spacing: 1px; }
+.rc-num { text-align: center; font-size: 20pt; font-weight: bold; margin: 0.5mm 0; }
+.rc-plat { text-align: center; font-size: 10pt; font-weight: bold; }
 .rc-type { text-align: center; font-weight: bold; border: 2px solid #000; padding: 1mm 0; margin-top: 1mm; }
 .rc-cook { text-align: center; font-weight: bold; font-size: 13pt; margin-top: 1mm; }
-.rc-line { font-size: 10.5pt; }
+.rc-line { font-size: 11pt; font-weight: bold; }
 .rc-h { font-weight: bold; font-size: 10pt; letter-spacing: 1px; margin: 1mm 0; }
 .rc-hr { border-top: 2px solid #000; margin: 2mm 0; }
 .rc-hr-d { border-top: 2px dashed #000; margin: 2mm 0; }
@@ -30,13 +32,13 @@ export const RECEIPT_CSS = `
 .rc-qty { font-size: 17pt; font-weight: bold; min-width: 11mm; }
 .rc-body { flex: 1; }
 .rc-name { font-size: 14pt; font-weight: bold; text-transform: uppercase; }
-.rc-opt { font-size: 10.5pt; padding-left: 1mm; }
-.rc-grp { font-style: italic; }
-.rc-obs { display: inline-block; background: #000; color: #fff; font-weight: bold; padding: 0.3mm 1.5mm; margin-top: 0.5mm; font-size: 10.5pt; }
-.rc-note { background: #000; color: #fff; font-weight: bold; padding: 1.5mm 2mm; margin: 2.5mm 0; font-size: 12pt; }
-.rc-row { display: flex; justify-content: space-between; font-size: 10.5pt; }
+.rc-opt { font-size: 11pt; font-weight: bold; padding-left: 1mm; }
+.rc-grp { text-decoration: underline; }
+.rc-obs { display: inline-block; background: #000; color: #fff; font-weight: bold; padding: 0.5mm 1.5mm; margin-top: 0.5mm; font-size: 11pt; }
+.rc-note { background: #000; color: #fff; font-weight: bold; padding: 1.5mm 2mm; margin: 2.5mm 0; font-size: 12.5pt; }
+.rc-row { display: flex; justify-content: space-between; font-size: 11.5pt; font-weight: bold; }
 .rc-total { font-size: 16pt; font-weight: bold; margin-top: 1mm; }
-.rc-foot { text-align: center; font-size: 8pt; margin-top: 2mm; }
+.rc-foot { text-align: center; font-size: 9pt; font-weight: bold; margin-top: 2mm; }
 `;
 
 /** Escapa texto p/ interpolar com segurança no HTML da comanda. */
@@ -90,8 +92,9 @@ export function receiptHtml(order: DeliveryOrderDetail, variant: ReceiptVariant 
   const footer = isKitchen ? '' : `<div class="rc-foot">${esc(plat)} ID: ${esc(order.platform_order_id)}</div>`;
 
   return `<div class="rc">
-    <div class="rc-plat">${esc(plat)} &middot; ${esc(datetime(order.placed_at || order.created_at))}</div>
+    <div class="rc-brand">${esc(plat).toUpperCase()}</div>
     <div class="rc-num">PEDIDO ${esc(num)}</div>
+    <div class="rc-plat">${esc(datetime(order.placed_at || order.created_at))}</div>
     ${mode ? `<div class="rc-type">${mode}</div>` : ''}
     ${isKitchen ? '<div class="rc-cook">** COZINHA **</div>' : ''}
     <div class="rc-hr-d"></div>
