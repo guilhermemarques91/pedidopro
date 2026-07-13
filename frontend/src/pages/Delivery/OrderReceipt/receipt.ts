@@ -34,7 +34,6 @@ export const RECEIPT_CSS = `
 .rc-body { flex: 1; }
 .rc-name { font-size: 14pt; font-weight: bold; text-transform: uppercase; }
 .rc-opt { font-size: 11pt; font-weight: bold; padding-left: 1mm; }
-.rc-grp { text-decoration: underline; }
 .rc-obs { display: inline-block; background: #000; color: #fff; font-weight: bold; padding: 0.5mm 1.5mm; margin-top: 0.5mm; font-size: 11pt; }
 .rc-note { background: #000; color: #fff; font-weight: bold; padding: 1.5mm 2mm; margin: 2.5mm 0; font-size: 12.5pt; }
 .rc-row { display: flex; justify-content: space-between; font-size: 11.5pt; font-weight: bold; }
@@ -65,10 +64,12 @@ export function receiptHtml(order: DeliveryOrderDetail, variant: ReceiptVariant 
   const ref = typeof rawRef === 'string' ? rawRef.trim() : '';
 
   const items = order.items.map((it) => {
+    // Lista simples dos complementos, sem repetir o rótulo do grupo por linha (o
+    // 99Food manda a pergunta inteira em `group`, ex.: "Acompanhamentos - Selecione
+    // todos que você queira" — poluiria a comanda repetido em cada item).
     const opts = parseOptions(it.options).map((op) => {
-      const label = op.group ? `<span class="rc-grp">${esc(op.group)}:</span> ` : '+ ';
       const qty = op.quantity && op.quantity > 1 ? esc(op.quantity) + 'x ' : '';
-      return `<div class="rc-opt">${label}${qty}${esc(op.name)}</div>`;
+      return `<div class="rc-opt">${qty}${esc(op.name)}</div>`;
     }).join('');
     const obs = it.observations ? `<div class="rc-obs">» ${esc(it.observations).toUpperCase()}</div>` : '';
     return `<div class="rc-item"><div class="rc-qty">${esc(Number(it.quantity))}x</div>`

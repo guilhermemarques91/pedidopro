@@ -109,7 +109,11 @@ export async function listSystemPrinters(): Promise<string[]> {
 /** Envia um HTML de comanda a uma impressora nomeada (config 80mm). */
 async function printHtml(qz: QZ, printer: string, bodyHtml: string): Promise<void> {
   const html = `<style>${RECEIPT_CSS}</style>${bodyHtml}`;
-  const cfg = qz.configs.create(printer, { size: { width: 80, height: null }, units: 'mm', margins: 0 });
+  // scaleContent:false é essencial: sem isso o QZ encaixa o HTML numa página de
+  // altura fixa e ENCOLHE a fonte pra caber (some quando o pedido tem muitos itens).
+  // Com altura nula + scaleContent false, o cupom imprime em tamanho real e a
+  // impressora térmica só continua alimentando o rolo até acabar o conteúdo.
+  const cfg = qz.configs.create(printer, { size: { width: 80, height: null }, units: 'mm', margins: 0, scaleContent: false });
   await qz.print(cfg, [{ type: 'pixel', format: 'html', flavor: 'plain', data: html }]);
 }
 
