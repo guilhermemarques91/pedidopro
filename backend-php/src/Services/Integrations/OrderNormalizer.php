@@ -94,8 +94,9 @@ final class OrderNormalizer
             'eta' => self::ts($delivery['deliveryDateTime'] ?? null),
             'customer_name' => $customer['name'] ?? null,
             'customer_phone' => $phone,
-            // Localizador (código curto). iFood: localizer/pickupCode — a confirmar no raw real.
-            'locator' => self::firstStr($o, ['localizer', 'pickupCode']) ?? self::firstStr($delivery, ['pickupCode', 'localizer', 'collectionCode']),
+            // Localizador (código de 8 dígitos exibido no app do lojista). Confirmado no
+            // raw real: vem em customer.phone.localizer (não em pickupCode, que é outro código).
+            'locator' => self::str($customer['phone']['localizer'] ?? null),
             // Observação em nível de pedido (talheres, "cancelar só o que faltar", etc.).
             'customer_notes' => self::firstStr($o, ['observations', 'note', 'deliveryObservations', 'additionalInfo']),
             'items_amount' => self::money($total['subTotal'] ?? null),
