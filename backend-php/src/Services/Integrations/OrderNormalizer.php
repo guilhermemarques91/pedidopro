@@ -141,6 +141,16 @@ final class OrderNormalizer
         $phone = trim((string) ($addr['calling_code'] ?? '') . ' ' . (string) ($addr['phone'] ?? '')) ?: null;
         $name = $addr['name'] ?? trim((string) ($addr['first_name'] ?? '') . ' ' . (string) ($addr['last_name'] ?? '')) ?: null;
 
+        // Observações do pedido: texto livre (`remark`, quase sempre vazio) + flag de
+        // talheres (`need_cutlery`, booleano em inglês). Junta o que houver numa linha.
+        $notes = [];
+        if (($remark = self::firstStr($o, ['remark', 'user_remark', 'order_remark', 'buyer_remark', 'note'])) !== null) {
+            $notes[] = $remark;
+        }
+        if (!empty($o['need_cutlery'])) {
+            $notes[] = 'Precisa de talheres';
+        }
+
         $order = [
             'platform_order_id' => (string) ($o['order_id'] ?? ''),
             'display_id' => isset($o['order_index']) ? (string) $o['order_index'] : null,
@@ -156,9 +166,7 @@ final class OrderNormalizer
             'eta' => self::ts($o['expected_arrived_eta'] ?? ($o['delivery_eta'] ?? null)),
             'customer_name' => $name,
             'customer_phone' => $phone,
-            // Observação em nível de pedido (talheres, "cancelar só o que faltar", etc.).
-            // Chaves defensivas: o OrderModel do 99Food varia; refine ao inspecionar um `raw` real.
-            'customer_notes' => self::firstStr($o, ['remark', 'user_remark', 'order_remark', 'buyer_remark', 'user_note', 'note', 'caution']),
+            'customer_notes' => $notes ? implode(' · ', $notes) : null,
             'items_amount' => self::cents($price['order_price'] ?? null),
             'delivery_fee' => self::cents($price['delivery_price'] ?? null),
             'discount_merchant' => $discMerchant,

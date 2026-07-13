@@ -30,7 +30,8 @@ export function parseOptions(v: unknown): ParsedOption[] {
       out.push({
         name,
         quantity: pickNum(o, ['quantity', 'amount', 'count']),
-        group: pickStr(o, ['group_name', 'groupName', 'property_name', 'propertyName', 'category']),
+        // 99Food usa `content_name` p/ o grupo (ex.: "Escolha sua Proteína"); iFood usa groupName.
+        group: pickStr(o, ['content_name', 'group_name', 'groupName', 'property_name', 'propertyName', 'category']),
       });
     }
     const nested = o['sub_item_list'] ?? o['options'] ?? o['garnishItems'];
