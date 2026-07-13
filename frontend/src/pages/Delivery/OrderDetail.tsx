@@ -72,7 +72,12 @@ export function DeliveryOrderDetailPage() {
         subtitle={`${order.platform === 'ifood' ? 'iFood' : '99Food'} · ${order.customer_name ?? 'Cliente'}`}
       />
 
-      <div className="mb-3 flex items-center gap-2 text-xs text-slate-500">
+      <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+        {order.locator && (
+          <span className="mr-1 rounded bg-slate-800 px-2 py-0.5 text-sm font-bold text-white">
+            Localizador: {order.locator}
+          </span>
+        )}
         <span>ID {order.platform === 'ifood' ? 'iFood' : '99Food'}:</span>
         <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-slate-700">{order.platform_order_id}</code>
         <button

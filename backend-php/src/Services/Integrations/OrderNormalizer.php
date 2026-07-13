@@ -94,6 +94,8 @@ final class OrderNormalizer
             'eta' => self::ts($delivery['deliveryDateTime'] ?? null),
             'customer_name' => $customer['name'] ?? null,
             'customer_phone' => $phone,
+            // Localizador (código curto). iFood: localizer/pickupCode — a confirmar no raw real.
+            'locator' => self::firstStr($o, ['localizer', 'pickupCode']) ?? self::firstStr($delivery, ['pickupCode', 'localizer', 'collectionCode']),
             // Observação em nível de pedido (talheres, "cancelar só o que faltar", etc.).
             'customer_notes' => self::firstStr($o, ['observations', 'note', 'deliveryObservations', 'additionalInfo']),
             'items_amount' => self::money($total['subTotal'] ?? null),
@@ -166,6 +168,8 @@ final class OrderNormalizer
             'eta' => self::ts($o['expected_arrived_eta'] ?? ($o['delivery_eta'] ?? null)),
             'customer_name' => $name,
             'customer_phone' => $phone,
+            // Localizador do 99Food: campo `locator` que vem junto do endereço do cliente.
+            'locator' => self::str($addr['locator'] ?? null),
             'customer_notes' => $notes ? implode(' · ', $notes) : null,
             'items_amount' => self::cents($price['order_price'] ?? null),
             'delivery_fee' => self::cents($price['delivery_price'] ?? null),

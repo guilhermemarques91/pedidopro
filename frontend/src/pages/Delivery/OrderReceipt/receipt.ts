@@ -23,6 +23,7 @@ export const RECEIPT_CSS = `
 .rc-plat { text-align: center; font-size: 10pt; font-weight: bold; }
 .rc-type { text-align: center; font-weight: bold; border: 2px solid #000; padding: 1mm 0; margin-top: 1mm; }
 .rc-cook { text-align: center; font-weight: bold; font-size: 13pt; margin-top: 1mm; }
+.rc-loc { text-align: center; font-weight: bold; font-size: 13pt; border: 2px solid #000; padding: 1mm 0; margin-top: 1mm; }
 .rc-line { font-size: 11pt; font-weight: bold; }
 .rc-h { font-weight: bold; font-size: 10pt; letter-spacing: 1px; margin: 1mm 0; }
 .rc-hr { border-top: 2px solid #000; margin: 2mm 0; }
@@ -96,6 +97,7 @@ export function receiptHtml(order: DeliveryOrderDetail, variant: ReceiptVariant 
     <div class="rc-num">PEDIDO ${esc(num)}</div>
     <div class="rc-plat">${esc(datetime(order.placed_at || order.created_at))}</div>
     ${mode ? `<div class="rc-type">${mode}</div>` : ''}
+    ${order.locator ? `<div class="rc-loc">LOCALIZADOR: ${esc(order.locator)}</div>` : ''}
     ${isKitchen ? '<div class="rc-cook">** COZINHA **</div>' : ''}
     <div class="rc-hr-d"></div>
     <div class="rc-line">CLIENTE: <b>${esc(order.customer_name || '—')}</b></div>

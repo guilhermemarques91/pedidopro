@@ -234,6 +234,7 @@ export interface DeliveryOrder {
   platform: DeliveryPlatform;
   platform_order_id: string;
   display_id: string | null;
+  locator: string | null;
   merchant_id: string | null;
   status: DeliveryStatus;
   platform_status: string | null;

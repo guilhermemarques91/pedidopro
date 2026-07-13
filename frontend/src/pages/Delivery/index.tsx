@@ -248,6 +248,9 @@ function OrderCard({
         </Link>
       </div>
       <p className="truncate text-sm font-medium text-slate-800">{order.customer_name ?? 'Cliente'}</p>
+      {order.locator && (
+        <p className="mt-1 inline-block rounded bg-slate-800 px-2 py-0.5 text-xs font-bold text-white">Localizador: {order.locator}</p>
+      )}
       <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
         {mode && (
           <span className="flex items-center gap-1">
