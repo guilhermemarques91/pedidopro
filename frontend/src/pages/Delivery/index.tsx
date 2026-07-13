@@ -55,6 +55,19 @@ export function Delivery() {
   const acceptAlert = useMutation({ mutationFn: deliveryApi.acceptAlert, onSuccess: invalidateAlerts });
   const rejectAlert = useMutation({ mutationFn: deliveryApi.rejectAlert, onSuccess: invalidateAlerts });
 
+  // Impressão manual pelo card (fallback caso a automática falhe). Busca o detalhe
+  // (itens) e manda pro QZ; se QZ indisponível, cai no diálogo do navegador.
+  const printOrder = async (id: number) => {
+    try {
+      const full = await deliveryApi.get(id);
+      if (isPrintConfigured()) await printReceipt(full);
+      else window.open(`/delivery/${id}/print`, '_blank');
+    } catch (e) {
+      console.error('Falha na impressão pelo QZ', e);
+      window.open(`/delivery/${id}/print`, '_blank');
+    }
+  };
+
   // Impressão automática da comanda (2 impressoras via QZ Tray) ao chegar/confirmar o pedido.
   const printAttempts = useRef<Set<number>>(new Set());
   useEffect(() => {
@@ -123,6 +136,7 @@ export function Delivery() {
                       onReady={() => ready.mutate(o.id)}
                       onDispatch={() => dispatch.mutate(o.id)}
                       onCancel={() => { if (window.confirm(`Cancelar o pedido ${o.display_id ?? o.id}?`)) cancel.mutate(o.id); }}
+                      onPrint={() => printOrder(o.id)}
                     />
                   ))}
                 </div>
@@ -211,7 +225,7 @@ function CancelledStrip({ orders }: { orders: DeliveryOrder[] }) {
 }
 
 function OrderCard({
-  order, busy, onConfirm, onReady, onDispatch, onCancel,
+  order, busy, onConfirm, onReady, onDispatch, onCancel, onPrint,
 }: {
   order: DeliveryOrder;
   busy: boolean;
@@ -219,7 +233,10 @@ function OrderCard({
   onReady: () => void;
   onDispatch: () => void;
   onCancel: () => void;
+  onPrint: () => Promise<void>;
 }) {
+  const [printing, setPrinting] = useState(false);
+  const handlePrint = async () => { setPrinting(true); try { await onPrint(); } finally { setPrinting(false); } };
   const p = PLATFORM_META[order.platform] ?? { label: order.platform, cls: 'bg-slate-100 text-slate-700' };
   const mode = order.delivery_mode;
   return (
@@ -254,6 +271,9 @@ function OrderCard({
         {order.status === 'dispatched' && (
           <Link to={`/delivery/${order.id}`}><Button variant="secondary" className="px-3 py-1.5 text-xs">Acompanhar</Button></Link>
         )}
+        <Button variant="secondary" className="px-3 py-1.5 text-xs" disabled={printing} onClick={handlePrint} title="Imprimir comanda">
+          <Printer size={12} /> {printing ? '…' : 'Imprimir'}
+        </Button>
         {['placed', 'confirmed', 'preparing', 'ready'].includes(order.status) && (
           <Button variant="ghost" className="px-3 py-1.5 text-xs" disabled={busy} onClick={onCancel}>Cancelar</Button>
         )}

@@ -8,6 +8,7 @@ import type { DeliveryStatus } from '../../types';
 import { PageHeader } from '../../components/PageHeader';
 import { Button, Card, Spinner, ErrorBox } from '../../components/ui';
 import { brl, datetime, formatAddress, parseOptions } from '../../utils/format';
+import { isPrintConfigured, printReceipt } from '../../services/print';
 
 const STATUS_FLOW: { key: DeliveryStatus; label: string; tsField: string }[] = [
   { key: 'placed', label: 'Recebido', tsField: 'placed_at' },
@@ -38,12 +39,28 @@ export function DeliveryOrderDetailPage() {
   const dispatch = useMutation({ mutationFn: () => deliveryApi.dispatch(orderId), onSuccess: invalidate });
   const cancel = useMutation({ mutationFn: () => deliveryApi.cancel(orderId), onSuccess: invalidate });
   const track = useMutation({ mutationFn: () => deliveryApi.tracking(orderId), onSuccess: (d) => setTracking(d) });
+  const [printing, setPrinting] = useState(false);
 
   if (isLoading) return <Spinner />;
   if (error) return <ErrorBox message={apiError(error)} />;
   if (!order) return null;
 
   const addr = order.delivery_address as Record<string, unknown> | null;
+
+  // Imprime pelo QZ (sem diálogo). Se o QZ não estiver configurado/disponível, cai no
+  // diálogo do navegador (rota isolada de impressão) como último recurso.
+  const printComanda = async () => {
+    setPrinting(true);
+    try {
+      if (isPrintConfigured()) await printReceipt(order);
+      else window.open(`/delivery/${order.id}/print`, '_blank');
+    } catch (e) {
+      console.error('Falha na impressão pelo QZ', e);
+      window.open(`/delivery/${order.id}/print`, '_blank');
+    } finally {
+      setPrinting(false);
+    }
+  };
 
   return (
     <div>
@@ -163,9 +180,9 @@ export function DeliveryOrderDetailPage() {
               {order.status === 'placed' && <Button className="text-xs" disabled={confirm.isPending} onClick={() => confirm.mutate()}>Confirmar</Button>}
               {(order.status === 'confirmed' || order.status === 'preparing') && <Button className="text-xs" disabled={ready.isPending} onClick={() => ready.mutate()}>Marcar pronto</Button>}
               {order.status === 'ready' && <Button className="text-xs" disabled={dispatch.isPending} onClick={() => dispatch.mutate()}>Despachar</Button>}
-              <a href={`/delivery/${order.id}/print`} target="_blank" rel="noopener noreferrer">
-                <Button variant="secondary" className="text-xs"><Printer size={14} /> Imprimir comanda</Button>
-              </a>
+              <Button variant="secondary" className="text-xs" disabled={printing} onClick={printComanda}>
+                <Printer size={14} /> {printing ? 'Imprimindo…' : 'Imprimir comanda'}
+              </Button>
               {!['dispatched', 'concluded', 'cancelled'].includes(order.status) && (
                 <Button variant="ghost" className="text-xs" disabled={cancel.isPending} onClick={() => { if (window.confirm('Cancelar este pedido?')) cancel.mutate(); }}>Cancelar</Button>
               )}
