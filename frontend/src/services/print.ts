@@ -11,7 +11,7 @@
 
 import { api } from './api';
 import type { DeliveryOrderDetail } from '../types';
-import { RECEIPT_CSS, receiptHtml, type ReceiptVariant } from '../pages/Delivery/OrderReceipt/receipt';
+import { RECEIPT_CSS, receiptHtml, PAPER_WIDTH_MM, type ReceiptVariant } from '../pages/Delivery/OrderReceipt/receipt';
 
 const QZ_SCRIPT = 'https://cdn.jsdelivr.net/npm/qz-tray@2.2.4/qz-tray.js';
 const MAP_KEY = 'pedidopro.print.map'; // { kitchen, counter } → nomes de impressora do SO
@@ -106,15 +106,15 @@ export async function listSystemPrinters(): Promise<string[]> {
   return Array.isArray(found) ? found : (found ? [found] : []);
 }
 
-/** Envia um HTML de comanda a uma impressora nomeada (config 80mm). */
+/** Envia um HTML de comanda a uma impressora nomeada. */
 async function printHtml(qz: QZ, printer: string, bodyHtml: string): Promise<void> {
   const html = `<style>${RECEIPT_CSS}</style>${bodyHtml}`;
   // O QZ ajusta (fit) o conteúdo dentro de width x height mantendo a proporção.
-  // scaleContent:false desliga esse ajuste por completo — inclusive o de LARGURA —
-  // por isso o cupom alongou pros lados. O certo é manter o ajuste ligado e dar uma
-  // altura bem folgada (bem maior que qualquer pedido): a largura de 80mm continua
-  // sendo o limite real, e como a altura nunca "aperta", a fonte não encolhe.
-  const cfg = qz.configs.create(printer, { size: { width: 80, height: 3000 }, units: 'mm', margins: 0 });
+  // Largura de PAPEL_MM (ver receipt.ts) — a maioria das térmicas "80mm" tem área
+  // imprimível real menor que o rolo físico (a 80mm cortava os últimos dígitos dos
+  // valores). Altura bem folgada (3000mm) garante que ela nunca é o fator limitante,
+  // então a fonte não encolhe em pedidos longos.
+  const cfg = qz.configs.create(printer, { size: { width: PAPER_WIDTH_MM, height: 3000 }, units: 'mm', margins: 0 });
   await qz.print(cfg, [{ type: 'pixel', format: 'html', flavor: 'plain', data: html }]);
 }
 

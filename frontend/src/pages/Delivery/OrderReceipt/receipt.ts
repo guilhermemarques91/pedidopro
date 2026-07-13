@@ -5,20 +5,27 @@ import { brl, datetime, formatAddress, parseOptions } from '../../../utils/forma
 export type ReceiptVariant = 'kitchen' | 'counter';
 
 /**
- * CSS da comanda térmica 80mm no estilo "cozinha do iFood": quantidade grande à
+ * Largura real de impressão em mm. A maioria das térmicas "80mm" tem área imprimível
+ * menor que o rolo físico (a 80mm cortava os últimos dígitos dos valores). Usada
+ * tanto no CSS quanto na config do QZ Tray (print.ts) — mantém as duas em sincronia.
+ */
+export const PAPER_WIDTH_MM = 76;
+
+/**
+ * CSS da comanda térmica no estilo "cozinha do iFood": quantidade grande à
  * esquerda, nome do item em CAIXA ALTA/negrito, complementos indentados e
  * observações em fundo preto invertido (impossível não ver). Só preto puro — nada
  * de cinza, que a impressora térmica (1 bit) renderiza falhado. Reusado pela rota
  * de impressão e pelo agente QZ.
  */
 export const RECEIPT_CSS = `
-@page { size: 80mm auto; margin: 0; }
+@page { size: ${PAPER_WIDTH_MM}mm auto; margin: 0; }
 /* Reset incondicional (não só em @media print): o QZ Tray renderiza o HTML em modo
    tela normal, não em modo impressão — a margem padrão do body (~8px) sobraria e
-   empurraria o conteúdo alinhado à direita (valores) pra fora dos 80mm, cortando. */
+   empurraria o conteúdo alinhado à direita (valores) pra fora da área imprimível. */
 html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; }
 @media print { .no-print { display: none !important; } }
-.rc { width: 80mm; box-sizing: border-box; padding: 3mm 4.5mm; margin: 0; background: #fff; color: #000;
+.rc { width: ${PAPER_WIDTH_MM}mm; box-sizing: border-box; padding: 3mm 4mm; margin: 0; background: #fff; color: #000;
   font-family: 'Courier New', ui-monospace, monospace; font-size: 12pt; line-height: 1.32; font-weight: bold;
   -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 .rc * { box-sizing: border-box; }
