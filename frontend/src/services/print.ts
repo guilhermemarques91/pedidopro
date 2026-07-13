@@ -91,6 +91,26 @@ export async function listSystemPrinters(): Promise<string[]> {
   return Array.isArray(found) ? found : (found ? [found] : []);
 }
 
+/** Imprime um cupom de teste em cada impressora configurada (valida QZ + papel). */
+export async function printTest(): Promise<void> {
+  const printers = getPrinters();
+  if (printers.length === 0) throw new Error('Nenhuma impressora configurada');
+  const qz = await connect();
+  for (const name of printers) {
+    const safe = String(name).replace(/[&<>]/g, '');
+    const html = `<style>${RECEIPT_CSS}</style><div class="receipt">`
+      + `<div class="center big">TESTE DE IMPRESSAO</div>`
+      + `<div class="center">PedidoPro - comanda 80mm</div>`
+      + `<div class="hr"></div>`
+      + `<div>Impressora: <b>${safe}</b></div>`
+      + `<div>${new Date().toLocaleString('pt-BR')}</div>`
+      + `<div class="hr"></div>`
+      + `<div class="center">Se voce esta lendo isto, funcionou!</div></div>`;
+    const cfg = qz.configs.create(name, { size: { width: 80, height: null }, units: 'mm', margins: 0 });
+    await qz.print(cfg, [{ type: 'pixel', format: 'html', flavor: 'plain', data: html }]);
+  }
+}
+
 /** Imprime a comanda em TODAS as impressoras configuradas. Lança se QZ indisponível. */
 export async function printReceipt(order: DeliveryOrderDetail): Promise<void> {
   const printers = getPrinters();

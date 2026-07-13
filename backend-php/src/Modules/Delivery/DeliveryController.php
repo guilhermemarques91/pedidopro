@@ -123,11 +123,17 @@ final class DeliveryController
 
     public static function listAlerts(Request $req): void
     {
+        // Casa o pedido por FK OU por (plataforma, id da plataforma) — o alerta pode
+        // chegar antes do pedido (order_id nulo). Esconde alertas cujo pedido já está
+        // cancelado/concluído: a solicitação virou sem sentido (ex.: resolvida no app).
         Http::json(Db::query(
             "SELECT a.*, o.display_id, o.customer_name, o.customer_paid
                FROM delivery_alerts a
-               LEFT JOIN delivery_orders o ON o.id = a.order_id
+               LEFT JOIN delivery_orders o
+                 ON o.id = a.order_id
+                 OR (o.platform = a.platform AND o.platform_order_id = a.platform_order_id)
               WHERE a.status = 'pending'
+                AND (o.id IS NULL OR o.status NOT IN ('cancelled', 'concluded'))
               ORDER BY a.created_at DESC"
         ));
     }

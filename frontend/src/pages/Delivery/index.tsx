@@ -9,7 +9,7 @@ import type { DeliveryOrder, DeliveryStatus, DeliveryAlert } from '../../types';
 import { PageHeader } from '../../components/PageHeader';
 import { Button, Card, Spinner, ErrorBox, EmptyState, Modal } from '../../components/ui';
 import { brl, formatAddress } from '../../utils/format';
-import { getPrinters, setPrinters, listSystemPrinters, isPrintConfigured, printReceipt } from '../../services/print';
+import { getPrinters, setPrinters, listSystemPrinters, isPrintConfigured, printReceipt, printTest } from '../../services/print';
 
 // Status em que a comanda deve ser impressa automaticamente ao aparecer no painel.
 const AUTOPRINT_STATUS: DeliveryStatus[] = ['placed', 'confirmed', 'preparing'];
@@ -279,7 +279,9 @@ function PrinterConfig({ onClose }: { onClose: () => void }) {
   const [available, setAvailable] = useState<string[]>([]);
   const [selected, setSelected] = useState<string[]>(getPrinters());
   const [detecting, setDetecting] = useState(false);
+  const [testing, setTesting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
 
   const detect = async () => {
     setDetecting(true);
@@ -291,6 +293,22 @@ function PrinterConfig({ onClose }: { onClose: () => void }) {
       console.error(e);
     } finally {
       setDetecting(false);
+    }
+  };
+
+  const test = async () => {
+    setTesting(true);
+    setError(null);
+    setMsg(null);
+    try {
+      setPrinters(selected);          // salva antes p/ o teste usar a seleção atual
+      await printTest();
+      setMsg('Teste enviado. Confira o papel nas impressoras selecionadas.');
+    } catch (e) {
+      setError('Falha ao imprimir o teste. Verifique o QZ Tray e a seleção de impressoras.');
+      console.error(e);
+    } finally {
+      setTesting(false);
     }
   };
 
@@ -309,11 +327,17 @@ function PrinterConfig({ onClose }: { onClose: () => void }) {
         instalado e aberto neste computador.
       </p>
 
-      <Button variant="secondary" className="text-xs" disabled={detecting} onClick={detect}>
-        <RefreshCw size={14} className={detecting ? 'animate-spin' : ''} /> Detectar impressoras
-      </Button>
+      <div className="flex flex-wrap gap-2">
+        <Button variant="secondary" className="text-xs" disabled={detecting} onClick={detect}>
+          <RefreshCw size={14} className={detecting ? 'animate-spin' : ''} /> Detectar impressoras
+        </Button>
+        <Button variant="secondary" className="text-xs" disabled={testing || selected.length === 0} onClick={test}>
+          <Printer size={14} /> {testing ? 'Enviando…' : 'Imprimir teste'}
+        </Button>
+      </div>
 
       {error && <div className="mt-3"><ErrorBox message={error} /></div>}
+      {msg && <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-700">{msg}</p>}
 
       <div className="mt-3 space-y-1">
         {options.length === 0 && <p className="text-xs text-slate-400">Nenhuma impressora detectada ainda.</p>}
