@@ -13,8 +13,12 @@ export type ReceiptVariant = 'kitchen' | 'counter';
  */
 export const RECEIPT_CSS = `
 @page { size: 80mm auto; margin: 0; }
-@media print { .no-print { display: none !important; } html, body { margin: 0 !important; background: #fff !important; } }
-.rc { width: 80mm; box-sizing: border-box; padding: 3mm 3.5mm; margin: 0 auto; background: #fff; color: #000;
+/* Reset incondicional (não só em @media print): o QZ Tray renderiza o HTML em modo
+   tela normal, não em modo impressão — a margem padrão do body (~8px) sobraria e
+   empurraria o conteúdo alinhado à direita (valores) pra fora dos 80mm, cortando. */
+html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; }
+@media print { .no-print { display: none !important; } }
+.rc { width: 80mm; box-sizing: border-box; padding: 3mm 4.5mm; margin: 0; background: #fff; color: #000;
   font-family: 'Courier New', ui-monospace, monospace; font-size: 12pt; line-height: 1.32; font-weight: bold;
   -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 .rc * { box-sizing: border-box; }
