@@ -38,12 +38,18 @@ function loadQz(): Promise<QZ> {
   return qzPromise;
 }
 
-/** Registra as promessas de certificado/assinatura (impressão silenciosa via backend). */
-function configureSecurity(qz: QZ): void {
+/**
+ * Registra assinatura para impressão silenciosa — SÓ se houver certificado no backend.
+ * Sem certificado (QZ_CERT_PATH não configurado), não registra nada: o QZ opera em modo
+ * não-assinado e pede "Permitir" uma vez (com opção de lembrar). Evita erro de cert vazio.
+ */
+async function configureSecurity(qz: QZ): Promise<void> {
   const raw = { transformResponse: [(d: unknown) => d] }; // mantém texto cru (cert/base64)
-  qz.security.setCertificatePromise((resolve: (v: string) => void, reject: (e: unknown) => void) => {
-    api.get<string>('/delivery/print/cert', raw).then((r) => resolve(r.data)).catch(reject);
-  });
+  let cert = '';
+  try { cert = (await api.get<string>('/delivery/print/cert', raw)).data ?? ''; } catch { cert = ''; }
+  if (!cert || !String(cert).trim()) return; // modo não-assinado (prompt único no QZ)
+
+  qz.security.setCertificatePromise((resolve: (v: string) => void) => resolve(cert));
   qz.security.setSignatureAlgorithm('SHA512');
   qz.security.setSignaturePromise((toSign: string) =>
     (resolve: (v: string) => void, reject: (e: unknown) => void) => {
@@ -55,7 +61,7 @@ function configureSecurity(qz: QZ): void {
 /** Garante conexão ativa com o QZ Tray. */
 async function connect(): Promise<QZ> {
   const qz = await loadQz();
-  configureSecurity(qz);
+  await configureSecurity(qz);
   if (!qz.websocket.isActive()) {
     await qz.websocket.connect();
   }
