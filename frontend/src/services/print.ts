@@ -11,10 +11,13 @@
 
 import { api } from './api';
 import type { DeliveryOrderDetail } from '../types';
-import { RECEIPT_CSS, receiptHtml } from '../pages/Delivery/OrderReceipt/receipt';
+import { RECEIPT_CSS, receiptHtml, type ReceiptVariant } from '../pages/Delivery/OrderReceipt/receipt';
 
 const QZ_SCRIPT = 'https://cdn.jsdelivr.net/npm/qz-tray@2.2.4/qz-tray.js';
-const PRINTERS_KEY = 'pedidopro.print.printers'; // string[] com nomes de impressora do SO
+const MAP_KEY = 'pedidopro.print.map'; // { kitchen, counter } → nomes de impressora do SO
+
+/** Impressora por papel: cozinha (via de preparo) e balcão (via completa). */
+export interface PrinterMap { kitchen: string | null; counter: string | null; }
 
 // A lib do QZ não tem tipos; tratamos como any local.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -68,20 +71,32 @@ async function connect(): Promise<QZ> {
   return qz;
 }
 
-/** Nomes de impressora configurados neste PC. */
-export function getPrinters(): string[] {
+/** Mapa de impressoras (cozinha/balcão) configurado neste PC. */
+export function getPrinterMap(): PrinterMap {
   try {
-    const v = JSON.parse(localStorage.getItem(PRINTERS_KEY) || '[]');
-    return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : [];
-  } catch { return []; }
+    const v = JSON.parse(localStorage.getItem(MAP_KEY) || '{}');
+    return {
+      kitchen: typeof v.kitchen === 'string' && v.kitchen ? v.kitchen : null,
+      counter: typeof v.counter === 'string' && v.counter ? v.counter : null,
+    };
+  } catch { return { kitchen: null, counter: null }; }
 }
 
-export function setPrinters(names: string[]): void {
-  localStorage.setItem(PRINTERS_KEY, JSON.stringify(names.filter(Boolean)));
+export function setPrinterMap(map: PrinterMap): void {
+  localStorage.setItem(MAP_KEY, JSON.stringify(map));
 }
 
 export function isPrintConfigured(): boolean {
-  return getPrinters().length > 0;
+  const m = getPrinterMap();
+  return !!(m.kitchen || m.counter);
+}
+
+/** Jobs a imprimir conforme o mapa: cozinha→via de preparo, balcão→via completa. */
+function jobsFor(map: PrinterMap): { printer: string; variant: ReceiptVariant }[] {
+  const jobs: { printer: string; variant: ReceiptVariant }[] = [];
+  if (map.kitchen) jobs.push({ printer: map.kitchen, variant: 'kitchen' });
+  if (map.counter) jobs.push({ printer: map.counter, variant: 'counter' });
+  return jobs;
 }
 
 /** Lista as impressoras do SO (via QZ) para a tela de configuração. */
@@ -91,35 +106,39 @@ export async function listSystemPrinters(): Promise<string[]> {
   return Array.isArray(found) ? found : (found ? [found] : []);
 }
 
-/** Imprime um cupom de teste em cada impressora configurada (valida QZ + papel). */
+/** Envia um HTML de comanda a uma impressora nomeada (config 80mm). */
+async function printHtml(qz: QZ, printer: string, bodyHtml: string): Promise<void> {
+  const html = `<style>${RECEIPT_CSS}</style>${bodyHtml}`;
+  const cfg = qz.configs.create(printer, { size: { width: 80, height: null }, units: 'mm', margins: 0 });
+  await qz.print(cfg, [{ type: 'pixel', format: 'html', flavor: 'plain', data: html }]);
+}
+
+/** Imprime um cupom de teste em cada papel configurado (valida QZ + papel + impressora). */
 export async function printTest(): Promise<void> {
-  const printers = getPrinters();
-  if (printers.length === 0) throw new Error('Nenhuma impressora configurada');
+  const jobs = jobsFor(getPrinterMap());
+  if (jobs.length === 0) throw new Error('Nenhuma impressora configurada');
   const qz = await connect();
-  for (const name of printers) {
-    const safe = String(name).replace(/[&<>]/g, '');
-    const html = `<style>${RECEIPT_CSS}</style><div class="receipt">`
-      + `<div class="center big">TESTE DE IMPRESSAO</div>`
-      + `<div class="center">PedidoPro - comanda 80mm</div>`
-      + `<div class="hr"></div>`
-      + `<div>Impressora: <b>${safe}</b></div>`
-      + `<div>${new Date().toLocaleString('pt-BR')}</div>`
-      + `<div class="hr"></div>`
-      + `<div class="center">Se voce esta lendo isto, funcionou!</div></div>`;
-    const cfg = qz.configs.create(name, { size: { width: 80, height: null }, units: 'mm', margins: 0 });
-    await qz.print(cfg, [{ type: 'pixel', format: 'html', flavor: 'plain', data: html }]);
+  for (const { printer, variant } of jobs) {
+    const role = variant === 'kitchen' ? 'COZINHA' : 'BALCÃO';
+    const safe = String(printer).replace(/[&<>]/g, '');
+    const body = `<div class="rc">`
+      + `<div class="rc-num">TESTE</div>`
+      + `<div class="rc-cook">** ${role} **</div>`
+      + `<div class="rc-hr"></div>`
+      + `<div class="rc-line">Impressora: <b>${safe}</b></div>`
+      + `<div class="rc-line">${new Date().toLocaleString('pt-BR')}</div>`
+      + `<div class="rc-hr-d"></div>`
+      + `<div class="rc-line">Se você está lendo isto, funcionou!</div></div>`;
+    await printHtml(qz, printer, body);
   }
 }
 
-/** Imprime a comanda em TODAS as impressoras configuradas. Lança se QZ indisponível. */
+/** Imprime a comanda: cozinha (via de preparo) e balcão (via completa). Lança se QZ off. */
 export async function printReceipt(order: DeliveryOrderDetail): Promise<void> {
-  const printers = getPrinters();
-  if (printers.length === 0) throw new Error('Nenhuma impressora configurada');
+  const jobs = jobsFor(getPrinterMap());
+  if (jobs.length === 0) throw new Error('Nenhuma impressora configurada');
   const qz = await connect();
-  const html = `<style>${RECEIPT_CSS}</style>${receiptHtml(order)}`;
-  const data = [{ type: 'pixel', format: 'html', flavor: 'plain', data: html }];
-  for (const name of printers) {
-    const cfg = qz.configs.create(name, { size: { width: 80, height: null }, units: 'mm', margins: 0 });
-    await qz.print(cfg, data);
+  for (const { printer, variant } of jobs) {
+    await printHtml(qz, printer, receiptHtml(order, variant));
   }
 }

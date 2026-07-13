@@ -9,7 +9,7 @@ import type { DeliveryOrder, DeliveryStatus, DeliveryAlert } from '../../types';
 import { PageHeader } from '../../components/PageHeader';
 import { Button, Card, Spinner, ErrorBox, EmptyState, Modal } from '../../components/ui';
 import { brl, formatAddress } from '../../utils/format';
-import { getPrinters, setPrinters, listSystemPrinters, isPrintConfigured, printReceipt, printTest } from '../../services/print';
+import { getPrinterMap, setPrinterMap, listSystemPrinters, isPrintConfigured, printReceipt, printTest, type PrinterMap } from '../../services/print';
 
 // Status em que a comanda deve ser impressa automaticamente ao aparecer no painel.
 const AUTOPRINT_STATUS: DeliveryStatus[] = ['placed', 'confirmed', 'preparing'];
@@ -272,12 +272,12 @@ function OrderCard({
 
 /**
  * Configuração das impressoras da comanda (por PC). Detecta as impressoras do SO via
- * QZ Tray e deixa marcar quais recebem a comanda (ex.: cozinha + balcão). A seleção
- * fica no localStorage desta máquina — é ela que dispara a impressão automática.
+ * QZ Tray e mapeia cada PAPEL: cozinha (via de preparo, sem valores) e balcão (via
+ * completa). O mapa fica no localStorage desta máquina — é ela que dispara a impressão.
  */
 function PrinterConfig({ onClose }: { onClose: () => void }) {
   const [available, setAvailable] = useState<string[]>([]);
-  const [selected, setSelected] = useState<string[]>(getPrinters());
+  const [map, setMap] = useState<PrinterMap>(getPrinterMap());
   const [detecting, setDetecting] = useState(false);
   const [testing, setTesting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -301,55 +301,66 @@ function PrinterConfig({ onClose }: { onClose: () => void }) {
     setError(null);
     setMsg(null);
     try {
-      setPrinters(selected);          // salva antes p/ o teste usar a seleção atual
+      setPrinterMap(map);             // salva antes p/ o teste usar a seleção atual
       await printTest();
-      setMsg('Teste enviado. Confira o papel nas impressoras selecionadas.');
+      setMsg('Teste enviado. Confira o papel nas impressoras configuradas.');
     } catch (e) {
-      setError('Falha ao imprimir o teste. Verifique o QZ Tray e a seleção de impressoras.');
+      setError('Falha ao imprimir o teste. Verifique o QZ Tray e as impressoras escolhidas.');
       console.error(e);
     } finally {
       setTesting(false);
     }
   };
 
-  const toggle = (name: string) =>
-    setSelected((s) => (s.includes(name) ? s.filter((n) => n !== name) : [...s, name]));
-
-  const save = () => { setPrinters(selected); onClose(); };
+  const save = () => { setPrinterMap(map); onClose(); };
 
   // Mostra também impressoras já salvas que ainda não foram redetectadas.
-  const options = Array.from(new Set([...available, ...selected]));
+  const options = Array.from(new Set([available, [map.kitchen, map.counter]].flat().filter(Boolean) as string[]));
+  const configured = !!(map.kitchen || map.counter);
+
+  const RoleSelect = ({ role, label, hint }: { role: keyof PrinterMap; label: string; hint: string }) => (
+    <label className="block">
+      <span className="text-sm font-medium text-slate-700">{label}</span>
+      <span className="ml-1 text-xs text-slate-400">{hint}</span>
+      <select
+        className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
+        value={map[role] ?? ''}
+        onChange={(e) => setMap((m) => ({ ...m, [role]: e.target.value || null }))}
+      >
+        <option value="">— nenhuma —</option>
+        {options.map((name) => <option key={name} value={name}>{name}</option>)}
+      </select>
+    </label>
+  );
 
   return (
     <Modal title="Impressoras da comanda" onClose={onClose}>
       <p className="mb-3 text-xs text-slate-500">
-        As selecionadas recebem a comanda automaticamente quando o pedido chega. Requer o QZ Tray
-        instalado e aberto neste computador.
+        Cada papel imprime uma via: a <b>cozinha</b> recebe só os itens (sem valores) e o <b>balcão</b>,
+        a comanda completa. Requer o QZ Tray instalado e aberto neste computador.
       </p>
 
-      <div className="flex flex-wrap gap-2">
-        <Button variant="secondary" className="text-xs" disabled={detecting} onClick={detect}>
-          <RefreshCw size={14} className={detecting ? 'animate-spin' : ''} /> Detectar impressoras
-        </Button>
-        <Button variant="secondary" className="text-xs" disabled={testing || selected.length === 0} onClick={test}>
-          <Printer size={14} /> {testing ? 'Enviando…' : 'Imprimir teste'}
-        </Button>
-      </div>
+      <Button variant="secondary" className="text-xs" disabled={detecting} onClick={detect}>
+        <RefreshCw size={14} className={detecting ? 'animate-spin' : ''} /> Detectar impressoras
+      </Button>
 
       {error && <div className="mt-3"><ErrorBox message={error} /></div>}
       {msg && <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-700">{msg}</p>}
 
-      <div className="mt-3 space-y-1">
-        {options.length === 0 && <p className="text-xs text-slate-400">Nenhuma impressora detectada ainda.</p>}
-        {options.map((name) => (
-          <label key={name} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm text-slate-700 hover:bg-slate-50">
-            <input type="checkbox" checked={selected.includes(name)} onChange={() => toggle(name)} />
-            {name}
-          </label>
-        ))}
-      </div>
+      {options.length === 0 ? (
+        <p className="mt-3 text-xs text-slate-400">Clique em “Detectar impressoras” para listar as impressoras deste PC.</p>
+      ) : (
+        <div className="mt-4 space-y-3">
+          <RoleSelect role="kitchen" label="Cozinha" hint="via de preparo (só itens)" />
+          <RoleSelect role="counter" label="Balcão" hint="via completa (valores + entrega)" />
+          <p className="text-xs text-slate-400">Pode usar a mesma impressora nos dois, ou deixar um deles como “nenhuma”.</p>
+        </div>
+      )}
 
       <div className="mt-4 flex justify-end gap-2">
+        <Button variant="secondary" className="text-xs" disabled={testing || !configured} onClick={test}>
+          <Printer size={14} /> {testing ? 'Enviando…' : 'Imprimir teste'}
+        </Button>
         <Button variant="ghost" className="text-xs" onClick={onClose}>Cancelar</Button>
         <Button className="text-xs" onClick={save}>Salvar</Button>
       </div>

@@ -1,25 +1,42 @@
 import type { DeliveryOrderDetail } from '../../../types';
 import { brl, datetime, formatAddress, parseOptions } from '../../../utils/format';
 
+/** Via da comanda: cozinha (só preparo, sem valores) ou balcão (completa). */
+export type ReceiptVariant = 'kitchen' | 'counter';
+
 /**
- * CSS da comanda térmica 80mm. Fonte monoespaçada grande p/ leitura na cozinha;
- * `@page size: 80mm auto` deixa a altura livre (cupom contínuo). `.no-print` some
- * na impressão (barra de topo). Reusado pela rota de impressão e pelo agente QZ.
+ * CSS da comanda térmica 80mm no estilo "cozinha do iFood": quantidade grande à
+ * esquerda, nome do item em CAIXA ALTA/negrito, complementos indentados e
+ * observações em fundo preto invertido (impossível não ver). Só preto puro — nada
+ * de cinza, que a impressora térmica (1 bit) renderiza falhado. Reusado pela rota
+ * de impressão e pelo agente QZ.
  */
 export const RECEIPT_CSS = `
 @page { size: 80mm auto; margin: 0; }
 @media print { .no-print { display: none !important; } html, body { margin: 0 !important; background: #fff !important; } }
-.receipt { width: 80mm; box-sizing: border-box; padding: 3mm 4mm; margin: 0 auto; background: #fff; color: #000;
-  font-family: 'Courier New', ui-monospace, monospace; font-size: 12pt; line-height: 1.25; }
-.receipt * { box-sizing: border-box; }
-.receipt .center { text-align: center; }
-.receipt .big { font-size: 15pt; font-weight: 700; }
-.receipt .hr { border-top: 1px dashed #000; margin: 2mm 0; }
-.receipt .row { display: flex; justify-content: space-between; gap: 4mm; }
-.receipt .item { margin: 1.5mm 0; break-inside: avoid; }
-.receipt .item .opt { padding-left: 4mm; font-size: 11pt; }
-.receipt .item .obs { padding-left: 4mm; font-style: italic; font-size: 11pt; }
-.receipt .notes { border: 1.5px solid #000; padding: 2mm; margin: 2mm 0; font-weight: 700; break-inside: avoid; }
+.rc { width: 80mm; box-sizing: border-box; padding: 3mm 3.5mm; margin: 0 auto; background: #fff; color: #000;
+  font-family: 'Courier New', ui-monospace, monospace; font-size: 12pt; line-height: 1.3; }
+.rc * { box-sizing: border-box; }
+.rc-plat { text-align: center; font-size: 10pt; }
+.rc-num { text-align: center; font-size: 20pt; font-weight: bold; margin: 1mm 0; }
+.rc-type { text-align: center; font-weight: bold; border: 2px solid #000; padding: 1mm 0; margin-top: 1mm; }
+.rc-cook { text-align: center; font-weight: bold; font-size: 13pt; margin-top: 1mm; }
+.rc-line { font-size: 10.5pt; }
+.rc-h { font-weight: bold; font-size: 10pt; letter-spacing: 1px; margin: 1mm 0; }
+.rc-hr { border-top: 2px solid #000; margin: 2mm 0; }
+.rc-hr-d { border-top: 2px dashed #000; margin: 2mm 0; }
+.rc-sep-item { border-top: 1px dashed #000; margin: 2mm 0; }
+.rc-item { display: flex; gap: 2.5mm; break-inside: avoid; }
+.rc-qty { font-size: 17pt; font-weight: bold; min-width: 11mm; }
+.rc-body { flex: 1; }
+.rc-name { font-size: 14pt; font-weight: bold; text-transform: uppercase; }
+.rc-opt { font-size: 10.5pt; padding-left: 1mm; }
+.rc-grp { font-style: italic; }
+.rc-obs { display: inline-block; background: #000; color: #fff; font-weight: bold; padding: 0.3mm 1.5mm; margin-top: 0.5mm; font-size: 10.5pt; }
+.rc-note { background: #000; color: #fff; font-weight: bold; padding: 1.5mm 2mm; margin: 2.5mm 0; font-size: 12pt; }
+.rc-row { display: flex; justify-content: space-between; font-size: 10.5pt; }
+.rc-total { font-size: 16pt; font-weight: bold; margin-top: 1mm; }
+.rc-foot { text-align: center; font-size: 8pt; margin-top: 2mm; }
 `;
 
 /** Escapa texto p/ interpolar com segurança no HTML da comanda. */
@@ -27,49 +44,65 @@ const esc = (s: unknown): string =>
   String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
 
 /**
- * Renderiza a comanda de um pedido como string HTML. Função pura (sem React) para
- * ser reusada tanto pela rota de impressão quanto pelo envio ao agente QZ Tray.
+ * Renderiza a comanda de um pedido como string HTML (estilo cozinha iFood). Função
+ * pura (sem React), reusada pela rota de impressão e pelo envio ao agente QZ Tray.
+ *
+ * variant='kitchen' → só o que a cozinha precisa (itens + complementos + observações),
+ * SEM valores nem endereço. variant='counter' → comanda completa (valores + entrega).
  */
-export function receiptHtml(order: DeliveryOrderDetail): string {
+export function receiptHtml(order: DeliveryOrderDetail, variant: ReceiptVariant = 'counter'): string {
+  const isKitchen = variant === 'kitchen';
   const plat = order.platform === 'ifood' ? 'iFood' : '99Food';
   const num = order.display_id ? `#${order.display_id}` : `#${order.id}`;
-  const mode = order.delivery_mode === 'own' ? 'Entrega própria'
-    : order.delivery_mode === 'partner' ? 'Entrega parceira' : '';
+  const mode = order.delivery_mode === 'own' ? 'ENTREGA PRÓPRIA'
+    : order.delivery_mode === 'partner' ? 'ENTREGA PARCEIRA' : '';
   const addr = formatAddress(order.delivery_address);
   const rawRef = order.delivery_address && typeof order.delivery_address === 'object'
     ? (order.delivery_address as Record<string, unknown>).reference : null;
   const ref = typeof rawRef === 'string' ? rawRef.trim() : '';
 
   const items = order.items.map((it) => {
-    const opts = parseOptions(it.options).map((op) =>
-      `<div class="opt">+ ${op.quantity && op.quantity > 1 ? esc(op.quantity) + 'x ' : ''}${esc(op.name)}${op.group ? ' · ' + esc(op.group) : ''}</div>`
-    ).join('');
-    const obs = it.observations ? `<div class="obs">${esc(it.observations)}</div>` : '';
-    return `<div class="item"><div class="row"><span><b>${esc(Number(it.quantity))}x ${esc(it.name)}</b></span>`
-      + `<span>${esc(brl(it.total))}</span></div>${opts}${obs}</div>`;
-  }).join('');
+    const opts = parseOptions(it.options).map((op) => {
+      const label = op.group ? `<span class="rc-grp">${esc(op.group)}:</span> ` : '+ ';
+      const qty = op.quantity && op.quantity > 1 ? esc(op.quantity) + 'x ' : '';
+      return `<div class="rc-opt">${label}${qty}${esc(op.name)}</div>`;
+    }).join('');
+    const obs = it.observations ? `<div class="rc-obs">» ${esc(it.observations).toUpperCase()}</div>` : '';
+    return `<div class="rc-item"><div class="rc-qty">${esc(Number(it.quantity))}x</div>`
+      + `<div class="rc-body"><div class="rc-name">${esc(it.name)}</div>${opts}${obs}</div></div>`;
+  }).join('<div class="rc-sep-item"></div>');
 
-  const notes = order.customer_notes ? `<div class="notes">OBS: ${esc(order.customer_notes)}</div>` : '';
+  const note = order.customer_notes
+    ? `<div class="rc-note">OBS DO PEDIDO:<br>${esc(order.customer_notes).toUpperCase()}</div>` : '';
 
-  return `<div class="receipt">
-    <div class="center big">${esc(plat)} ${esc(num)}</div>
-    <div class="center">${esc(datetime(order.placed_at || order.created_at))}</div>
-    ${mode ? `<div class="center">${esc(mode)}</div>` : ''}
-    <div class="hr"></div>
-    <div><b>Cliente:</b> ${esc(order.customer_name || '—')}</div>
-    ${order.customer_phone ? `<div><b>Tel:</b> ${esc(order.customer_phone)}</div>` : ''}
-    ${addr ? `<div><b>Entrega:</b> ${esc(addr)}</div>` : ''}
-    ${ref ? `<div>Ref.: ${esc(ref)}</div>` : ''}
-    ${notes}
-    <div class="hr"></div>
+  const money = isKitchen ? '' : `<div class="rc-hr"></div>
+    <div class="rc-row"><span>Itens</span><span>${esc(brl(order.items_amount))}</span></div>
+    <div class="rc-row"><span>Taxa entrega</span><span>${esc(brl(order.delivery_fee))}</span></div>
+    ${order.discount_platform ? `<div class="rc-row"><span>Desc. plataforma</span><span>- ${esc(brl(order.discount_platform))}</span></div>` : ''}
+    ${order.discount_merchant ? `<div class="rc-row"><span>Desc. loja</span><span>- ${esc(brl(order.discount_merchant))}</span></div>` : ''}
+    <div class="rc-row rc-total"><span>TOTAL</span><span>${esc(brl(order.customer_paid))}</span></div>`;
+
+  const delivery = (isKitchen || !addr) ? '' : `<div class="rc-hr-d"></div>
+    <div class="rc-line"><b>ENTREGA:</b></div>
+    <div class="rc-line">${esc(addr)}</div>
+    ${ref ? `<div class="rc-line">Ref.: ${esc(ref)}</div>` : ''}`;
+
+  const footer = isKitchen ? '' : `<div class="rc-foot">${esc(plat)} ID: ${esc(order.platform_order_id)}</div>`;
+
+  return `<div class="rc">
+    <div class="rc-plat">${esc(plat)} &middot; ${esc(datetime(order.placed_at || order.created_at))}</div>
+    <div class="rc-num">PEDIDO ${esc(num)}</div>
+    ${mode ? `<div class="rc-type">${mode}</div>` : ''}
+    ${isKitchen ? '<div class="rc-cook">** COZINHA **</div>' : ''}
+    <div class="rc-hr-d"></div>
+    <div class="rc-line">CLIENTE: <b>${esc(order.customer_name || '—')}</b></div>
+    ${!isKitchen && order.customer_phone ? `<div class="rc-line">TEL: ${esc(order.customer_phone)}</div>` : ''}
+    <div class="rc-hr"></div>
+    <div class="rc-h">ITENS</div>
     ${items}
-    <div class="hr"></div>
-    <div class="row"><span>Itens</span><span>${esc(brl(order.items_amount))}</span></div>
-    <div class="row"><span>Taxa entrega</span><span>${esc(brl(order.delivery_fee))}</span></div>
-    ${order.discount_platform ? `<div class="row"><span>Desc. plataforma</span><span>- ${esc(brl(order.discount_platform))}</span></div>` : ''}
-    ${order.discount_merchant ? `<div class="row"><span>Desc. loja</span><span>- ${esc(brl(order.discount_merchant))}</span></div>` : ''}
-    <div class="row big"><span>TOTAL</span><span>${esc(brl(order.customer_paid))}</span></div>
-    <div class="hr"></div>
-    <div class="center" style="font-size:9pt">ID ${esc(plat)}: ${esc(order.platform_order_id)}</div>
+    ${note}
+    ${money}
+    ${delivery}
+    ${footer}
   </div>`;
 }
