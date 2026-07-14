@@ -37,7 +37,11 @@ final class QzTrayClient
 
     public function connect(): void
     {
-        $this->ws = new Client("ws://{$this->host}:{$this->port}/", ['timeout' => 8]);
+        // Timeout generoso: a 1ª chamada numa conexão "fria" do QZ Tray pode demorar
+        // vários segundos (renderiza o HTML/inicializa o driver da impressora) — um
+        // timeout curto faz o cliente desistir achando que falhou e reenviar o job,
+        // duplicando a impressão mesmo o 1º comando tendo chegado e impresso normalmente.
+        $this->ws = new Client("ws://{$this->host}:{$this->port}/", ['timeout' => 25]);
         if ($this->cert !== '') {
             $this->ws->text(json_encode(['certificate' => $this->cert], JSON_UNESCAPED_SLASHES));
         }
@@ -80,7 +84,7 @@ final class QzTrayClient
         $this->ws->text((string) json_encode($message, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
 
         // Lê mensagens até achar a resposta com o mesmo uid (ignora eventos de stream sem uid).
-        $deadline = microtime(true) + 10;
+        $deadline = microtime(true) + 25;
         while (microtime(true) < $deadline) {
             $raw = $this->ws->receive();
             if ($raw === null || $raw === '') {
