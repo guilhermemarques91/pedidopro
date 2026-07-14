@@ -142,7 +142,13 @@ final class OrderNormalizer
 
         // Telefone: calling_code + phone.
         $phone = trim((string) ($addr['calling_code'] ?? '') . ' ' . (string) ($addr['phone'] ?? '')) ?: null;
-        $name = $addr['name'] ?? trim((string) ($addr['first_name'] ?? '') . ' ' . (string) ($addr['last_name'] ?? '')) ?: null;
+        // Em pedidos de entrega parceira (rider DiDi), `name`/`last_name` vêm mascarados
+        // como o literal "privacy protection" — só `first_name` traz o nome real do
+        // cliente. Descarta qualquer campo mascarado antes de montar o nome exibido.
+        $unmasked = static fn(mixed $v): ?string => (is_scalar($v) && trim((string) $v) !== '' && strcasecmp(trim((string) $v), 'privacy protection') !== 0)
+            ? trim((string) $v) : null;
+        $name = $unmasked($addr['name'] ?? null)
+            ?? trim(((string) ($unmasked($addr['first_name'] ?? null) ?? '')) . ' ' . ((string) ($unmasked($addr['last_name'] ?? null) ?? ''))) ?: null;
 
         // Observações do pedido: texto livre (`remark`, quase sempre vazio) + flag de
         // talheres (`need_cutlery`, booleano em inglês). Junta o que houver numa linha.
