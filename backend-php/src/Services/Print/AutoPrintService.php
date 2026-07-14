@@ -56,11 +56,14 @@ final class AutoPrintService
                 }
                 try {
                     $order = self::loadOrder($id);
+                    // ReceiptRenderer::html() devolve só o corpo (igual receipt.ts) — o CSS
+                    // precisa vir junto no mesmo HTML enviado ao QZ (print.ts faz o mesmo wrap).
+                    $style = '<style>' . ReceiptRenderer::CSS . '</style>';
                     if ($kitchen !== '') {
-                        $qz->printHtml($kitchen, ReceiptRenderer::html($order, 'kitchen'), ReceiptRenderer::PAPER_WIDTH_MM);
+                        $qz->printHtml($kitchen, $style . ReceiptRenderer::html($order, 'kitchen'), ReceiptRenderer::PAPER_WIDTH_MM);
                     }
                     if ($counter !== '') {
-                        $qz->printHtml($counter, ReceiptRenderer::html($order, 'counter'), ReceiptRenderer::PAPER_WIDTH_MM);
+                        $qz->printHtml($counter, $style . ReceiptRenderer::html($order, 'counter'), ReceiptRenderer::PAPER_WIDTH_MM);
                     }
                     $printed++;
                 } catch (\Throwable $e) {
