@@ -15,6 +15,7 @@ declare(strict_types=1);
 
 use App\Core\Env;
 use App\Services\Integrations\IngestService;
+use App\Services\Print\AutoPrintService;
 
 $root = dirname(__DIR__);
 
@@ -48,6 +49,15 @@ for ($i = 0; $i < $iterations; $i++) {
         // Db::query já reconecta sozinho se a conexão cair no laço longo.
         echo '[' . date('Y-m-d H:i:s') . '] ERRO: ' . $e->getMessage() . "\n";
     }
+
+    // Impressão automática da comanda (QZ Tray local) — roda mesmo com o painel
+    // fechado. Silenciosa: sem QZ Tray aberto ou sem impressora configurada, não faz nada.
+    try {
+        AutoPrintService::run();
+    } catch (\Throwable $e) {
+        echo '[' . date('Y-m-d H:i:s') . '] [autoprint] ERRO: ' . $e->getMessage() . "\n";
+    }
+
     if ($i + 1 < $iterations) {
         usleep($intervalMs * 1000);
     }
