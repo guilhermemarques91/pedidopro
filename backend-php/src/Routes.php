@@ -34,6 +34,8 @@ use App\Modules\Marmitex\MarmitexOrdersController;
 use App\Modules\Marmitex\MarmitexReportController;
 use App\Modules\Marmitex\MarmitexLabelsController;
 use App\Modules\Marmitex\MarmitexSheetController;
+use App\Modules\Vendas\VendasController;
+use App\Modules\Vendas\VendasStationsController;
 
 /**
  * Registro central das rotas. Guards por PERMISSÃO granular (`modulo:acao`), ver
@@ -57,6 +59,9 @@ final class Routes
     // Marmitex
     private const MARMITEX = ['marmitex:order'];
     private const MARMITEX_ADMIN = ['marmitex:admin'];
+    // Vendas (balcão, retirada, mesas e comandas)
+    private const VENDAS = ['vendas:operate'];
+    private const VENDAS_ADMIN = ['vendas:admin'];
     // Administração / sistema
     private const USERS = ['users:manage'];
     private const SYSTEM = ['system:admin'];
@@ -283,5 +288,25 @@ final class Routes
         $r->get('/marmitex/invoices', [MarmitexReportController::class, 'invoices'], self::MARMITEX_ADMIN);
         $r->get('/marmitex/invoices/:id', [MarmitexReportController::class, 'getInvoice'], self::MARMITEX_ADMIN);
         $r->post('/marmitex/invoices/:id/cancel', [MarmitexReportController::class, 'cancelInvoice'], self::MARMITEX_ADMIN);
+
+        // ===== Vendas (balcão, retirada, mesas e comandas) =====
+        // Mesas/comandas: cadastro fixo — leitura para quem opera, escrita só admin.
+        $r->get('/vendas/stations', [VendasStationsController::class, 'list'], self::VENDAS);
+        $r->post('/vendas/stations', [VendasStationsController::class, 'create'], self::VENDAS_ADMIN);
+        $r->put('/vendas/stations/:id', [VendasStationsController::class, 'update'], self::VENDAS_ADMIN);
+        $r->delete('/vendas/stations/:id', [VendasStationsController::class, 'remove'], self::VENDAS_ADMIN);
+
+        // Painel (Kanban) + lançamento — quem opera o balcão/mesas.
+        $r->get('/vendas/board', [VendasController::class, 'board'], self::VENDAS);
+        $r->get('/vendas/:id', [VendasController::class, 'getById'], self::VENDAS);
+        $r->post('/vendas', [VendasController::class, 'create'], self::VENDAS);
+        $r->post('/vendas/:id/ready', [VendasController::class, 'ready'], self::VENDAS);
+        $r->post('/vendas/:id/close', [VendasController::class, 'close'], self::VENDAS);
+        $r->post('/vendas/:id/pay', [VendasController::class, 'pay'], self::VENDAS);
+        // Cancelar (com estorno de estoque) — só admin.
+        $r->post('/vendas/:id/cancel', [VendasController::class, 'cancel'], self::VENDAS_ADMIN);
+        // Editar/remover item já enviado (ajusta a baixa de estoque) — só admin.
+        $r->put('/vendas/:id/items/:itemId', [VendasController::class, 'updateItem'], self::VENDAS_ADMIN);
+        $r->delete('/vendas/:id/items/:itemId', [VendasController::class, 'removeItem'], self::VENDAS_ADMIN);
     }
 }

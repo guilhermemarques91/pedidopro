@@ -30,6 +30,8 @@ import { MarmitexCatalogPage } from './pages/Marmitex/Catalog';
 import { MarmitexReportPage } from './pages/Marmitex/Report';
 import { MarmitexInvoices } from './pages/Marmitex/Invoices';
 import { LabelsPrint } from './pages/Marmitex/LabelsPrint';
+import { Vendas } from './pages/Vendas';
+import { VendasStations } from './pages/Vendas/Stations';
 import { JSX, useEffect } from 'react';
 import { useBrand } from './store/brand.store';
 
@@ -77,6 +79,8 @@ export default function App() {
         <Route path="marmitex/catalog" element={<MarmitexCatalogPage />} />
         <Route path="marmitex/report" element={<MarmitexReportPage />} />
         <Route path="marmitex/invoices" element={<MarmitexInvoices />} />
+        <Route path="vendas" element={<Vendas />} />
+        <Route path="vendas/estacoes" element={<VendasStations />} />
         <Route path="delivery" element={<Delivery />} />
         <Route path="delivery/:id" element={<DeliveryOrderDetailPage />} />
         <Route path="relatorios" element={<Reports />} />

@@ -211,9 +211,9 @@ export function Field({ label, children }: { label: string; children: ReactNode 
   );
 }
 
-export function Card({ className = '', children }: { className?: string; children: ReactNode }) {
+export function Card({ className = '', children, onClick }: { className?: string; children: ReactNode; onClick?: () => void }) {
   return (
-    <div className={`rounded-xl border border-slate-200 bg-white p-5 shadow-sm ${className}`}>
+    <div className={`rounded-xl border border-slate-200 bg-white p-5 shadow-sm ${className}`} onClick={onClick}>
       {children}
     </div>
   );

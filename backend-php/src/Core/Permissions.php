@@ -49,6 +49,13 @@ final class Permissions
                 'marmitex:admin' => 'Gerenciar catálogo, empresas e faturamento',
             ],
         ],
+        'vendas' => [
+            'label' => 'Vendas (Balcão, Mesas e Comandas)',
+            'items' => [
+                'vendas:operate' => 'Lançar pedidos, mover o painel e receber pagamento',
+                'vendas:admin' => 'Cadastrar mesas/comandas e cancelar pedidos',
+            ],
+        ],
         'sistema' => [
             'label' => 'Administração',
             'items' => [

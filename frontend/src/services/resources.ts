@@ -6,6 +6,7 @@ import type {
   Interruption, OpeningShift,
   MarmitexCompany, MarmitexCatalog, CatalogType, MarmitexOrder, MarmitexOrderDetail, ProductionSummary,
   MarmitexReport, MarmitexInvoice, MarmitexLabelData,
+  VendasStation, VendasSale, VendasBoardCard, VendasCreateBody, BoardOrigin, PaymentMethod,
 } from '../types';
 
 // ---- Categories ----
@@ -436,4 +437,31 @@ export const marmitexApi = {
     api.get<MarmitexInvoice[]>('/marmitex/invoices', { params: companyId ? { company_id: companyId } : {} }).then((r) => r.data),
   invoice: (id: number) => api.get<MarmitexInvoice>(`/marmitex/invoices/${id}`).then((r) => r.data),
   cancelInvoice: (id: number) => api.post<MarmitexInvoice>(`/marmitex/invoices/${id}/cancel`).then((r) => r.data),
+};
+
+// ---- Vendas (balcão, retirada, mesas e comandas) ----
+export const vendasApi = {
+  board: (origin?: BoardOrigin | '') =>
+    api.get<{ cards: VendasBoardCard[] }>('/vendas/board', { params: origin ? { origin } : {} }).then((r) => r.data.cards),
+  get: (id: number) => api.get<VendasSale>(`/vendas/${id}`).then((r) => r.data),
+  create: (body: VendasCreateBody) => api.post<VendasSale>('/vendas', body).then((r) => r.data),
+  ready: (id: number) => api.post<VendasSale>(`/vendas/${id}/ready`).then((r) => r.data),
+  close: (id: number) => api.post<VendasSale>(`/vendas/${id}/close`).then((r) => r.data),
+  pay: (id: number, payment_method?: PaymentMethod) =>
+    api.post<VendasSale>(`/vendas/${id}/pay`, payment_method ? { payment_method } : {}).then((r) => r.data),
+  cancel: (id: number) => api.post<VendasSale>(`/vendas/${id}/cancel`).then((r) => r.data),
+  updateItem: (saleId: number, itemId: number, quantity: number) =>
+    api.put<VendasSale>(`/vendas/${saleId}/items/${itemId}`, { quantity }).then((r) => r.data),
+  removeItem: (saleId: number, itemId: number) =>
+    api.delete<VendasSale>(`/vendas/${saleId}/items/${itemId}`).then((r) => r.data),
+
+  stations: {
+    list: (kind?: 'mesa' | 'comanda') =>
+      api.get<VendasStation[]>('/vendas/stations', { params: kind ? { kind } : {} }).then((r) => r.data),
+    create: (body: { kind: 'mesa' | 'comanda'; number: string; label?: string | null }) =>
+      api.post<VendasStation>('/vendas/stations', body).then((r) => r.data),
+    update: (id: number, body: Partial<{ number: string; label: string | null; active: boolean }>) =>
+      api.put<VendasStation>(`/vendas/stations/${id}`, body).then((r) => r.data),
+    remove: (id: number) => api.delete(`/vendas/stations/${id}`).then((r) => r.data),
+  },
 };

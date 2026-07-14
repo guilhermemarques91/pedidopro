@@ -589,3 +589,85 @@ export interface MarmitexLabelData {
   date: string;
   marmitas: Pick<Marmita, 'id' | 'person_name' | 'size_name' | 'protein_name' | 'sides_json' | 'observation'>[];
 }
+
+// ---- Vendas (balcão, retirada, mesas e comandas) ----
+export type VendasOrigin = 'mesa' | 'comanda' | 'balcao' | 'retirada';
+export type VendasStatus = 'sent' | 'ready' | 'awaiting_payment' | 'completed' | 'cancelled';
+export type PaymentMethod = 'dinheiro' | 'debito' | 'credito' | 'pix' | 'outro';
+/** Origem unificada do card no board (inclui as plataformas de delivery integrado). */
+export type BoardOrigin = VendasOrigin | DeliveryPlatform;
+export type BoardColumn = 'enviado' | 'pronto' | 'aguardando_pagamento' | 'concluido';
+
+export interface VendasStation {
+  id: number;
+  org_id: number;
+  kind: 'mesa' | 'comanda';
+  number: string;
+  label: string | null;
+  active: boolean;
+  created_at: string;
+  has_open_sale?: boolean;
+}
+
+export interface VendasSaleItem {
+  id: number;
+  sale_id: number;
+  product_id: number;
+  product_name: string;
+  unit_price: string;
+  quantity: string;
+  subtotal: string;
+  round_no: number;
+  sent_at: string;
+}
+
+export interface VendasSale {
+  id: number;
+  org_id: number;
+  origin: VendasOrigin;
+  station_id: number | null;
+  daily_number: number | null;
+  status: VendasStatus;
+  payment_method: PaymentMethod | null;
+  payment_status: 'pending' | 'paid';
+  total_amount: string;
+  notes: string | null;
+  created_by: number | null;
+  created_at: string;
+  ready_at: string | null;
+  paid_at: string | null;
+  completed_at: string | null;
+  cancelled_at: string | null;
+  cancelled_by: number | null;
+  station_kind: 'mesa' | 'comanda' | null;
+  station_number: string | null;
+  station_label: string | null;
+  items: VendasSaleItem[];
+}
+
+/** Card unificado do board: uma sales (source 'vendas') ou um delivery_orders (source 'delivery'). */
+export interface VendasBoardCard {
+  source: 'vendas' | 'delivery';
+  id: number;
+  origin: BoardOrigin;
+  column: BoardColumn | null; // null = cancelado (mostrado à parte)
+  status: string;
+  payment_status: 'pending' | 'paid';
+  payment_method: PaymentMethod | null;
+  daily_number: number | null;
+  station: { id: number; kind: 'mesa' | 'comanda'; number: string; label: string | null } | null;
+  total_amount: number;
+  items_count: number;
+  created_at: string;
+  ready_at: string | null;
+  display_id?: string | null;   // só delivery
+  customer_name?: string | null; // só delivery
+}
+
+export interface VendasCartItem { product_id: number; quantity: number }
+export interface VendasCreateBody {
+  origin: VendasOrigin;
+  station_id?: number;
+  payment_method?: PaymentMethod;
+  items: VendasCartItem[];
+}

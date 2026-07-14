@@ -5,7 +5,7 @@ import {
   LayoutDashboard, Tags, Truck, Package, FileSpreadsheet,
   ClipboardList, ShoppingCart, LogOut, Inbox, ListChecks, Users, Menu, X,
   Bike, Plug, Building2, BookOpen, FileText, Receipt, BarChart3, UtensilsCrossed, Store as StoreIcon,
-  ChevronDown, ChevronRight, PanelLeftClose, PanelLeft, ScrollText, Palette,
+  ChevronDown, ChevronRight, PanelLeftClose, PanelLeft, ScrollText, Palette, ShoppingBag, Armchair,
 } from 'lucide-react';
 import { useAuth } from '../store/auth.store';
 import { inboxApi } from '../services/resources';
@@ -26,6 +26,10 @@ type NavGroup = { title?: string; items: NavItem[] };
 // área; grupos com título recolhem (accordion) e o menu pode virar trilho de ícones.
 const navGroups: NavGroup[] = [
   { items: [{ to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true }] },
+  { title: 'Vendas', items: [
+    { to: '/vendas', label: 'Painel', icon: ShoppingBag, perm: 'vendas:operate', end: true },
+    { to: '/vendas/estacoes', label: 'Mesas & Comandas', icon: Armchair, perm: 'vendas:admin' },
+  ] },
   { title: 'Delivery', items: [
     { to: '/delivery', label: 'Painel de Pedidos', icon: Bike, perm: 'delivery:operate' },
     { to: '/relatorios', label: 'Relatórios', icon: BarChart3, perm: 'delivery:operate' },
