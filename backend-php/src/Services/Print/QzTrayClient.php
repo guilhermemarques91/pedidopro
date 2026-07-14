@@ -61,8 +61,13 @@ final class QzTrayClient
     {
         $uid = substr(bin2hex(random_bytes(6)), 0, 10);
         $timestamp = (int) (microtime(true) * 1000);
+        // UNESCAPED_UNICODE é essencial aqui: o QZ Tray (Java) recalcula o mesmo hash a
+        // partir do call/params/timestamp recebidos, serializando acentos como UTF-8 cru
+        // (igual ao JSON.stringify do JS) — sem essa flag, o PHP escapa como \uXXXX e o
+        // hash não bate pra NENHUM pedido com acento (cliente/endereço em português),
+        // e o QZ cai silenciosamente no modo "pede confirmação sempre, sem lembrar".
         $signObj = ['call' => $callName, 'params' => $params, 'timestamp' => $timestamp];
-        $toSign = json_encode($signObj, JSON_UNESCAPED_SLASHES);
+        $toSign = json_encode($signObj, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         $hash = hash('sha256', (string) $toSign);
 
         $signature = '';

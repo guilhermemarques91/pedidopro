@@ -13,10 +13,17 @@ use App\Core\Env;
  * Reivindica cada pedido via UPDATE ... WHERE printed_at IS NULL (mesma trava atômica
  * que o endpoint POST /delivery/orders/:id/printed já usava) — evita imprimir 2x se o
  * poller reiniciar no meio de um lote.
+ *
+ * Mantém UMA conexão QZ Tray viva pela vida inteira do processo (reconecta só se
+ * cair), em vez de abrir/fechar socket a cada pedido: o QZ Tray parece só "lembrar"
+ * a autorização (mesmo com certificado assinado) enquanto a conexão continua aberta —
+ * reconectar a cada pedido reacendia o diálogo de permissão toda vez.
  */
 final class AutoPrintService
 {
     private const AUTOPRINT_STATUS = ['placed', 'confirmed', 'preparing'];
+
+    private static ?QzTrayClient $qz = null;
 
     /** Roda uma passada: imprime a comanda de todo pedido pendente. Retorna quantos imprimiu. */
     public static function run(): int
@@ -36,6 +43,45 @@ final class AutoPrintService
             return 0;
         }
 
+        $printed = 0;
+        foreach ($pending as $row) {
+            $id = (int) $row['id'];
+            // Reivindica ANTES de imprimir (mesma semântica do endpoint HTTP): evita
+            // reimpressão em corrida com o painel aberto em outra tela.
+            $claimed = Db::execute('UPDATE delivery_orders SET printed_at = NOW() WHERE id = ? AND printed_at IS NULL', [$id]) > 0;
+            if (!$claimed) {
+                continue;
+            }
+            try {
+                $order = self::loadOrder($id);
+                // ReceiptRenderer::html() devolve só o corpo (igual receipt.ts) — o CSS
+                // precisa vir junto no mesmo HTML enviado ao QZ (print.ts faz o mesmo wrap).
+                $style = '<style>' . ReceiptRenderer::CSS . '</style>';
+                $qz = self::client();
+                if ($kitchen !== '') {
+                    $qz->printHtml($kitchen, $style . ReceiptRenderer::html($order, 'kitchen'), ReceiptRenderer::PAPER_WIDTH_MM);
+                }
+                if ($counter !== '') {
+                    $qz->printHtml($counter, $style . ReceiptRenderer::html($order, 'counter'), ReceiptRenderer::PAPER_WIDTH_MM);
+                }
+                $printed++;
+            } catch (\Throwable $e) {
+                // Falhou (conexão caiu, impressora offline etc.) — descarta o cliente pra
+                // reconectar do zero na próxima chamada, e libera o pedido pra nova tentativa.
+                self::$qz = null;
+                Db::execute('UPDATE delivery_orders SET printed_at = NULL WHERE id = ?', [$id]);
+                echo '[' . date('Y-m-d H:i:s') . "] [autoprint] pedido {$id} falhou: " . $e->getMessage() . "\n";
+            }
+        }
+        return $printed;
+    }
+
+    /** Conexão QZ Tray reusada entre chamadas; reconecta só se ainda não existir. */
+    private static function client(): QzTrayClient
+    {
+        if (self::$qz !== null) {
+            return self::$qz;
+        }
         $certPath = Env::get('QZ_CERT_PATH');
         $keyPath = Env::get('QZ_PRIVATE_KEY_PATH');
         $cert = $certPath && is_readable($certPath) ? (string) file_get_contents($certPath) : null;
@@ -43,39 +89,8 @@ final class AutoPrintService
 
         $qz = new QzTrayClient(privateKeyPem: $key, certPem: $cert);
         $qz->connect();
-
-        $printed = 0;
-        try {
-            foreach ($pending as $row) {
-                $id = (int) $row['id'];
-                // Reivindica ANTES de imprimir (mesma semântica do endpoint HTTP): evita
-                // reimpressão em corrida com o painel aberto em outra tela.
-                $claimed = Db::execute('UPDATE delivery_orders SET printed_at = NOW() WHERE id = ? AND printed_at IS NULL', [$id]) > 0;
-                if (!$claimed) {
-                    continue;
-                }
-                try {
-                    $order = self::loadOrder($id);
-                    // ReceiptRenderer::html() devolve só o corpo (igual receipt.ts) — o CSS
-                    // precisa vir junto no mesmo HTML enviado ao QZ (print.ts faz o mesmo wrap).
-                    $style = '<style>' . ReceiptRenderer::CSS . '</style>';
-                    if ($kitchen !== '') {
-                        $qz->printHtml($kitchen, $style . ReceiptRenderer::html($order, 'kitchen'), ReceiptRenderer::PAPER_WIDTH_MM);
-                    }
-                    if ($counter !== '') {
-                        $qz->printHtml($counter, $style . ReceiptRenderer::html($order, 'counter'), ReceiptRenderer::PAPER_WIDTH_MM);
-                    }
-                    $printed++;
-                } catch (\Throwable $e) {
-                    // Falhou no QZ (impressora offline etc.) — libera pra tentar de novo no próximo loop.
-                    Db::execute('UPDATE delivery_orders SET printed_at = NULL WHERE id = ?', [$id]);
-                    echo '[' . date('Y-m-d H:i:s') . "] [autoprint] pedido {$id} falhou: " . $e->getMessage() . "\n";
-                }
-            }
-        } finally {
-            $qz->close();
-        }
-        return $printed;
+        self::$qz = $qz;
+        return $qz;
     }
 
     private static function loadOrder(int $id): array
