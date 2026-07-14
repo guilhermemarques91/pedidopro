@@ -98,6 +98,9 @@ final class VendasController
         $saleId = Db::transaction(function (PDO $pdo) use ($origin, $rawItems, $in, $orgId, $userId) {
             $items = self::parseItems($pdo, $orgId, $rawItems);
 
+            $customerName = $in->string('customer_name');
+            $partySize = $in->integer('party_size');
+
             if ($origin === 'mesa' || $origin === 'comanda') {
                 $stationId = (int) $in->integer('station_id', true);
                 self::lockStation($pdo, $stationId, $orgId, $origin);
@@ -109,7 +112,7 @@ final class VendasController
                     $pdo->prepare("UPDATE sales SET total_amount = total_amount + ?, status = 'sent' WHERE id = ?")
                         ->execute([$added, $saleId]);
                 } else {
-                    $saleId = self::insertSale($pdo, $orgId, $origin, $stationId, null, null, $userId);
+                    $saleId = self::insertSale($pdo, $orgId, $origin, $stationId, null, null, $userId, $customerName, $partySize);
                     $round = 1;
                     $added = self::insertItemsRound($pdo, $saleId, $round, $items);
                     $pdo->prepare('UPDATE sales SET total_amount = ? WHERE id = ?')->execute([$added, $saleId]);
@@ -119,7 +122,7 @@ final class VendasController
                 $paymentMethod = $origin === 'balcao'
                     ? $in->enum('payment_method', self::PAYMENT_METHODS, true)
                     : null;
-                $saleId = self::insertSale($pdo, $orgId, $origin, null, $dailyNumber, $paymentMethod, $userId);
+                $saleId = self::insertSale($pdo, $orgId, $origin, null, $dailyNumber, $paymentMethod, $userId, $customerName, $partySize);
                 $round = 1;
                 $added = self::insertItemsRound($pdo, $saleId, $round, $items);
                 $pdo->prepare('UPDATE sales SET total_amount = ? WHERE id = ?')->execute([$added, $saleId]);
@@ -355,12 +358,14 @@ final class VendasController
         return $row ?: null;
     }
 
-    private static function insertSale(PDO $pdo, int $orgId, string $origin, ?int $stationId, ?int $dailyNumber, ?string $paymentMethod, ?int $userId): int
-    {
+    private static function insertSale(
+        PDO $pdo, int $orgId, string $origin, ?int $stationId, ?int $dailyNumber, ?string $paymentMethod,
+        ?int $userId, ?string $customerName = null, ?int $partySize = null
+    ): int {
         $pdo->prepare(
-            'INSERT INTO sales (org_id, origin, station_id, daily_number, payment_method, created_by)
-             VALUES (?, ?, ?, ?, ?, ?)'
-        )->execute([$orgId, $origin, $stationId, $dailyNumber, $paymentMethod, $userId]);
+            'INSERT INTO sales (org_id, origin, station_id, daily_number, payment_method, created_by, customer_name, party_size)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+        )->execute([$orgId, $origin, $stationId, $dailyNumber, $paymentMethod, $userId, $customerName, $partySize]);
         return (int) $pdo->lastInsertId();
     }
 

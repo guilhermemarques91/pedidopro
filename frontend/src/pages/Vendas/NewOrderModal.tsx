@@ -24,13 +24,17 @@ const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = [
 
 interface CartLine { product: Product; quantity: number }
 
-export function NewOrderModal({ onClose }: { onClose: () => void }) {
+export function NewOrderModal({
+  onClose, presetOrigin, presetStationId,
+}: { onClose: () => void; presetOrigin?: VendasOrigin; presetStationId?: number }) {
   const qc = useQueryClient();
-  const [origin, setOrigin] = useState<VendasOrigin | null>(null);
-  const [stationId, setStationId] = useState<number | null>(null);
+  const [origin, setOrigin] = useState<VendasOrigin | null>(presetOrigin ?? null);
+  const [stationId, setStationId] = useState<number | null>(presetStationId ?? null);
   const [cart, setCart] = useState<CartLine[]>([]);
   const [search, setSearch] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('dinheiro');
+  const [customerName, setCustomerName] = useState('');
+  const [partySize, setPartySize] = useState('');
   const [cartView, setCartView] = useState<'menu' | 'review'>('menu');
   const [activeTab, setActiveTab] = useState<string | null>(null);
 
@@ -93,17 +97,20 @@ export function NewOrderModal({ onClose }: { onClose: () => void }) {
     setCart((prev) => prev.filter((l) => l.product.id !== productId));
   }
 
+  const selectedStation = stations?.find((s) => s.id === stationId);
+  const isFreshStationSale = needsStation && !selectedStation?.open_sale;
+
   const create = useMutation({
     mutationFn: () => vendasApi.create({
       origin: origin as VendasOrigin,
       station_id: stationId ?? undefined,
       payment_method: origin === 'balcao' ? paymentMethod : undefined,
+      customer_name: isFreshStationSale && customerName.trim() ? customerName.trim() : undefined,
+      party_size: isFreshStationSale && partySize ? Number(partySize) : undefined,
       items: cart.map((l) => ({ product_id: l.product.id, quantity: l.quantity })),
     }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['vendas-board'] }); qc.invalidateQueries({ queryKey: ['vendas-stations'] }); onClose(); },
   });
-
-  const selectedStation = stations?.find((s) => s.id === stationId);
 
   return (
     <Modal title="Novo pedido" onClose={onClose} size="xl">
@@ -176,6 +183,17 @@ export function NewOrderModal({ onClose }: { onClose: () => void }) {
                 Trocar
               </button>
             </div>
+
+            {isFreshStationSale && (
+              <div className="mb-3 grid grid-cols-2 gap-2">
+                <Field label="Cliente (opcional)">
+                  <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} maxLength={120} />
+                </Field>
+                <Field label="Pessoas (opcional)">
+                  <Input type="number" min={1} value={partySize} onChange={(e) => setPartySize(e.target.value)} />
+                </Field>
+              </div>
+            )}
 
             {cartView === 'menu' && (
               <div>

@@ -598,6 +598,16 @@ export type PaymentMethod = 'dinheiro' | 'debito' | 'credito' | 'pix' | 'outro';
 export type BoardOrigin = VendasOrigin | DeliveryPlatform;
 export type BoardColumn = 'enviado' | 'pronto' | 'aguardando_pagamento' | 'concluido';
 
+export interface VendasStationOpenSale {
+  id: number;
+  status: VendasStatus;
+  payment_status: 'pending' | 'paid';
+  customer_name: string | null;
+  party_size: number | null;
+  total_amount: number;
+  created_at: string;
+}
+
 export interface VendasStation {
   id: number;
   org_id: number;
@@ -607,6 +617,7 @@ export interface VendasStation {
   active: boolean;
   created_at: string;
   has_open_sale?: boolean;
+  open_sale?: VendasStationOpenSale | null;
 }
 
 export interface VendasSaleItem {
@@ -632,6 +643,8 @@ export interface VendasSale {
   payment_status: 'pending' | 'paid';
   total_amount: string;
   notes: string | null;
+  customer_name: string | null;
+  party_size: number | null;
   created_by: number | null;
   created_at: string;
   ready_at: string | null;
@@ -669,5 +682,7 @@ export interface VendasCreateBody {
   origin: VendasOrigin;
   station_id?: number;
   payment_method?: PaymentMethod;
+  customer_name?: string;
+  party_size?: number;
   items: VendasCartItem[];
 }

@@ -10,6 +10,7 @@ use App\Core\Request;
 /** Cadastro fixo de mesas e comandas — evita digitação livre e mostra ocupação. */
 final class VendasStationsController
 {
+    /** Mapa de mesas/comandas: cada uma traz o pedido aberto (se houver) embutido. */
     public static function list(Request $req): void
     {
         $where = ['s.org_id = ?'];
@@ -22,17 +23,42 @@ final class VendasStationsController
             $where[] = 's.active = 1';
         }
         $clause = implode(' AND ', $where);
-        Http::json(Db::query(
+        $rows = Db::query(
             "SELECT s.*,
-                    EXISTS(
-                      SELECT 1 FROM sales o
-                       WHERE o.station_id = s.id AND o.status NOT IN ('completed', 'cancelled')
-                    ) AS has_open_sale
+                    o.id AS sale_id, o.status AS sale_status, o.payment_status AS sale_payment_status,
+                    o.customer_name AS sale_customer_name, o.party_size AS sale_party_size,
+                    o.total_amount AS sale_total_amount, o.created_at AS sale_created_at
                FROM sales_stations s
+               LEFT JOIN sales o ON o.station_id = s.id AND o.status NOT IN ('completed', 'cancelled')
               WHERE {$clause}
               ORDER BY s.kind, s.number",
             $params
-        ));
+        );
+        Http::json(array_map([self::class, 'mapStation'], $rows));
+    }
+
+    private static function mapStation(array $r): array
+    {
+        $openSale = $r['sale_id'] !== null ? [
+            'id' => (int) $r['sale_id'],
+            'status' => $r['sale_status'],
+            'payment_status' => $r['sale_payment_status'],
+            'customer_name' => $r['sale_customer_name'],
+            'party_size' => $r['sale_party_size'] !== null ? (int) $r['sale_party_size'] : null,
+            'total_amount' => (float) $r['sale_total_amount'],
+            'created_at' => $r['sale_created_at'],
+        ] : null;
+        return [
+            'id' => (int) $r['id'],
+            'org_id' => (int) $r['org_id'],
+            'kind' => $r['kind'],
+            'number' => $r['number'],
+            'label' => $r['label'],
+            'active' => (bool) $r['active'],
+            'created_at' => $r['created_at'],
+            'has_open_sale' => $openSale !== null,
+            'open_sale' => $openSale,
+        ];
     }
 
     public static function create(Request $req): void
