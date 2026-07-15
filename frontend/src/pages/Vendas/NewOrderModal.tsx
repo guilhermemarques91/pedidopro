@@ -22,6 +22,10 @@ const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = [
   { value: 'outro', label: 'Outro' },
 ];
 
+// Vendável = Tipo Mercadoria/Produto/Combo (eixo fixo do cadastro) — Adicional fica de fora
+// (taxas de entrega/plataforma, não lançadas manualmente no carrinho).
+const SELLABLE_TIPOS = new Set(['Mercadoria', 'Produto', 'Combo']);
+
 interface CartLine { product: Product; quantity: number }
 
 export function NewOrderModal({
@@ -52,10 +56,8 @@ export function NewOrderModal({
     queryFn: () => productsApi.list(),
     enabled: step === 'cart',
   });
-  // Vendável = tem preço de venda cadastrado (Produto/Mercadoria/Combo/Adicional) — não depende
-  // de nomes fixos de Classe, que agora vêm do cadastro (ex.: importado da AllFood).
   const sellable = useMemo(
-    () => (products ?? []).filter((p) => p.active && p.sale_price != null),
+    () => (products ?? []).filter((p) => p.active && SELLABLE_TIPOS.has(p.tipo ?? '')),
     [products],
   );
 
