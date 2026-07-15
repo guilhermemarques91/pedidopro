@@ -23,6 +23,7 @@ use App\Modules\Stock\StockController;
 use App\Modules\Nfe\NfeController;
 use App\Modules\Inbox\InboxController;
 use App\Modules\Import\ImportController;
+use App\Modules\Import\ProductsImportController;
 use App\Modules\Whatsapp\WhatsappController;
 use App\Modules\Webhooks\WebhooksController;
 use App\Modules\Delivery\DeliveryController;
@@ -211,6 +212,9 @@ final class Routes
         // Import
         $r->post('/import/preview', [ImportController::class, 'preview'], self::WRITE);
         $r->post('/import', [ImportController::class, 'commit'], self::WRITE);
+        // Import — cadastro de Produtos/Estoque (planilha do sistema atual do usuário, AllFood)
+        $r->post('/import/products/preview', [ProductsImportController::class, 'preview'], self::WRITE);
+        $r->post('/import/products', [ProductsImportController::class, 'commit'], self::WRITE);
 
         // WhatsApp
         $r->post('/whatsapp/test', [WhatsappController::class, 'sendTest'], self::SYSTEM);

@@ -6,6 +6,7 @@ import { apiError } from '../../services/api';
 import { PageHeader } from '../../components/PageHeader';
 import { Button, Card, Spinner, ErrorBox } from '../../components/ui';
 import { NfeImport } from './NfeImport';
+import { ProductsImport } from './ProductsImport';
 
 export function Import() {
   const qc = useQueryClient();
@@ -34,22 +35,26 @@ export function Import() {
     setFile(f); setPreview(null); setResult(null); setError('');
   }
 
-  const [mode, setMode] = useState<'nfe' | 'xlsx'>('nfe');
+  const [mode, setMode] = useState<'nfe' | 'products' | 'xlsx'>('nfe');
+  const subtitle = mode === 'nfe'
+    ? 'Entrada de estoque pelo XML da NF-e'
+    : mode === 'products'
+      ? 'Cadastro de Produtos/Estoque a partir do sistema atual (AllFood)'
+      : 'Planilha .xlsx gerada a partir das notas fiscais';
 
   return (
     <div>
-      <PageHeader
-        title="Importação"
-        subtitle={mode === 'nfe' ? 'Entrada de estoque pelo XML da NF-e' : 'Planilha .xlsx gerada a partir das notas fiscais'}
-      />
+      <PageHeader title="Importação" subtitle={subtitle} />
 
-      {/* Alternador: NF-e (XML) é o caminho preferido; planilha continua disponível */}
+      {/* Alternador: NF-e (XML) é o caminho preferido; os demais continuam disponíveis */}
       <div className="mb-4 inline-flex rounded-lg border border-slate-200 bg-white p-1">
         <button onClick={() => setMode('nfe')} className={`rounded-md px-4 py-1.5 text-sm font-medium transition ${mode === 'nfe' ? 'bg-emerald-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>NF-e (XML)</button>
-        <button onClick={() => setMode('xlsx')} className={`rounded-md px-4 py-1.5 text-sm font-medium transition ${mode === 'xlsx' ? 'bg-emerald-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>Planilha (.xlsx)</button>
+        <button onClick={() => setMode('products')} className={`rounded-md px-4 py-1.5 text-sm font-medium transition ${mode === 'products' ? 'bg-emerald-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>Produtos (AllFood)</button>
+        <button onClick={() => setMode('xlsx')} className={`rounded-md px-4 py-1.5 text-sm font-medium transition ${mode === 'xlsx' ? 'bg-emerald-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>Fornecedores (.xlsx)</button>
       </div>
 
       {mode === 'nfe' && <NfeImport />}
+      {mode === 'products' && <ProductsImport />}
 
       {mode === 'xlsx' && (
       <>

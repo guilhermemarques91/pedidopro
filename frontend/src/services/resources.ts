@@ -167,6 +167,32 @@ export const importApi = {
   },
 };
 
+export interface ProductsImportRow {
+  rowNumber: number; external_code: string | null; name: string; tipo: string;
+  classe: string | null; sub_classe: string | null; unit: string | null; purchase_unit: string | null;
+  sale_price: number | null; cost_price: number | null;
+}
+export interface ProductsImportPreview {
+  filename: string; totalRows: number; validRows: number; errorRows: number;
+  newClasses: string[]; newSubclasses: string[]; newProducts: number; updatedProducts: number;
+  errors: { rowNumber: number; errors: string[] }[];
+  sample: ProductsImportRow[];
+}
+export interface ProductsImportResult {
+  importId: number; totalRows: number; importedRows: number; errorRows: number;
+  classesCreated: number; subclassesCreated: number; productsCreated: number; productsUpdated: number;
+}
+export const productsImportApi = {
+  preview: (file: File) => {
+    const fd = new FormData(); fd.append('file', file);
+    return api.post<ProductsImportPreview>('/import/products/preview', fd).then((r) => r.data);
+  },
+  commit: (file: File) => {
+    const fd = new FormData(); fd.append('file', file);
+    return api.post<ProductsImportResult>('/import/products', fd).then((r) => r.data);
+  },
+};
+
 // ---- Quotations ----
 export const quotationsApi = {
   list: () => api.get<Quotation[]>('/quotations').then((r) => r.data),

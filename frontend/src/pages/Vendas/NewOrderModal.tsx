@@ -52,8 +52,10 @@ export function NewOrderModal({
     queryFn: () => productsApi.list(),
     enabled: step === 'cart',
   });
+  // Vendável = tem preço de venda cadastrado (Produto/Mercadoria/Combo/Adicional) — não depende
+  // de nomes fixos de Classe, que agora vêm do cadastro (ex.: importado da AllFood).
   const sellable = useMemo(
-    () => (products ?? []).filter((p) => p.active && ['Cardápio', 'Bebida'].includes(p.type_name ?? '')),
+    () => (products ?? []).filter((p) => p.active && p.sale_price != null),
     [products],
   );
 
