@@ -228,6 +228,26 @@ export type DeliveryStatus =
   | 'placed' | 'confirmed' | 'preparing' | 'ready' | 'dispatched' | 'concluded' | 'cancelled';
 export type DeliveryMode = 'own' | 'partner';
 
+export interface DeliveryAddress {
+  street: string | null;
+  number: string | null;
+  complement: string | null;
+  neighborhood: string | null;
+  city: string | null;
+  state: string | null;
+  postal_code: string | null;
+  reference: string | null;
+  formatted: string | null;
+  lat: number | null;
+  lng: number | null;
+  geocode_source?: 'platform' | 'nominatim' | null;
+  geocoded_at?: string | null;
+  suggested_neighborhood?: string | null;
+  neighborhood_mismatch?: boolean | null;
+  neighborhood_original?: string | null;
+  neighborhood_corrected_at?: string | null;
+}
+
 export interface DeliveryOrder {
   id: number;
   channel_id: number | null;
@@ -240,7 +260,7 @@ export interface DeliveryOrder {
   platform_status: string | null;
   order_type: string;
   delivery_mode: DeliveryMode | null;
-  delivery_address: Record<string, unknown> | null;
+  delivery_address: DeliveryAddress | null;
   delivery_distance_m: number | null;
   eta: string | null;
   customer_id: number | null;
@@ -278,6 +298,44 @@ export interface DeliveryOrderItem {
 
 export interface DeliveryOrderDetail extends DeliveryOrder {
   items: DeliveryOrderItem[];
+}
+
+// ---- Mapa de pedidos Delivery + relatório de distância ----
+export interface StoreSettings {
+  id: 1;
+  name: string | null;
+  street: string | null;
+  number: string | null;
+  complement: string | null;
+  neighborhood: string | null;
+  city: string | null;
+  state: string | null;
+  postal_code: string | null;
+  formatted_address: string | null;
+  lat: number | null;
+  lng: number | null;
+  geocoded_at: string | null;
+}
+
+export interface DeliveryMapOrder {
+  id: number;
+  display_id: string | null;
+  platform: DeliveryPlatform;
+  customer_name: string | null;
+  address: DeliveryAddress | null;
+  distance_m: number | null;
+  needs_geocode: boolean;
+}
+
+export interface DeliveryMapResponse {
+  store: StoreSettings;
+  orders: DeliveryMapOrder[];
+}
+
+export interface GeocodeBackfillResult {
+  geocoded: number;
+  reverse_geocoded: number;
+  remaining: number;
 }
 
 export interface DeliveryAlert {

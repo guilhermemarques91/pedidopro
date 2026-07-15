@@ -106,6 +106,36 @@ final class DeliveryController
         Http::json(['claimed' => $claimed]);
     }
 
+    /**
+     * PATCH /delivery/orders/:id/address — corrige o bairro do pedido depois de ver
+     * a localização real no mapa. Preserva o valor original (1ª correção) para auditoria.
+     */
+    public static function updateAddress(Request $req): void
+    {
+        $id = $req->intParam('id');
+        $order = self::row($id);
+        $neighborhood = $req->input()->requireString('neighborhood', 1, 120);
+
+        $addr = json_decode((string) ($order['delivery_address'] ?? 'null'), true);
+        if (!is_array($addr)) {
+            throw HttpError::badRequest('Pedido sem endereço cadastrado');
+        }
+        if (!isset($addr['neighborhood_original']) && ($addr['neighborhood'] ?? null) !== null) {
+            $addr['neighborhood_original'] = $addr['neighborhood'];
+        }
+        $addr['neighborhood'] = $neighborhood;
+        $addr['neighborhood_corrected_at'] = date('c');
+        if (isset($addr['suggested_neighborhood']) && is_string($addr['suggested_neighborhood'])
+            && mb_strtolower(trim($neighborhood)) === mb_strtolower(trim($addr['suggested_neighborhood']))) {
+            $addr['neighborhood_mismatch'] = false;
+        }
+
+        Db::execute('UPDATE delivery_orders SET delivery_address = ? WHERE id = ?', [
+            json_encode($addr, JSON_UNESCAPED_UNICODE), $id,
+        ]);
+        Http::json(self::detailed($id));
+    }
+
     /** GET /delivery/orders/:id/tracking — posição/ETA do entregador. */
     public static function tracking(Request $req): void
     {

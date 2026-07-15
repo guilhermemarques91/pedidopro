@@ -3,7 +3,7 @@ import type {
   Category, Supplier, Item, Product, Quotation, QuotationDetail, ComparisonRow,
   Order, OrderDetail, User, UserRole, PurchaseRequest, RequestDetail,
   DeliveryOrder, DeliveryOrderDetail, DeliveryStatus, DeliveryPlatform, Channel, DeliveryAlert, ReportSummary,
-  Interruption, OpeningShift,
+  Interruption, OpeningShift, StoreSettings, DeliveryMapResponse, GeocodeBackfillResult,
   MarmitexCompany, MarmitexCatalog, CatalogType, MarmitexOrder, MarmitexOrderDetail,
   MarmitexReport, MarmitexInvoice, MarmitexLabelData,
 } from '../types';
@@ -204,6 +204,20 @@ export interface ReportFilters { from?: string; to?: string; platform?: Delivery
 export const reportsApi = {
   summary: (f: ReportFilters = {}) =>
     api.get<ReportSummary>('/delivery/reports/summary', { params: f }).then((r) => r.data),
+};
+
+// ---- Mapa de pedidos Delivery + relatório de distância ----
+export interface MapFilters { from?: string; to?: string; platform?: DeliveryPlatform }
+export const storeSettingsApi = {
+  get: () => api.get<StoreSettings>('/delivery/settings/store').then((r) => r.data),
+  update: (body: Partial<StoreSettings>) => api.put<StoreSettings>('/delivery/settings/store', body).then((r) => r.data),
+};
+export const mapApi = {
+  list: (f: MapFilters = {}) => api.get<DeliveryMapResponse>('/delivery/map', { params: f }).then((r) => r.data),
+  backfill: (limit = 15) =>
+    api.post<GeocodeBackfillResult>('/delivery/map/backfill', { limit }, { timeout: 35000 }).then((r) => r.data),
+  correctNeighborhood: (orderId: number, neighborhood: string) =>
+    api.patch<DeliveryOrderDetail>(`/delivery/orders/${orderId}/address`, { neighborhood }).then((r) => r.data),
 };
 
 // ---- Loja (módulo Merchant iFood) ----

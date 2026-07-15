@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import {
   LayoutDashboard, Tags, Truck, Package, FileSpreadsheet,
   ClipboardList, ShoppingCart, LogOut, Inbox, ListChecks, Users, Menu, X,
-  Bike, Plug, Building2, BookOpen, FileText, Receipt, BarChart3, UtensilsCrossed, Store as StoreIcon,
+  Bike, Plug, Building2, BookOpen, FileText, Receipt, BarChart3, UtensilsCrossed, Store as StoreIcon, MapPin,
   ChevronDown, ChevronRight, PanelLeftClose, PanelLeft,
 } from 'lucide-react';
 import { useAuth } from '../store/auth.store';
@@ -30,7 +30,8 @@ const navGroups: NavGroup[] = [
   { title: 'Delivery', items: [
     { to: '/delivery', label: 'Painel de Pedidos', icon: Bike, roles: ['admin', 'buyer', 'approver'] },
     { to: '/relatorios', label: 'Relatórios', icon: BarChart3, roles: ['admin', 'buyer', 'approver'] },
-    { to: '/loja', label: 'Loja (iFood)', icon: StoreIcon, roles: ['admin', 'buyer'] },
+    { to: '/delivery/mapa', label: 'Mapa & Distâncias', icon: MapPin, roles: ['admin', 'buyer', 'approver'] },
+    { to: '/loja', label: 'Loja', icon: StoreIcon, roles: ['admin', 'buyer'] },
     { to: '/integrations', label: 'Integrações', icon: Plug, roles: ['admin'] },
   ] },
   { title: 'Compras', items: [

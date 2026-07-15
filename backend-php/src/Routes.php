@@ -20,6 +20,7 @@ use App\Modules\Webhooks\WebhooksController;
 use App\Modules\Delivery\DeliveryController;
 use App\Modules\Delivery\ReportsController;
 use App\Modules\Delivery\MerchantController;
+use App\Modules\Delivery\MapController;
 use App\Modules\Delivery\PrintController;
 use App\Modules\Marmitex\MarmitexCatalogController;
 use App\Modules\Marmitex\MarmitexCompaniesController;
@@ -163,11 +164,17 @@ final class Routes
         $r->post('/delivery/orders/:id/dispatch', [DeliveryController::class, 'dispatch'], self::DELIVERY);
         $r->post('/delivery/orders/:id/cancel', [DeliveryController::class, 'cancel'], self::DELIVERY);
         $r->post('/delivery/orders/:id/printed', [DeliveryController::class, 'markPrinted'], self::DELIVERY); // reivindica impressão da comanda (idempotente)
+        $r->patch('/delivery/orders/:id/address', [DeliveryController::class, 'updateAddress'], self::DELIVERY); // corrige bairro após ver no mapa
         $r->get('/delivery/print/cert', [PrintController::class, 'cert'], self::DELIVERY);   // certificado público QZ Tray
         $r->post('/delivery/print/sign', [PrintController::class, 'sign'], self::DELIVERY);   // assina requisição QZ Tray
         // Alertas — solicitações de cancelamento do cliente
         // Relatórios operacionais
         $r->get('/delivery/reports/summary', [ReportsController::class, 'summary'], self::DELIVERY);
+        // Mapa de pedidos + distância (endereço da loja, listagem geocodificada, backfill sob demanda)
+        $r->get('/delivery/settings/store', [MapController::class, 'getSettings'], self::DELIVERY);
+        $r->put('/delivery/settings/store', [MapController::class, 'updateSettings'], self::ADMIN);
+        $r->get('/delivery/map', [MapController::class, 'list'], self::DELIVERY);
+        $r->post('/delivery/map/backfill', [MapController::class, 'backfill'], self::DELIVERY);
         // Loja (módulo Merchant iFood): detalhes, disponibilidade, pausas, horários
         $r->get('/delivery/merchant/:channelId/details', [MerchantController::class, 'details'], self::DELIVERY);
         $r->get('/delivery/merchant/:channelId/status', [MerchantController::class, 'status'], self::DELIVERY);

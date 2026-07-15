@@ -70,8 +70,7 @@ export function receiptHtml(order: DeliveryOrderDetail, variant: ReceiptVariant 
   const mode = order.delivery_mode === 'own' ? 'ENTREGA PRÓPRIA'
     : order.delivery_mode === 'partner' ? 'ENTREGA PARCEIRA' : '';
   const addr = formatAddress(order.delivery_address);
-  const rawRef = order.delivery_address && typeof order.delivery_address === 'object'
-    ? (order.delivery_address as Record<string, unknown>).reference : null;
+  const rawRef = order.delivery_address?.reference ?? null;
   const ref = typeof rawRef === 'string' ? rawRef.trim() : '';
 
   const items = order.items.map((it) => {

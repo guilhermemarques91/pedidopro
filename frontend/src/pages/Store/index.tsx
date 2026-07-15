@@ -1,9 +1,9 @@
-import { FormEvent, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2, RefreshCw } from 'lucide-react';
-import { channelsApi, merchantApi } from '../../services/resources';
+import { channelsApi, merchantApi, storeSettingsApi } from '../../services/resources';
 import { apiError } from '../../services/api';
-import type { OpeningShift } from '../../types';
+import type { OpeningShift, StoreSettings } from '../../types';
 import { PageHeader } from '../../components/PageHeader';
 import { Button, Card, Field, Input, Select, Spinner, ErrorBox, EmptyState } from '../../components/ui';
 
@@ -24,36 +24,113 @@ export function Store() {
   const [channelId, setChannelId] = useState<number | null>(null);
   const cid = channelId ?? ifoodChannels[0]?.id ?? null;
 
-  if (!channels) return <Spinner />;
-  if (ifoodChannels.length === 0) {
-    return (
-      <div>
-        <PageHeader title="Loja (iFood)" subtitle="Gestão da loja: disponibilidade, pausas e horários" />
-        <EmptyState message="Nenhum canal iFood configurado. Cadastre em Integrações." />
+  return (
+    <div>
+      <PageHeader title="Loja" subtitle="Endereço do estabelecimento, disponibilidade, pausas e horário de funcionamento (iFood)" />
+
+      <div className="space-y-6">
+        <StoreAddress />
+
+        {!channels ? <Spinner /> : ifoodChannels.length === 0 ? (
+          <EmptyState message="Nenhum canal iFood configurado. Cadastre em Integrações para gerenciar disponibilidade/horários." />
+        ) : (
+          <>
+            {ifoodChannels.length > 1 && (
+              <div className="max-w-xs">
+                <Field label="Canal iFood">
+                  <Select value={String(cid)} onChange={(e) => setChannelId(Number(e.target.value))}>
+                    {ifoodChannels.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </Select>
+                </Field>
+              </div>
+            )}
+            {cid && (
+              <>
+                <StoreInfo cid={cid} />
+                <Interruptions cid={cid} />
+                <OpeningHours cid={cid} />
+              </>
+            )}
+          </>
+        )}
       </div>
-    );
+    </div>
+  );
+}
+
+/** Endereço do estabelecimento — base para o cálculo de distância no mapa de pedidos. */
+function StoreAddress() {
+  const qc = useQueryClient();
+  const { data, isLoading, error } = useQuery({ queryKey: ['store-settings'], queryFn: storeSettingsApi.get });
+  const [form, setForm] = useState<Partial<StoreSettings> | null>(null);
+  const [err, setErr] = useState('');
+
+  useEffect(() => {
+    if (data && !form) setForm(data);
+  }, [data, form]);
+
+  const save = useMutation({
+    mutationFn: (body: Partial<StoreSettings>) => storeSettingsApi.update(body),
+    onSuccess: (updated) => { setErr(''); setForm(updated); qc.setQueryData(['store-settings'], updated); },
+    onError: (e) => setErr(apiError(e)),
+  });
+
+  function set<K extends keyof StoreSettings>(key: K, value: StoreSettings[K]) {
+    setForm((f) => ({ ...(f ?? {}), [key]: value }));
+  }
+
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    setErr('');
+    if (!form) return;
+    save.mutate({
+      name: form.name ?? null,
+      street: form.street ?? null,
+      number: form.number ?? null,
+      complement: form.complement ?? null,
+      neighborhood: form.neighborhood ?? null,
+      city: form.city ?? null,
+      state: form.state ?? null,
+      postal_code: form.postal_code ?? null,
+    });
   }
 
   return (
-    <div>
-      <PageHeader title="Loja (iFood)" subtitle="Gestão da loja: disponibilidade, pausas e horário de funcionamento" />
-      {ifoodChannels.length > 1 && (
-        <div className="mb-4 max-w-xs">
-          <Field label="Canal">
-            <Select value={String(cid)} onChange={(e) => setChannelId(Number(e.target.value))}>
-              {ifoodChannels.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </Select>
-          </Field>
-        </div>
+    <Card>
+      <h3 className="mb-1 text-sm font-semibold text-slate-700">Endereço do estabelecimento</h3>
+      <p className="mb-3 text-xs text-slate-400">Usado para calcular a distância de cada pedido no Mapa &amp; Distâncias.</p>
+      {isLoading && <Spinner />}
+      {error && <ErrorBox message={apiError(error)} />}
+      {err && <div className="mb-3"><ErrorBox message={err} /></div>}
+      {form && (
+        <form onSubmit={submit} className="space-y-3">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+            <Field label="Nome"><Input value={form.name ?? ''} onChange={(e) => set('name', e.target.value)} /></Field>
+            <div className="md:col-span-2">
+              <Field label="Rua"><Input value={form.street ?? ''} onChange={(e) => set('street', e.target.value)} /></Field>
+            </div>
+            <Field label="Número"><Input value={form.number ?? ''} onChange={(e) => set('number', e.target.value)} /></Field>
+          </div>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+            <Field label="Complemento"><Input value={form.complement ?? ''} onChange={(e) => set('complement', e.target.value)} /></Field>
+            <Field label="Bairro"><Input value={form.neighborhood ?? ''} onChange={(e) => set('neighborhood', e.target.value)} /></Field>
+            <Field label="Cidade"><Input value={form.city ?? ''} onChange={(e) => set('city', e.target.value)} /></Field>
+            <Field label="UF"><Input value={form.state ?? ''} maxLength={2} onChange={(e) => set('state', e.target.value.toUpperCase())} /></Field>
+          </div>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+            <Field label="CEP"><Input value={form.postal_code ?? ''} onChange={(e) => set('postal_code', e.target.value)} /></Field>
+            <div className="flex items-end md:col-span-3">
+              <Button type="submit" disabled={save.isPending}>{save.isPending ? 'Salvando…' : 'Salvar endereço'}</Button>
+            </div>
+          </div>
+          <p className="text-xs text-slate-400">
+            {form.lat != null && form.lng != null
+              ? `Coordenadas: ${form.lat.toFixed(6)}, ${form.lng.toFixed(6)}${form.geocoded_at ? ` (geocodificado em ${new Date(form.geocoded_at).toLocaleString('pt-BR')})` : ''}`
+              : 'Sem coordenadas ainda — salve o endereço para geocodificar automaticamente (OpenStreetMap).'}
+          </p>
+        </form>
       )}
-      {cid && (
-        <div className="space-y-6">
-          <StoreInfo cid={cid} />
-          <Interruptions cid={cid} />
-          <OpeningHours cid={cid} />
-        </div>
-      )}
-    </div>
+    </Card>
   );
 }
 
