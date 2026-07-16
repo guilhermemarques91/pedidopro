@@ -20,6 +20,7 @@ use App\Modules\Webhooks\WebhooksController;
 use App\Modules\Delivery\DeliveryController;
 use App\Modules\Delivery\ReportsController;
 use App\Modules\Delivery\MerchantController;
+use App\Modules\Delivery\CatalogController;
 use App\Modules\Delivery\MapController;
 use App\Modules\Delivery\PrintController;
 use App\Modules\Marmitex\MarmitexCatalogController;
@@ -178,11 +179,24 @@ final class Routes
         // Loja (módulo Merchant iFood): detalhes, disponibilidade, pausas, horários
         $r->get('/delivery/merchant/:channelId/details', [MerchantController::class, 'details'], self::DELIVERY);
         $r->get('/delivery/merchant/:channelId/status', [MerchantController::class, 'status'], self::DELIVERY);
+        $r->post('/delivery/merchant/:channelId/status', [MerchantController::class, 'setStatus'], self::DELIVERY); // abre/fecha loja (99food)
         $r->get('/delivery/merchant/:channelId/interruptions', [MerchantController::class, 'listInterruptions'], self::DELIVERY);
         $r->post('/delivery/merchant/:channelId/interruptions', [MerchantController::class, 'createInterruption'], self::DELIVERY);
         $r->delete('/delivery/merchant/:channelId/interruptions/:id', [MerchantController::class, 'deleteInterruption'], self::DELIVERY);
         $r->get('/delivery/merchant/:channelId/opening-hours', [MerchantController::class, 'openingHours'], self::DELIVERY);
         $r->put('/delivery/merchant/:channelId/opening-hours', [MerchantController::class, 'setOpeningHours'], self::DELIVERY);
+        // Cardápio mestre local + publicação/importação por canal
+        $r->get('/delivery/menu', [CatalogController::class, 'tree'], self::DELIVERY);
+        $r->get('/delivery/menu/remote/:channelId', [CatalogController::class, 'remote'], self::DELIVERY);
+        $r->post('/delivery/menu/categories', [CatalogController::class, 'createCategory'], self::ADMIN);
+        $r->put('/delivery/menu/categories/:id', [CatalogController::class, 'updateCategory'], self::ADMIN);
+        $r->delete('/delivery/menu/categories/:id', [CatalogController::class, 'deleteCategory'], self::ADMIN);
+        $r->post('/delivery/menu/items', [CatalogController::class, 'createItem'], self::ADMIN);
+        $r->put('/delivery/menu/items/:id', [CatalogController::class, 'updateItem'], self::ADMIN);
+        $r->delete('/delivery/menu/items/:id', [CatalogController::class, 'deleteItem'], self::ADMIN);
+        $r->post('/delivery/menu/items/:id/availability', [CatalogController::class, 'itemAvailability'], self::DELIVERY);
+        $r->post('/delivery/menu/publish/:channelId', [CatalogController::class, 'publish'], self::ADMIN);
+        $r->post('/delivery/menu/import/:channelId', [CatalogController::class, 'import'], self::ADMIN);
         $r->get('/delivery/alerts', [DeliveryController::class, 'listAlerts'], self::DELIVERY);
         $r->post('/delivery/alerts/:id/accept', [DeliveryController::class, 'acceptAlert'], self::DELIVERY);
         $r->post('/delivery/alerts/:id/reject', [DeliveryController::class, 'rejectAlert'], self::DELIVERY);

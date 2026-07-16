@@ -6,6 +6,7 @@ import type {
   Interruption, OpeningShift, StoreSettings, DeliveryMapResponse, GeocodeBackfillResult,
   MarmitexCompany, MarmitexCatalog, CatalogType, MarmitexOrder, MarmitexOrderDetail,
   MarmitexReport, MarmitexInvoice, MarmitexLabelData,
+  MenuCategory, MenuItem, MenuItemInput,
 } from '../types';
 
 // ---- Categories ----
@@ -232,6 +233,29 @@ export const merchantApi = {
   openingHours: (channelId: number) => api.get<{ shifts?: OpeningShift[] }>(`/delivery/merchant/${channelId}/opening-hours`).then((r) => r.data),
   setOpeningHours: (channelId: number, shifts: OpeningShift[]) =>
     api.put(`/delivery/merchant/${channelId}/opening-hours`, { shifts }).then((r) => r.data),
+  // 99Food: abre/fecha a loja (setStatus). auto_switch: 1 abre auto, 2 fecha auto, 3 ambos.
+  setStoreStatus: (channelId: number, open: boolean, autoSwitch = 3) =>
+    api.post(`/delivery/merchant/${channelId}/status`, { open, auto_switch: autoSwitch }).then((r) => r.data),
+};
+
+// ---- Cardápio mestre local (publicado p/ iFood e 99Food) ----
+export const menuApi = {
+  tree: () => api.get<MenuCategory[]>('/delivery/menu').then((r) => r.data),
+  remote: (channelId: number) => api.get<Record<string, unknown>>(`/delivery/menu/remote/${channelId}`).then((r) => r.data),
+  createCategory: (body: { name: string; sort?: number; active?: boolean }) =>
+    api.post<MenuCategory>('/delivery/menu/categories', body).then((r) => r.data),
+  updateCategory: (id: number, body: Partial<{ name: string; sort: number; active: boolean }>) =>
+    api.put<MenuCategory>(`/delivery/menu/categories/${id}`, body).then((r) => r.data),
+  deleteCategory: (id: number) => api.delete(`/delivery/menu/categories/${id}`).then((r) => r.data),
+  createItem: (body: MenuItemInput) => api.post<MenuItem>('/delivery/menu/items', body).then((r) => r.data),
+  updateItem: (id: number, body: Partial<MenuItemInput>) => api.put<MenuItem>(`/delivery/menu/items/${id}`, body).then((r) => r.data),
+  deleteItem: (id: number) => api.delete(`/delivery/menu/items/${id}`).then((r) => r.data),
+  setItemAvailability: (id: number, active: boolean) =>
+    api.post<{ ok: boolean; active: boolean; errors: { channel: string; error: string }[] }>(`/delivery/menu/items/${id}/availability`, { active }).then((r) => r.data),
+  publish: (channelId: number) =>
+    api.post<Record<string, unknown>>(`/delivery/menu/publish/${channelId}`, undefined, { timeout: 120000 }).then((r) => r.data),
+  import: (channelId: number) =>
+    api.post<Record<string, unknown>>(`/delivery/menu/import/${channelId}`, undefined, { timeout: 120000 }).then((r) => r.data),
 };
 
 export const deliveryApi = {

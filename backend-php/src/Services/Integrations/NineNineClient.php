@@ -317,6 +317,141 @@ final class NineNineClient
         ]];
     }
 
+    // ---- Loja (Store Module) ----
+
+    /**
+     * Executa uma chamada autenticada por auth_token com retry único em token
+     * expirado (errno 10102) — mesmo padrão do command().
+     * @param callable(string):array $send recebe o token e devolve o resultado de call()
+     */
+    private static function withToken(array $channel, callable $send): array
+    {
+        $r = $send(self::token($channel));
+        if (!$r['ok'] && $r['errno'] === self::TOKEN_EXPIRED) {
+            $r = $send(self::token($channel, true));
+        }
+        return $r;
+    }
+
+    /** Lança HttpError 422 legível quando a resposta do DiDi não é ok. */
+    private static function assertOk(array $r, string $what): void
+    {
+        if (!$r['ok']) {
+            $msg = $r['errmsg'] !== '' ? $r['errmsg'] : 'sem resposta da API';
+            $rid = $r['requestId'] !== '' ? " [reqId {$r['requestId']}]" : '';
+            throw HttpError::unprocessable("Falha em {$what} no 99Food (errno {$r['errno']}: {$msg}){$rid}.");
+        }
+    }
+
+    /** GET /v1/shop/shop/detail — detalhes completos da loja (ShopModel). */
+    public static function shopDetail(array $channel): array
+    {
+        if (self::mock()) {
+            return ['name' => 'Loja Mock', 'biz_status' => 1, 'sub_biz_status' => 1];
+        }
+        $r = self::withToken($channel, static fn (string $t) => self::call('GET', '/v1/shop/shop/detail', ['auth_token' => $t]));
+        self::assertOk($r, 'consultar loja');
+        return is_array($r['data']) ? $r['data'] : [];
+    }
+
+    /**
+     * POST /v1/shop/shop/setStatus — abre/fecha a loja.
+     * $bizStatus: 1 online, 2 offline. $autoSwitch: 1 abre automático, 2 fecha
+     * automático, 3 abre e fecha automático (só vale com biz_status online).
+     */
+    public static function setShopStatus(array $channel, int $bizStatus, int $autoSwitch = 1): array
+    {
+        if (self::mock()) {
+            return ['biz_status' => $bizStatus === 1, 'auto_switch' => true];
+        }
+        $r = self::withToken($channel, static fn (string $t) => self::call('POST', '/v1/shop/shop/setStatus', [], [
+            'auth_token' => $t,
+            'biz_status' => $bizStatus,
+            'auto_switch' => $autoSwitch,
+        ]));
+        self::assertOk($r, 'alterar status da loja');
+        return is_array($r['data']) ? $r['data'] : [];
+    }
+
+    /**
+     * POST /v1/shop/shop/update — atualiza telefone, horários e tempo de preparo.
+     * A API exige os TRÊS campos juntos; o chamador deve reenviar os atuais
+     * (lidos de shopDetail) quando quiser mudar só um.
+     *  - $shopPhone:  [{callingCode:55, phone:..., type:0}]
+     *  - $bizDayTime: [{bizDay:[1..7], bizTime:[{begin:'00:00', end:'23:59'}]}]
+     *  - $promiseProduceTime: minutos de preparo médio
+     */
+    public static function updateShop(array $channel, array $shopPhone, array $bizDayTime, int $promiseProduceTime): void
+    {
+        if (self::mock()) {
+            return;
+        }
+        $r = self::withToken($channel, static fn (string $t) => self::call('POST', '/v1/shop/shop/update', [], [
+            'auth_token' => $t,
+            // A API espera essas estruturas como STRING JSON (ver swagger: examples são strings).
+            'shop_phone' => json_encode($shopPhone, JSON_UNESCAPED_UNICODE),
+            'biz_day_time' => json_encode($bizDayTime, JSON_UNESCAPED_UNICODE),
+            'promise_produce_time' => $promiseProduceTime,
+        ]));
+        self::assertOk($r, 'atualizar dados da loja');
+    }
+
+    // ---- Cardápio (Menu Module) ----
+
+    /** GET /v1/item/item/list — cardápio completo { menus, categories, items }. */
+    public static function menuList(array $channel): array
+    {
+        if (self::mock()) {
+            return ['menus' => [], 'categories' => [], 'items' => []];
+        }
+        $r = self::withToken($channel, static fn (string $t) => self::call('GET', '/v1/item/item/list', ['auth_token' => $t]));
+        self::assertOk($r, 'listar cardápio');
+        return is_array($r['data']) ? $r['data'] : ['menus' => [], 'categories' => [], 'items' => []];
+    }
+
+    /**
+     * POST /v1/item/item/upload — substitui o cardápio INTEIRO da loja.
+     * $menus: MenuStruct[]; $categories: CateStruct[]; $items: ItemStruct[]
+     * (preços em CENTAVOS). Timeout maior: payload grande.
+     */
+    public static function menuUpload(array $channel, array $menus, array $categories, array $items): mixed
+    {
+        if (self::mock()) {
+            return [];
+        }
+        $r = self::withToken($channel, static fn (string $t) => self::call('POST', '/v1/item/item/upload', [], [
+            'auth_token' => $t,
+            'menus' => $menus,
+            'categories' => $categories,
+            'items' => $items,
+        ]));
+        self::assertOk($r, 'publicar cardápio');
+        return $r['data'];
+    }
+
+    /** POST /v1/item/item/update — atualiza UM item (ItemStruct completo; auth_token na query). */
+    public static function updateItem(array $channel, array $itemStruct): void
+    {
+        if (self::mock()) {
+            return;
+        }
+        $r = self::withToken($channel, static fn (string $t) => self::call('POST', '/v1/item/item/update', ['auth_token' => $t], $itemStruct));
+        self::assertOk($r, 'atualizar item');
+    }
+
+    /** POST /v1/item/item/updateItemStatus — pausa/reativa um item (1 disponível, 2 indisponível). */
+    public static function updateItemStatus(array $channel, string $appItemId, int $status): void
+    {
+        if (self::mock()) {
+            return;
+        }
+        $r = self::withToken($channel, static fn (string $t) => self::call('POST', '/v1/item/item/updateItemStatus', ['auth_token' => $t], [
+            'app_item_id' => $appItemId,
+            'status' => $status,
+        ]));
+        self::assertOk($r, 'alterar disponibilidade do item');
+    }
+
     /**
      * Aceita/recusa um pedido de cancelamento do cliente.
      * POST /v1/order/apply/cancel { auth_token, order_id, apply_id, agree, reason }.

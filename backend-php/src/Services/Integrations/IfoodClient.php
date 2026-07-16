@@ -182,6 +182,120 @@ final class IfoodClient
         self::assertOk($r, 'salvar horários');
     }
 
+    // ---- Módulo Catalog v2 (cardápio: catálogos, categorias, itens, complementos) ----
+
+    private static function catalogBase(string $merchantId): string
+    {
+        return self::base() . '/catalog/v2.0/merchants/' . rawurlencode($merchantId);
+    }
+
+    /**
+     * GET /catalog/v2.0/merchants/{id}/catalogs — catálogos da loja.
+     * @return array<int,array<string,mixed>> [{catalogId, context:["DEFAULT"], status}]
+     */
+    public static function catalogs(array $channel, string $merchantId): array
+    {
+        if (self::mock()) {
+            return [['catalogId' => 'mock-catalog', 'context' => ['DEFAULT'], 'status' => 'AVAILABLE']];
+        }
+        $r = HttpClient::request('GET', self::catalogBase($merchantId) . '/catalogs', self::auth($channel), null, 15);
+        self::assertOk($r, 'listar catálogos');
+        return is_array($r['data']) ? $r['data'] : [];
+    }
+
+    /** GET .../catalogs/{catalogId}/categories?includeItems=true — árvore completa do cardápio. */
+    public static function categories(array $channel, string $merchantId, string $catalogId, bool $includeItems = true): array
+    {
+        if (self::mock()) {
+            return [];
+        }
+        $url = self::catalogBase($merchantId) . '/catalogs/' . rawurlencode($catalogId) . '/categories'
+            . ($includeItems ? '?includeItems=true' : '');
+        $r = HttpClient::request('GET', $url, self::auth($channel), null, 25);
+        self::assertOk($r, 'listar categorias');
+        return is_array($r['data']) ? $r['data'] : [];
+    }
+
+    /** POST .../catalogs/{catalogId}/categories — cria categoria {name,status,template,sequence}. */
+    public static function createCategory(array $channel, string $merchantId, string $catalogId, array $body): array
+    {
+        if (self::mock()) {
+            return ['id' => 'mock-cat-' . md5((string) json_encode($body))] + $body;
+        }
+        $r = HttpClient::request('POST', self::catalogBase($merchantId) . '/catalogs/' . rawurlencode($catalogId) . '/categories', self::auth($channel), $body, 20);
+        self::assertOk($r, 'criar categoria');
+        return is_array($r['data']) ? $r['data'] : [];
+    }
+
+    /**
+     * PUT .../items — cria/atualiza um item COMPLETO (item + products + optionGroups
+     * + options). Ids são UUIDs gerados pelo integrador: se já existirem, atualiza.
+     * Preços em REAIS (decimal), diferente do 99Food (centavos).
+     */
+    public static function upsertItem(array $channel, string $merchantId, array $payload): mixed
+    {
+        if (self::mock()) {
+            return null;
+        }
+        $r = HttpClient::request('PUT', self::catalogBase($merchantId) . '/items', self::auth($channel), $payload, 30);
+        self::assertOk($r, 'salvar item do cardápio');
+        return $r['data'];
+    }
+
+    /** PATCH .../items/price — altera preço de um item {itemId, price:{value,originalValue?}}. */
+    public static function patchItemPrice(array $channel, string $merchantId, array $body): void
+    {
+        if (self::mock()) {
+            return;
+        }
+        $r = HttpClient::request('PATCH', self::catalogBase($merchantId) . '/items/price', self::auth($channel), $body, 15);
+        self::assertOk($r, 'alterar preço do item');
+    }
+
+    /** PATCH .../items/status — pausa/reativa um item {itemId, status: AVAILABLE|UNAVAILABLE}. */
+    public static function patchItemStatus(array $channel, string $merchantId, array $body): void
+    {
+        if (self::mock()) {
+            return;
+        }
+        $r = HttpClient::request('PATCH', self::catalogBase($merchantId) . '/items/status', self::auth($channel), $body, 15);
+        self::assertOk($r, 'alterar disponibilidade do item');
+    }
+
+    /** PATCH .../options/price — altera preço de um complemento {optionId, price:{value}}. */
+    public static function patchOptionPrice(array $channel, string $merchantId, array $body): void
+    {
+        if (self::mock()) {
+            return;
+        }
+        $r = HttpClient::request('PATCH', self::catalogBase($merchantId) . '/options/price', self::auth($channel), $body, 15);
+        self::assertOk($r, 'alterar preço do complemento');
+    }
+
+    /** PATCH .../options/status — pausa/reativa um complemento {optionId, status}. */
+    public static function patchOptionStatus(array $channel, string $merchantId, array $body): void
+    {
+        if (self::mock()) {
+            return;
+        }
+        $r = HttpClient::request('PATCH', self::catalogBase($merchantId) . '/options/status', self::auth($channel), $body, 15);
+        self::assertOk($r, 'alterar disponibilidade do complemento');
+    }
+
+    /**
+     * POST .../image/upload — sobe imagem (data URI base64) e devolve o imagePath
+     * para usar no product. Formatos jpg/jpeg/png, máx 5MB.
+     */
+    public static function uploadImage(array $channel, string $merchantId, string $base64DataUri): array
+    {
+        if (self::mock()) {
+            return ['path' => 'mock/image.png'];
+        }
+        $r = HttpClient::request('POST', self::catalogBase($merchantId) . '/image/upload', self::auth($channel), ['image' => $base64DataUri], 30);
+        self::assertOk($r, 'enviar imagem');
+        return is_array($r['data']) ? $r['data'] : [];
+    }
+
     /**
      * GET /events/v1.0/events:polling — eventos sem ACK do merchant do canal.
      * @return array<int,array<string,mixed>>

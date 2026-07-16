@@ -23,6 +23,7 @@ import { OrderReceipt } from './pages/Delivery/OrderReceipt';
 import { Integrations } from './pages/Integrations';
 import { Reports } from './pages/Reports';
 import { Store } from './pages/Store';
+import { MenuPage } from './pages/Menu';
 import { CompanyOrder } from './pages/Marmitex/CompanyOrder';
 import { MarmitexCompanies } from './pages/Marmitex/Companies';
 import { MarmitexCatalogPage } from './pages/Marmitex/Catalog';
@@ -82,6 +83,7 @@ export default function App() {
         <Route path="delivery/mapa" element={<DeliveryMap />} />
         <Route path="delivery/:id" element={<DeliveryOrderDetailPage />} />
         <Route path="relatorios" element={<Reports />} />
+        <Route path="cardapio" element={<MenuPage />} />
         <Route path="loja" element={<Store />} />
         <Route path="integrations" element={<Integrations />} />
         <Route path="requests" element={<Requests />} />

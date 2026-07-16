@@ -382,6 +382,74 @@ export interface OpeningShift {
   duration: number;  // minutos
 }
 
+// ---- Cardápio mestre local (delivery) ----
+export interface MenuOption {
+  id: number;
+  group_id: number;
+  name: string;
+  description: string | null;
+  price: number | string;
+  sort: number;
+  active: number | boolean;
+}
+export interface MenuOptionGroup {
+  id: number;
+  item_id: number;
+  name: string;
+  min: number;
+  max: number;
+  sort: number;
+  active: number | boolean;
+  options: MenuOption[];
+}
+export interface MenuItemChannelLink {
+  channel_id: number;
+  platform: DeliveryPlatform;
+  channel_name: string;
+  synced_at: string | null;
+}
+export interface MenuItem {
+  id: number;
+  category_id: number;
+  name: string;
+  description: string | null;
+  price: number | string;
+  original_price: number | string | null;
+  image_url: string | null;
+  external_code: string | null;
+  erp_product_id: number | null;
+  sort: number;
+  active: number | boolean;
+  groups: MenuOptionGroup[];
+  channels?: MenuItemChannelLink[];
+}
+export interface MenuCategory {
+  id: number;
+  name: string;
+  sort: number;
+  active: number | boolean;
+  items: MenuItem[];
+}
+export interface MenuItemInput {
+  category_id?: number;
+  name?: string;
+  description?: string | null;
+  price?: number;
+  original_price?: number | null;
+  image_url?: string | null;
+  external_code?: string | null;
+  sort?: number;
+  active?: boolean;
+  groups?: {
+    id?: number;
+    name: string;
+    min: number;
+    max: number;
+    active?: boolean;
+    options: { id?: number; name: string; description?: string | null; price: number; active?: boolean }[];
+  }[];
+}
+
 // ---- Relatórios de delivery ----
 export interface ReportPlatformRow {
   platform: DeliveryPlatform;

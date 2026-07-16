@@ -31,6 +31,7 @@ const navGroups: NavGroup[] = [
     { to: '/delivery', label: 'Painel de Pedidos', icon: Bike, roles: ['admin', 'buyer', 'approver'] },
     { to: '/relatorios', label: 'Relatórios', icon: BarChart3, roles: ['admin', 'buyer', 'approver'] },
     { to: '/delivery/mapa', label: 'Mapa & Distâncias', icon: MapPin, roles: ['admin', 'buyer', 'approver'] },
+    { to: '/cardapio', label: 'Cardápio', icon: BookOpen, roles: ['admin', 'buyer'] },
     { to: '/loja', label: 'Loja', icon: StoreIcon, roles: ['admin', 'buyer'] },
     { to: '/integrations', label: 'Integrações', icon: Plug, roles: ['admin'] },
   ] },
