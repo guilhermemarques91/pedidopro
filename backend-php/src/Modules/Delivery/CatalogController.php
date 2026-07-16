@@ -85,7 +85,7 @@ final class CatalogController
     public static function createCategory(Request $req): void
     {
         $in = $req->input();
-        $id = Db::insertReturning(
+        $id = self::insertId(
             'INSERT INTO menu_categories (name, sort, active) VALUES (?, ?, ?)',
             [
                 $in->requireString('name', 1, 100),
@@ -167,7 +167,7 @@ final class CatalogController
         ];
 
         if ($id === null) {
-            $id = Db::insertReturning(
+            $id = self::insertId(
                 'INSERT INTO menu_items (category_id, name, description, price, original_price, image_url, external_code, sort, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
                 [
                     $categoryId,
@@ -233,7 +233,7 @@ final class CatalogController
             if ($gid !== null && Db::queryOne('SELECT id FROM menu_option_groups WHERE id = ? AND item_id = ?', [$gid, $itemId])) {
                 Db::execute('UPDATE menu_option_groups SET name = ?, min = ?, max = ?, sort = ?, active = ? WHERE id = ?', [$name, $min, $max, $sort, $active, $gid]);
             } else {
-                $gid = Db::insertReturning('INSERT INTO menu_option_groups (item_id, name, min, max, sort, active) VALUES (?, ?, ?, ?, ?, ?)', [$itemId, $name, $min, $max, $sort, $active], 'menu_option_groups');
+                $gid = self::insertId('INSERT INTO menu_option_groups (item_id, name, min, max, sort, active) VALUES (?, ?, ?, ?, ?, ?)', [$itemId, $name, $min, $max, $sort, $active], 'menu_option_groups');
             }
             $keptGroups[] = $gid;
             $sort++;
@@ -255,7 +255,7 @@ final class CatalogController
                 if ($oid !== null && Db::queryOne('SELECT id FROM menu_options WHERE id = ? AND group_id = ?', [$oid, $gid])) {
                     Db::execute('UPDATE menu_options SET name = ?, description = ?, price = ?, sort = ?, active = ? WHERE id = ?', [$oName, $desc, $price, $oSort, $oActive, $oid]);
                 } else {
-                    $oid = Db::insertReturning('INSERT INTO menu_options (group_id, name, description, price, sort, active) VALUES (?, ?, ?, ?, ?, ?)', [$gid, $oName, $desc, $price, $oSort, $oActive], 'menu_options');
+                    $oid = self::insertId('INSERT INTO menu_options (group_id, name, description, price, sort, active) VALUES (?, ?, ?, ?, ?, ?)', [$gid, $oName, $desc, $price, $oSort, $oActive], 'menu_options');
                 }
                 $keptOptions[] = $oid;
                 $oSort++;
@@ -326,6 +326,12 @@ final class CatalogController
     }
 
     // ---- helpers ----
+
+    /** INSERT e devolve o id gerado (Db::insertReturning retorna a linha inteira). */
+    private static function insertId(string $sql, array $params, string $table): int
+    {
+        return (int) Db::insertReturning($sql, $params, $table)['id'];
+    }
 
     private static function itemDetail(int $id): array
     {

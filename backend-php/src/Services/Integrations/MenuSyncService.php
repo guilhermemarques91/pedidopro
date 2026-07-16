@@ -386,7 +386,7 @@ final class MenuSyncService
         $nCats = $nItems = 0;
         $sort = 0;
         foreach ((array) ($menu['categories'] ?? []) as $cat) {
-            $catId = Db::insertReturning(
+            $catId = self::insertId(
                 'INSERT INTO menu_categories (name, sort) VALUES (?, ?)',
                 [mb_substr((string) ($cat['category_name'] ?? 'Categoria'), 0, 100), $sort++],
                 'menu_categories'
@@ -399,7 +399,7 @@ final class MenuSyncService
                 if (!$item) {
                     continue;
                 }
-                $itemId = Db::insertReturning(
+                $itemId = self::insertId(
                     'INSERT INTO menu_items (category_id, name, description, price, image_url, external_code, sort) VALUES (?, ?, ?, ?, ?, ?, ?)',
                     [
                         $catId,
@@ -417,7 +417,7 @@ final class MenuSyncService
                 $gSort = 0;
                 foreach ((array) ($item['content_with_sub_item'] ?? []) as $cws) {
                     $content = (array) ($cws['content'] ?? []);
-                    $groupId = Db::insertReturning(
+                    $groupId = self::insertId(
                         'INSERT INTO menu_option_groups (item_id, name, min, max, sort) VALUES (?, ?, ?, ?, ?)',
                         [
                             $itemId,
@@ -431,7 +431,7 @@ final class MenuSyncService
                     self::saveLink((int) $channel['id'], 'group', $groupId, (string) ($content['app_content_id'] ?? ('g' . $groupId)));
                     $oSort = 0;
                     foreach ((array) ($cws['sub_item_list'] ?? []) as $sub) {
-                        $optId = Db::insertReturning(
+                        $optId = self::insertId(
                             'INSERT INTO menu_options (group_id, name, price, sort) VALUES (?, ?, ?, ?)',
                             [
                                 $groupId,
@@ -459,7 +459,7 @@ final class MenuSyncService
         $cats = IfoodClient::categories($channel, $merchantId, $catalogId, true);
         $nCats = $nItems = 0;
         foreach ($cats as $cat) {
-            $catId = Db::insertReturning(
+            $catId = self::insertId(
                 'INSERT INTO menu_categories (name, sort, active) VALUES (?, ?, ?)',
                 [
                     mb_substr((string) ($cat['name'] ?? 'Categoria'), 0, 100),
@@ -472,7 +472,7 @@ final class MenuSyncService
             $nCats++;
             foreach ((array) ($cat['items'] ?? []) as $item) {
                 $price = (array) ($item['price'] ?? []);
-                $itemId = Db::insertReturning(
+                $itemId = self::insertId(
                     'INSERT INTO menu_items (category_id, name, description, price, original_price, image_url, external_code, sort, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
                     [
                         $catId,
@@ -490,7 +490,7 @@ final class MenuSyncService
                 self::saveLink((int) $channel['id'], 'item', $itemId, (string) ($item['id'] ?? ''), ['productId' => $item['productId'] ?? null]);
                 $nItems++;
                 foreach ((array) ($item['optionGroups'] ?? []) as $g) {
-                    $groupId = Db::insertReturning(
+                    $groupId = self::insertId(
                         'INSERT INTO menu_option_groups (item_id, name, min, max, sort, active) VALUES (?, ?, ?, ?, ?, ?)',
                         [
                             $itemId,
@@ -505,7 +505,7 @@ final class MenuSyncService
                     self::saveLink((int) $channel['id'], 'group', $groupId, (string) ($g['id'] ?? ''));
                     foreach ((array) ($g['options'] ?? []) as $o) {
                         $oPrice = (array) ($o['price'] ?? []);
-                        $optId = Db::insertReturning(
+                        $optId = self::insertId(
                             'INSERT INTO menu_options (group_id, name, description, price, sort, active) VALUES (?, ?, ?, ?, ?, ?)',
                             [
                                 $groupId,
@@ -548,6 +548,12 @@ final class MenuSyncService
              ON DUPLICATE KEY UPDATE external_id = VALUES(external_id), extra = VALUES(extra), synced_at = NOW()',
             [$channelId, $type, $localId, $externalId, $extra !== null ? json_encode($extra, JSON_UNESCAPED_UNICODE) : null]
         );
+    }
+
+    /** INSERT e devolve o id gerado (Db::insertReturning retorna a linha inteira). */
+    private static function insertId(string $sql, array $params, string $table): int
+    {
+        return (int) Db::insertReturning($sql, $params, $table)['id'];
     }
 
     private static function log(array $channel, string $action, string $status, ?string $detail): void
