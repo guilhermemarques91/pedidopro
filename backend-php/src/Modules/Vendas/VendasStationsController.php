@@ -31,7 +31,7 @@ final class VendasStationsController
                FROM sales_stations s
                LEFT JOIN sales o ON o.station_id = s.id AND o.status NOT IN ('completed', 'cancelled')
               WHERE {$clause}
-              ORDER BY s.kind, s.number",
+              ORDER BY s.kind, CAST(s.number AS UNSIGNED), s.number",
             $params
         );
         Http::json(array_map([self::class, 'mapStation'], $rows));
@@ -72,6 +72,47 @@ final class VendasStationsController
             'sales_stations'
         );
         Http::json($row, 201);
+    }
+
+    /**
+     * POST /vendas/stations/batch — cria uma faixa numérica de uma vez (ex.: mesas 1 a 30).
+     * Números que já existem (ativos ou não) são pulados; reativa os inativos.
+     */
+    public static function createBatch(Request $req): void
+    {
+        $in = $req->input();
+        $kind = $in->enum('kind', ['mesa', 'comanda'], true);
+        $from = (int) $in->integer('from', true);
+        $to = (int) $in->integer('to', true);
+        if ($from < 1 || $to < $from) {
+            throw HttpError::badRequest('Faixa inválida: início deve ser >= 1 e fim >= início');
+        }
+        if ($to - $from + 1 > 200) {
+            throw HttpError::badRequest('No máximo 200 por lote');
+        }
+        $orgId = $req->orgId();
+        $created = 0;
+        $reactivated = 0;
+        $skipped = 0;
+        for ($n = $from; $n <= $to; $n++) {
+            $number = (string) $n;
+            $existing = Db::queryOne(
+                'SELECT id, active FROM sales_stations WHERE org_id = ? AND kind = ? AND number = ?',
+                [$orgId, $kind, $number]
+            );
+            if ($existing) {
+                if (!(int) $existing['active']) {
+                    Db::execute('UPDATE sales_stations SET active = 1 WHERE id = ?', [$existing['id']]);
+                    $reactivated++;
+                } else {
+                    $skipped++;
+                }
+                continue;
+            }
+            Db::execute('INSERT INTO sales_stations (org_id, kind, number) VALUES (?, ?, ?)', [$orgId, $kind, $number]);
+            $created++;
+        }
+        Http::json(['created' => $created, 'reactivated' => $reactivated, 'skipped' => $skipped], 201);
     }
 
     public static function update(Request $req): void

@@ -7,6 +7,7 @@ import type {
   MarmitexCompany, MarmitexCatalog, CatalogType, MarmitexOrder, MarmitexOrderDetail, ProductionSummary,
   MarmitexReport, MarmitexInvoice, MarmitexLabelData,
   VendasStation, VendasSale, VendasBoardCard, VendasCreateBody, BoardOrigin, PaymentMethod,
+  PaymentLine, VendasPrep, VariationGroupInput,
 } from '../types';
 
 // ---- Categories ----
@@ -45,7 +46,7 @@ export interface ItemFilters { supplier_id?: number; type_id?: number; category_
 
 // ---- Products (produtos canônicos) ----
 export interface ProductItem { id: number; name: string; unit: string; base_price: string | null; supplier_name: string }
-export interface ProductDetail extends Product { items: ProductItem[]; recipe: RecipeLine[] }
+export interface ProductDetail extends Product { items: ProductItem[]; recipe: RecipeLine[]; variation_groups: VariationGroupInput[] }
 export interface UnmappedItem { id: number; name: string; unit: string; supplier_name: string }
 export interface SuggestedGroup { suggested_name: string; item_ids: number[]; items: { id: number; name: string; supplier_name: string }[] }
 
@@ -85,6 +86,8 @@ export interface ProductInput {
   tech_notes?: string | null;
   // Ficha técnica (receita)
   recipe?: RecipeLineInput[];
+  // Variações de ficha técnica (grupos de escolha do PDV)
+  variation_groups?: VariationGroupInput[];
 }
 export interface ProductFilters {
   q?: string; tipo?: string; category_id?: number; type_id?: number; sub_classe_id?: number; supplier_id?: number;
@@ -470,11 +473,15 @@ export const vendasApi = {
   board: (origin?: BoardOrigin | '') =>
     api.get<{ cards: VendasBoardCard[] }>('/vendas/board', { params: origin ? { origin } : {} }).then((r) => r.data.cards),
   get: (id: number) => api.get<VendasSale>(`/vendas/${id}`).then((r) => r.data),
+  prep: (productId: number) => api.get<VendasPrep>(`/vendas/products/${productId}/prep`).then((r) => r.data),
   create: (body: VendasCreateBody) => api.post<VendasSale>('/vendas', body).then((r) => r.data),
   ready: (id: number) => api.post<VendasSale>(`/vendas/${id}/ready`).then((r) => r.data),
   close: (id: number) => api.post<VendasSale>(`/vendas/${id}/close`).then((r) => r.data),
-  pay: (id: number, payment_method?: PaymentMethod) =>
-    api.post<VendasSale>(`/vendas/${id}/pay`, payment_method ? { payment_method } : {}).then((r) => r.data),
+  reopen: (id: number) => api.post<VendasSale>(`/vendas/${id}/reopen`).then((r) => r.data),
+  pay: (id: number, payments?: PaymentLine[] | PaymentMethod) =>
+    api.post<VendasSale>(`/vendas/${id}/pay`,
+      Array.isArray(payments) ? { payments } : payments ? { payment_method: payments } : {},
+    ).then((r) => r.data),
   cancel: (id: number) => api.post<VendasSale>(`/vendas/${id}/cancel`).then((r) => r.data),
   updateItem: (saleId: number, itemId: number, quantity: number) =>
     api.put<VendasSale>(`/vendas/${saleId}/items/${itemId}`, { quantity }).then((r) => r.data),
@@ -486,6 +493,8 @@ export const vendasApi = {
       api.get<VendasStation[]>('/vendas/stations', { params: kind ? { kind } : {} }).then((r) => r.data),
     create: (body: { kind: 'mesa' | 'comanda'; number: string; label?: string | null }) =>
       api.post<VendasStation>('/vendas/stations', body).then((r) => r.data),
+    createBatch: (body: { kind: 'mesa' | 'comanda'; from: number; to: number }) =>
+      api.post<{ created: number; reactivated: number; skipped: number }>('/vendas/stations/batch', body).then((r) => r.data),
     update: (id: number, body: Partial<{ number: string; label: string | null; active: boolean }>) =>
       api.put<VendasStation>(`/vendas/stations/${id}`, body).then((r) => r.data),
     remove: (id: number) => api.delete(`/vendas/stations/${id}`).then((r) => r.data),

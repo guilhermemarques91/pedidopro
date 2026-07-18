@@ -257,8 +257,8 @@ export function Badge({ status }: { status: string }) {
 
 export function Modal({
   title, onClose, children, size = 'lg',
-}: { title: string; onClose: () => void; children: ReactNode; size?: 'lg' | 'xl' }) {
-  const maxW = size === 'xl' ? 'max-w-2xl' : 'max-w-lg';
+}: { title: string; onClose: () => void; children: ReactNode; size?: 'lg' | 'xl' | 'full' }) {
+  const maxW = size === 'full' ? 'max-w-5xl' : size === 'xl' ? 'max-w-2xl' : 'max-w-lg';
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div

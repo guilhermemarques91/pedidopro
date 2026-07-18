@@ -620,6 +620,20 @@ export interface VendasStation {
   open_sale?: VendasStationOpenSale | null;
 }
 
+export interface SalePayment { id: number; method: PaymentMethod; amount: string | number }
+export interface PaymentLine { method: PaymentMethod; amount: number }
+
+export interface SaleItemRemoved { component_id: number | null; name: string }
+export interface SaleItemVariation {
+  group_id: number;
+  group_name: string;
+  option_id: number;
+  option_name: string;
+  component_id: number | null;
+  quantity: number;
+  price_delta: number;
+}
+
 export interface VendasSaleItem {
   id: number;
   sale_id: number;
@@ -630,6 +644,37 @@ export interface VendasSaleItem {
   subtotal: string;
   round_no: number;
   sent_at: string;
+  notes: string | null;
+  removed: SaleItemRemoved[];
+  variation: SaleItemVariation[];
+}
+
+// Tela de observações de preparo do PDV (GET /vendas/products/:id/prep)
+export interface VendasPrepRecipeLine { component_id: number | null; name: string; quantity: string; unit: string | null }
+export interface VendasPrepOption { id: number; name: string; price_delta: string | number }
+export interface VendasPrepGroup { id: number; name: string; required: boolean; options: VendasPrepOption[] }
+export interface VendasPrep {
+  product_id: number;
+  name: string;
+  sale_price: number;
+  recipe: VendasPrepRecipeLine[];
+  groups: VendasPrepGroup[];
+}
+
+// Variações de ficha técnica (cadastro do produto)
+export interface VariationOptionInput {
+  id?: number;
+  name: string;
+  component_id: number | null;
+  component_product_name?: string | null;
+  quantity: string | number;
+  price_delta: string | number;
+}
+export interface VariationGroupInput {
+  id?: number;
+  name: string;
+  required: boolean;
+  options: VariationOptionInput[];
 }
 
 export interface VendasSale {
@@ -639,7 +684,7 @@ export interface VendasSale {
   station_id: number | null;
   daily_number: number | null;
   status: VendasStatus;
-  payment_method: PaymentMethod | null;
+  payment_method: PaymentMethod | 'multi' | null;
   payment_status: 'pending' | 'paid';
   total_amount: string;
   notes: string | null;
@@ -656,6 +701,7 @@ export interface VendasSale {
   station_number: string | null;
   station_label: string | null;
   items: VendasSaleItem[];
+  payments: SalePayment[];
 }
 
 /** Card unificado do board: uma sales (source 'vendas') ou um delivery_orders (source 'delivery'). */
@@ -666,7 +712,7 @@ export interface VendasBoardCard {
   column: BoardColumn | null; // null = cancelado (mostrado à parte)
   status: string;
   payment_status: 'pending' | 'paid';
-  payment_method: PaymentMethod | null;
+  payment_method: PaymentMethod | 'multi' | null;
   daily_number: number | null;
   station: { id: number; kind: 'mesa' | 'comanda'; number: string; label: string | null } | null;
   total_amount: number;
@@ -674,14 +720,22 @@ export interface VendasBoardCard {
   created_at: string;
   ready_at: string | null;
   display_id?: string | null;   // só delivery
-  customer_name?: string | null; // só delivery
+  customer_name?: string | null;
+  party_size?: number | null;   // só vendas
 }
 
-export interface VendasCartItem { product_id: number; quantity: number }
+export interface VendasCartItem {
+  product_id: number;
+  quantity: number;
+  notes?: string;
+  removed_component_ids?: number[];
+  variation_option_ids?: number[];
+}
 export interface VendasCreateBody {
   origin: VendasOrigin;
   station_id?: number;
   payment_method?: PaymentMethod;
+  payments?: PaymentLine[];   // pagamento dividido (balcão)
   customer_name?: string;
   party_size?: number;
   items: VendasCartItem[];

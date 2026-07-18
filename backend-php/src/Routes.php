@@ -297,15 +297,19 @@ final class Routes
         // Mesas/comandas: cadastro fixo — leitura para quem opera, escrita só admin.
         $r->get('/vendas/stations', [VendasStationsController::class, 'list'], self::VENDAS);
         $r->post('/vendas/stations', [VendasStationsController::class, 'create'], self::VENDAS_ADMIN);
+        $r->post('/vendas/stations/batch', [VendasStationsController::class, 'createBatch'], self::VENDAS_ADMIN);
         $r->put('/vendas/stations/:id', [VendasStationsController::class, 'update'], self::VENDAS_ADMIN);
         $r->delete('/vendas/stations/:id', [VendasStationsController::class, 'remove'], self::VENDAS_ADMIN);
 
         // Painel (Kanban) + lançamento — quem opera o balcão/mesas.
         $r->get('/vendas/board', [VendasController::class, 'board'], self::VENDAS);
+        // Tela de observações de preparo: ficha técnica + variações de um produto.
+        $r->get('/vendas/products/:id/prep', [VendasController::class, 'prep'], self::VENDAS);
         $r->get('/vendas/:id', [VendasController::class, 'getById'], self::VENDAS);
         $r->post('/vendas', [VendasController::class, 'create'], self::VENDAS);
         $r->post('/vendas/:id/ready', [VendasController::class, 'ready'], self::VENDAS);
         $r->post('/vendas/:id/close', [VendasController::class, 'close'], self::VENDAS);
+        $r->post('/vendas/:id/reopen', [VendasController::class, 'reopen'], self::VENDAS);
         $r->post('/vendas/:id/pay', [VendasController::class, 'pay'], self::VENDAS);
         // Cancelar (com estorno de estoque) — só admin.
         $r->post('/vendas/:id/cancel', [VendasController::class, 'cancel'], self::VENDAS_ADMIN);

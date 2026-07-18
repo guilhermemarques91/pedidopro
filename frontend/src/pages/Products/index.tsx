@@ -464,6 +464,9 @@ const CFOP_SAIDA_FORA: [string, string][] = [
 // component_id → produto insumo; item_id → item de fornecedor ainda sem produto
 // (no save vira um produto matéria-prima); free/component_name → insumo avulso (texto).
 type RecipeRow = { component_id: number | ''; item_id?: number; component_name: string; free: boolean; quantity: string; unit: string };
+// Variações de ficha técnica (grupos de escolha do PDV)
+type VarOptRow = { name: string; component_id: number | ''; quantity: string; price_delta: string };
+type VarGroupRow = { name: string; required: boolean; options: VarOptRow[] };
 
 const ORIGENS = [
   ['0', '0 - Nacional'],
@@ -508,6 +511,8 @@ function ProductForm({ product, defaultTipo, types, subclasses, printers, catego
   const [techNotes, setTechNotes] = useState(product?.tech_notes ?? '');
   // Ficha técnica (receita)
   const [recipe, setRecipe] = useState<RecipeRow[]>([]);
+  // Variações de ficha técnica (grupos de escolha no PDV, ex.: "Proteína" do Executivo)
+  const [varGroups, setVarGroups] = useState<VarGroupRow[]>([]);
   // Tributação (situação tributária do item)
   const [origem, setOrigem] = useState(product?.origem ?? '');
   const [ncm, setNcm] = useState(product?.ncm ?? '');
@@ -555,6 +560,18 @@ function ProductForm({ product, defaultTipo, types, subclasses, printers, catego
         free: r.component_id == null,
         quantity: r.quantity != null ? String(r.quantity) : '',
         unit: r.unit ?? '',
+      })));
+    }
+    if (detail.data?.variation_groups) {
+      setVarGroups(detail.data.variation_groups.map((g) => ({
+        name: g.name,
+        required: g.required,
+        options: g.options.map((o) => ({
+          name: o.name,
+          component_id: o.component_id ?? '',
+          quantity: o.quantity != null ? String(o.quantity) : '1',
+          price_delta: o.price_delta != null && Number(o.price_delta) !== 0 ? String(o.price_delta) : '',
+        })),
       })));
     }
   }, [detail.data]);
@@ -617,6 +634,21 @@ function ProductForm({ product, defaultTipo, types, subclasses, printers, catego
         gtin: gtin.trim() || null,
         regime_tributario: regime || null,
         cfop_entrada: cfopEntrada || null,
+        // Variações de ficha técnica (só faz sentido com receita).
+        variation_groups: !usesRecipe ? [] : varGroups
+          .filter((g) => g.name.trim() !== '' && g.options.some((o) => o.name.trim() !== ''))
+          .map((g) => ({
+            name: g.name.trim(),
+            required: g.required,
+            options: g.options
+              .filter((o) => o.name.trim() !== '')
+              .map((o) => ({
+                name: o.name.trim(),
+                component_id: o.component_id === '' ? null : Number(o.component_id),
+                quantity: Number(String(o.quantity).replace(',', '.')) || 1,
+                price_delta: Number(String(o.price_delta).replace(',', '.')) || 0,
+              })),
+          })),
         // Mercadoria não tem ficha técnica: envia lista vazia (limpa receita anterior).
         recipe: !usesRecipe ? [] : rows
           .filter((r) => r.component_id !== '' || r.component_name.trim() !== '')
@@ -776,6 +808,98 @@ function ProductForm({ product, defaultTipo, types, subclasses, printers, catego
                   {recipeCost > 0 && (
                     <p className="pt-1 text-right text-sm text-slate-600">Custo total da ficha técnica <span className="text-xs text-slate-400">(custo médio de compra)</span>: <strong className="text-slate-800">{brl(recipeCost)}</strong></p>
                   )}
+                </div>
+              )}
+            </div>
+
+            {/* Variações de ficha técnica: grupos de escolha que o PDV mostra na tela de
+                observações (ex.: "Proteína" do Executivo — a base é a mesma, muda a proteína). */}
+            <div>
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-sm font-medium text-slate-600">
+                  Variações <span className="text-xs font-normal text-slate-400">(escolhas no PDV — ex.: proteína do executivo)</span>
+                </span>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => setVarGroups((gs) => [...gs, { name: '', required: true, options: [{ name: '', component_id: '', quantity: '1', price_delta: '' }] }])}
+                >
+                  <Plus size={15} /> Grupo
+                </Button>
+              </div>
+              {varGroups.length === 0 ? (
+                <p className="rounded-lg border border-dashed border-slate-200 px-3 py-3 text-center text-sm text-slate-400">
+                  Sem variações. Crie um grupo (ex.: “Proteína”) com as opções que o PDV deve oferecer.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {varGroups.map((g, gi) => (
+                    <div key={gi} className="rounded-lg border border-slate-200 p-3">
+                      <div className="mb-2 flex items-center gap-2">
+                        <Input
+                          value={g.name}
+                          onChange={(e) => setVarGroups((gs) => gs.map((x, i) => i === gi ? { ...x, name: e.target.value } : x))}
+                          placeholder="Nome do grupo (ex.: Proteína)"
+                        />
+                        <label className="flex shrink-0 items-center gap-1.5 text-xs text-slate-600">
+                          <input
+                            type="checkbox"
+                            checked={g.required}
+                            onChange={(e) => setVarGroups((gs) => gs.map((x, i) => i === gi ? { ...x, required: e.target.checked } : x))}
+                            className="h-4 w-4 accent-emerald-600"
+                          />
+                          Obrigatório
+                        </label>
+                        <button
+                          type="button"
+                          title="Remover grupo"
+                          onClick={() => setVarGroups((gs) => gs.filter((_, i) => i !== gi))}
+                          className="shrink-0 text-slate-300 hover:text-red-600"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="hidden grid-cols-[1fr_1fr_4rem_5rem_auto] gap-2 text-[11px] font-medium uppercase text-slate-400 sm:grid">
+                          <span>Opção</span><span>Baixa no estoque (produto)</span><span>Qtd</span><span>± Preço</span><span />
+                        </div>
+                        {g.options.map((o, oi) => {
+                          const setOpt = (patch: Partial<VarOptRow>) => setVarGroups((gs) => gs.map((x, i) => i === gi
+                            ? { ...x, options: x.options.map((y, j) => j === oi ? { ...y, ...patch } : y) }
+                            : x));
+                          return (
+                            <div key={oi} className="grid grid-cols-2 gap-2 sm:grid-cols-[1fr_1fr_4rem_5rem_auto]">
+                              <Input value={o.name} onChange={(e) => setOpt({ name: e.target.value })} placeholder="Ex.: Frango grelhado" />
+                              <Select
+                                value={o.component_id}
+                                onChange={(e) => setOpt({ component_id: e.target.value ? Number(e.target.value) : '' })}
+                              >
+                                <option value="">— não baixa estoque —</option>
+                                {componentOptions.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                              </Select>
+                              <Input value={o.quantity} onChange={(e) => setOpt({ quantity: e.target.value })} placeholder="1" inputMode="decimal" className="text-right" />
+                              <Input value={o.price_delta} onChange={(e) => setOpt({ price_delta: e.target.value })} placeholder="+0,00" inputMode="decimal" className="text-right" />
+                              <button
+                                type="button"
+                                title="Remover opção"
+                                onClick={() => setVarGroups((gs) => gs.map((x, i) => i === gi ? { ...x, options: x.options.filter((_, j) => j !== oi) } : x))}
+                                className="justify-self-end text-slate-300 hover:text-red-600"
+                              >
+                                <Trash2 size={15} />
+                              </button>
+                            </div>
+                          );
+                        })}
+                        <button
+                          type="button"
+                          onClick={() => setVarGroups((gs) => gs.map((x, i) => i === gi ? { ...x, options: [...x.options, { name: '', component_id: '', quantity: '1', price_delta: '' }] } : x))}
+                          className="text-xs font-medium text-emerald-700 underline"
+                        >
+                          + Opção
+                        </button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>

@@ -127,6 +127,25 @@ final class ProductsController
               ORDER BY r.sort_order, r.id",
             [$product['id']]
         );
+        // Variações de ficha técnica (grupos de escolha do PDV, ex.: "Proteína" do Executivo).
+        $groups = Db::query(
+            'SELECT id, name, required, sort_order FROM product_variation_groups WHERE product_id = ? ORDER BY sort_order, id',
+            [$product['id']]
+        );
+        foreach ($groups as &$g) {
+            $g['required'] = (bool) $g['required'];
+            $g['options'] = Db::query(
+                "SELECT o.id, o.name, o.component_id, o.quantity, o.price_delta, o.sort_order,
+                        c.name AS component_product_name
+                   FROM product_variation_options o
+                   LEFT JOIN products c ON c.id = o.component_id
+                  WHERE o.group_id = ?
+                  ORDER BY o.sort_order, o.id",
+                [$g['id']]
+            );
+        }
+        unset($g);
+        $product['variation_groups'] = $groups;
         Http::json($product);
     }
 
@@ -158,6 +177,9 @@ final class ProductsController
         if ($in->has('recipe')) {
             self::saveRecipe($id, $req->orgId(), $in->array('recipe'));
         }
+        if ($in->has('variation_groups')) {
+            self::saveVariations($id, $req->orgId(), $in->array('variation_groups'));
+        }
         Http::json(self::find($id), 201);
     }
 
@@ -187,7 +209,11 @@ final class ProductsController
         if ($in->has('recipe')) {
             self::saveRecipe($id, $req->orgId(), $in->array('recipe'));
         }
-        if (!$fields && !$in->has('recipe')) {
+        // Variações: mesmo padrão replace-all da receita.
+        if ($in->has('variation_groups')) {
+            self::saveVariations($id, $req->orgId(), $in->array('variation_groups'));
+        }
+        if (!$fields && !$in->has('recipe') && !$in->has('variation_groups')) {
             throw HttpError::badRequest('Informe ao menos um campo');
         }
         Http::json(self::find($id));
@@ -226,6 +252,50 @@ final class ProductsController
                  VALUES (?, ?, ?, ?, ?, ?, ?)',
                 [$orgId, $productId, $componentId, $componentName, $quantity, $unit, $sort++]
             );
+        }
+    }
+
+    /**
+     * Regrava os grupos de variação de um produto (apaga os atuais e insere a lista
+     * recebida — ON DELETE CASCADE limpa as opções junto).
+     */
+    private static function saveVariations(int $productId, int $orgId, array $groups): void
+    {
+        Db::execute('DELETE FROM product_variation_groups WHERE product_id = ?', [$productId]);
+        $gSort = 0;
+        foreach ($groups as $g) {
+            if (!is_array($g)) {
+                continue;
+            }
+            $name = trim((string) ($g['name'] ?? ''));
+            $options = is_array($g['options'] ?? null) ? $g['options'] : [];
+            if ($name === '' || !$options) {
+                continue; // grupo sem nome ou sem opções não faz sentido no PDV
+            }
+            Db::execute(
+                'INSERT INTO product_variation_groups (org_id, product_id, name, required, sort_order) VALUES (?, ?, ?, ?, ?)',
+                [$orgId, $productId, mb_substr($name, 0, 80), !empty($g['required']) ? 1 : 0, $gSort++]
+            );
+            $groupId = Db::lastInsertId();
+            $oSort = 0;
+            foreach ($options as $o) {
+                if (!is_array($o)) {
+                    continue;
+                }
+                $oName = trim((string) ($o['name'] ?? ''));
+                if ($oName === '') {
+                    continue;
+                }
+                $componentId = isset($o['component_id']) && $o['component_id'] !== '' && $o['component_id'] !== null
+                    ? (int) $o['component_id'] : null;
+                $quantity = isset($o['quantity']) && is_numeric($o['quantity']) ? (float) $o['quantity'] : 1;
+                $priceDelta = isset($o['price_delta']) && is_numeric($o['price_delta']) ? (float) $o['price_delta'] : 0;
+                Db::execute(
+                    'INSERT INTO product_variation_options (group_id, name, component_id, quantity, price_delta, sort_order)
+                     VALUES (?, ?, ?, ?, ?, ?)',
+                    [$groupId, mb_substr($oName, 0, 80), $componentId, $quantity, $priceDelta, $oSort++]
+                );
+            }
         }
     }
 
