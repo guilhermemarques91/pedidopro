@@ -3,9 +3,10 @@ import type {
   Category, Supplier, Item, Product, Quotation, QuotationDetail, ComparisonRow,
   Order, OrderDetail, User, UserRole, Role, PermissionCatalog, AuditEntry, ProductType, Subclass, ProductionPrinter, RecipeLine, StockMove, PurchaseRequest, RequestDetail,
   DeliveryOrder, DeliveryOrderDetail, DeliveryStatus, DeliveryPlatform, Channel, DeliveryAlert, ReportSummary,
-  Interruption, OpeningShift,
+  Interruption, OpeningShift, StoreSettings, DeliveryMapResponse, GeocodeBackfillResult,
   MarmitexCompany, MarmitexCatalog, CatalogType, MarmitexOrder, MarmitexOrderDetail, ProductionSummary,
   MarmitexReport, MarmitexInvoice, MarmitexLabelData,
+  MenuCategory, MenuItem, MenuItemInput,
   VendasStation, VendasSale, VendasBoardCard, VendasCreateBody, BoardOrigin, PaymentMethod,
   PaymentLine, VendasPrep, VariationGroupInput,
 } from '../types';
@@ -341,6 +342,20 @@ export const reportsApi = {
     api.get<ReportSummary>('/delivery/reports/summary', { params: f }).then((r) => r.data),
 };
 
+// ---- Mapa de pedidos Delivery + relatório de distância ----
+export interface MapFilters { from?: string; to?: string; platform?: DeliveryPlatform }
+export const storeSettingsApi = {
+  get: () => api.get<StoreSettings>('/delivery/settings/store').then((r) => r.data),
+  update: (body: Partial<StoreSettings>) => api.put<StoreSettings>('/delivery/settings/store', body).then((r) => r.data),
+};
+export const mapApi = {
+  list: (f: MapFilters = {}) => api.get<DeliveryMapResponse>('/delivery/map', { params: f }).then((r) => r.data),
+  backfill: (limit = 15) =>
+    api.post<GeocodeBackfillResult>('/delivery/map/backfill', { limit }, { timeout: 35000 }).then((r) => r.data),
+  correctNeighborhood: (orderId: number, neighborhood: string) =>
+    api.patch<DeliveryOrderDetail>(`/delivery/orders/${orderId}/address`, { neighborhood }).then((r) => r.data),
+};
+
 // ---- Loja (módulo Merchant iFood) ----
 export const merchantApi = {
   details: (channelId: number) => api.get<Record<string, unknown>>(`/delivery/merchant/${channelId}/details`).then((r) => r.data),
@@ -353,6 +368,29 @@ export const merchantApi = {
   openingHours: (channelId: number) => api.get<{ shifts?: OpeningShift[] }>(`/delivery/merchant/${channelId}/opening-hours`).then((r) => r.data),
   setOpeningHours: (channelId: number, shifts: OpeningShift[]) =>
     api.put(`/delivery/merchant/${channelId}/opening-hours`, { shifts }).then((r) => r.data),
+  // 99Food: abre/fecha a loja (setStatus). auto_switch: 1 abre auto, 2 fecha auto, 3 ambos.
+  setStoreStatus: (channelId: number, open: boolean, autoSwitch = 3) =>
+    api.post(`/delivery/merchant/${channelId}/status`, { open, auto_switch: autoSwitch }).then((r) => r.data),
+};
+
+// ---- Cardápio mestre local (publicado p/ iFood e 99Food) ----
+export const menuApi = {
+  tree: () => api.get<MenuCategory[]>('/delivery/menu').then((r) => r.data),
+  remote: (channelId: number) => api.get<Record<string, unknown>>(`/delivery/menu/remote/${channelId}`).then((r) => r.data),
+  createCategory: (body: { name: string; sort?: number; active?: boolean }) =>
+    api.post<MenuCategory>('/delivery/menu/categories', body).then((r) => r.data),
+  updateCategory: (id: number, body: Partial<{ name: string; sort: number; active: boolean }>) =>
+    api.put<MenuCategory>(`/delivery/menu/categories/${id}`, body).then((r) => r.data),
+  deleteCategory: (id: number) => api.delete(`/delivery/menu/categories/${id}`).then((r) => r.data),
+  createItem: (body: MenuItemInput) => api.post<MenuItem>('/delivery/menu/items', body).then((r) => r.data),
+  updateItem: (id: number, body: Partial<MenuItemInput>) => api.put<MenuItem>(`/delivery/menu/items/${id}`, body).then((r) => r.data),
+  deleteItem: (id: number) => api.delete(`/delivery/menu/items/${id}`).then((r) => r.data),
+  setItemAvailability: (id: number, active: boolean) =>
+    api.post<{ ok: boolean; active: boolean; errors: { channel: string; error: string }[] }>(`/delivery/menu/items/${id}/availability`, { active }).then((r) => r.data),
+  publish: (channelId: number) =>
+    api.post<Record<string, unknown>>(`/delivery/menu/publish/${channelId}`, undefined, { timeout: 120000 }).then((r) => r.data),
+  import: (channelId: number) =>
+    api.post<Record<string, unknown>>(`/delivery/menu/import/${channelId}`, undefined, { timeout: 120000 }).then((r) => r.data),
 };
 
 export const deliveryApi = {
@@ -376,6 +414,8 @@ export const channelsApi = {
   update: (id: number, body: Partial<ChannelInput>) => api.put<Channel>(`/delivery/channels/${id}`, body).then((r) => r.data),
   test: (id: number) =>
     api.post<{ ok: boolean; authenticated: boolean; error?: string; merchants?: { id: string; name: string }[] }>(`/delivery/channels/${id}/test`).then((r) => r.data),
+  authorizationUrl: (id: number) =>
+    api.post<{ url: string }>(`/delivery/channels/${id}/authorization-url`).then((r) => r.data),
 };
 
 export const inboxApi = {

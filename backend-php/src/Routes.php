@@ -29,6 +29,8 @@ use App\Modules\Webhooks\WebhooksController;
 use App\Modules\Delivery\DeliveryController;
 use App\Modules\Delivery\ReportsController;
 use App\Modules\Delivery\MerchantController;
+use App\Modules\Delivery\CatalogController;
+use App\Modules\Delivery\MapController;
 use App\Modules\Marmitex\MarmitexCatalogController;
 use App\Modules\Marmitex\MarmitexCompaniesController;
 use App\Modules\Marmitex\MarmitexOrdersController;
@@ -236,16 +238,35 @@ final class Routes
         $r->post('/delivery/orders/:id/ready', [DeliveryController::class, 'ready'], self::DELIVERY);
         $r->post('/delivery/orders/:id/dispatch', [DeliveryController::class, 'dispatch'], self::DELIVERY);
         $r->post('/delivery/orders/:id/cancel', [DeliveryController::class, 'cancel'], self::DELIVERY);
+        $r->patch('/delivery/orders/:id/address', [DeliveryController::class, 'updateAddress'], self::DELIVERY); // corrige bairro após ver no mapa
         // Relatórios operacionais
         $r->get('/delivery/reports/summary', [ReportsController::class, 'summary'], self::DELIVERY);
+        // Mapa de pedidos + distância (endereço da loja, listagem geocodificada, backfill sob demanda)
+        $r->get('/delivery/settings/store', [MapController::class, 'getSettings'], self::DELIVERY);
+        $r->put('/delivery/settings/store', [MapController::class, 'updateSettings'], self::DELIVERY_ADMIN);
+        $r->get('/delivery/map', [MapController::class, 'list'], self::DELIVERY);
+        $r->post('/delivery/map/backfill', [MapController::class, 'backfill'], self::DELIVERY);
         // Loja (módulo Merchant iFood): detalhes, disponibilidade, pausas, horários
         $r->get('/delivery/merchant/:channelId/details', [MerchantController::class, 'details'], self::DELIVERY);
         $r->get('/delivery/merchant/:channelId/status', [MerchantController::class, 'status'], self::DELIVERY);
+        $r->post('/delivery/merchant/:channelId/status', [MerchantController::class, 'setStatus'], self::DELIVERY); // abre/fecha loja (99food)
         $r->get('/delivery/merchant/:channelId/interruptions', [MerchantController::class, 'listInterruptions'], self::DELIVERY);
         $r->post('/delivery/merchant/:channelId/interruptions', [MerchantController::class, 'createInterruption'], self::DELIVERY);
         $r->delete('/delivery/merchant/:channelId/interruptions/:id', [MerchantController::class, 'deleteInterruption'], self::DELIVERY);
         $r->get('/delivery/merchant/:channelId/opening-hours', [MerchantController::class, 'openingHours'], self::DELIVERY);
         $r->put('/delivery/merchant/:channelId/opening-hours', [MerchantController::class, 'setOpeningHours'], self::DELIVERY);
+        // Cardápio mestre local + publicação/importação por canal
+        $r->get('/delivery/menu', [CatalogController::class, 'tree'], self::DELIVERY);
+        $r->get('/delivery/menu/remote/:channelId', [CatalogController::class, 'remote'], self::DELIVERY);
+        $r->post('/delivery/menu/categories', [CatalogController::class, 'createCategory'], self::DELIVERY_ADMIN);
+        $r->put('/delivery/menu/categories/:id', [CatalogController::class, 'updateCategory'], self::DELIVERY_ADMIN);
+        $r->delete('/delivery/menu/categories/:id', [CatalogController::class, 'deleteCategory'], self::DELIVERY_ADMIN);
+        $r->post('/delivery/menu/items', [CatalogController::class, 'createItem'], self::DELIVERY_ADMIN);
+        $r->put('/delivery/menu/items/:id', [CatalogController::class, 'updateItem'], self::DELIVERY_ADMIN);
+        $r->delete('/delivery/menu/items/:id', [CatalogController::class, 'deleteItem'], self::DELIVERY_ADMIN);
+        $r->post('/delivery/menu/items/:id/availability', [CatalogController::class, 'itemAvailability'], self::DELIVERY);
+        $r->post('/delivery/menu/publish/:channelId', [CatalogController::class, 'publish'], self::DELIVERY_ADMIN);
+        $r->post('/delivery/menu/import/:channelId', [CatalogController::class, 'import'], self::DELIVERY_ADMIN);
         $r->get('/delivery/alerts', [DeliveryController::class, 'listAlerts'], self::DELIVERY);
         $r->post('/delivery/alerts/:id/accept', [DeliveryController::class, 'acceptAlert'], self::DELIVERY);
         $r->post('/delivery/alerts/:id/reject', [DeliveryController::class, 'rejectAlert'], self::DELIVERY);
@@ -254,6 +275,7 @@ final class Routes
         $r->post('/delivery/channels', [DeliveryController::class, 'createChannel'], self::DELIVERY_ADMIN);
         $r->put('/delivery/channels/:id', [DeliveryController::class, 'updateChannel'], self::DELIVERY_ADMIN);
         $r->post('/delivery/channels/:id/test', [DeliveryController::class, 'testChannel'], self::DELIVERY_ADMIN);
+        $r->post('/delivery/channels/:id/authorization-url', [DeliveryController::class, 'authorizationUrl'], self::DELIVERY_ADMIN);
 
         // ===== Marmitex (catering B2B) =====
         // Catálogo: leitura liberada à empresa (monta o formulário); escrita só admin.

@@ -7,7 +7,7 @@ import { apiError } from '../../services/api';
 import type { DeliveryStatus } from '../../types';
 import { PageHeader } from '../../components/PageHeader';
 import { Button, Card, Spinner, ErrorBox } from '../../components/ui';
-import { brl, datetime } from '../../utils/format';
+import { brl, datetime, formatAddress, parseOptions } from '../../utils/format';
 
 const STATUS_FLOW: { key: DeliveryStatus; label: string; tsField: string }[] = [
   { key: 'placed', label: 'Recebido', tsField: 'placed_at' },
@@ -22,6 +22,7 @@ export function DeliveryOrderDetailPage() {
   const orderId = Number(id);
   const qc = useQueryClient();
   const [tracking, setTracking] = useState<Record<string, unknown> | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const { data: order, isLoading, error } = useQuery({
     queryKey: ['delivery-order', orderId],
@@ -54,27 +55,70 @@ export function DeliveryOrderDetailPage() {
         subtitle={`${order.platform === 'ifood' ? 'iFood' : '99Food'} · ${order.customer_name ?? 'Cliente'}`}
       />
 
+      <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+        {order.locator && (
+          <span className="mr-1 rounded bg-slate-800 px-2 py-0.5 text-sm font-bold text-white">
+            Localizador: {order.locator}
+          </span>
+        )}
+        <span>ID {order.platform === 'ifood' ? 'iFood' : '99Food'}:</span>
+        <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-slate-700">{order.platform_order_id}</code>
+        <button
+          type="button"
+          onClick={() => { navigator.clipboard?.writeText(order.platform_order_id); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
+          className="text-emerald-700 hover:underline"
+        >
+          {copied ? 'copiado ✓' : 'copiar'}
+        </button>
+      </div>
+
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">
           <Card>
             <h3 className="mb-3 text-sm font-semibold text-slate-700">Itens</h3>
             <table className="w-full text-sm">
               <tbody>
-                {order.items.map((it) => (
-                  <tr key={it.id} className="border-b border-slate-100 last:border-0">
-                    <td className="py-2 text-slate-500">{Number(it.quantity)}x</td>
-                    <td className="py-2 text-slate-800">{it.name}{it.observations && <span className="block text-xs text-slate-400">{it.observations}</span>}</td>
-                    <td className="py-2 text-right text-slate-600">{brl(it.total)}</td>
-                  </tr>
-                ))}
+                {order.items.map((it) => {
+                  const opts = parseOptions(it.options);
+                  return (
+                    <tr key={it.id} className="border-b border-slate-100 last:border-0 align-top">
+                      <td className="py-2 text-slate-500">{Number(it.quantity)}x</td>
+                      <td className="py-2 text-slate-800">
+                        {it.name}
+                        {opts.length > 0 && (
+                          <ul className="mt-0.5 space-y-0.5">
+                            {opts.map((op, i) => (
+                              <li key={i} className="text-xs text-slate-500">
+                                + {op.quantity && op.quantity > 1 ? `${op.quantity}x ` : ''}{op.name}
+                                {op.group && <span className="text-slate-400"> · {op.group}</span>}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                        {it.observations && <span className="block text-xs italic text-slate-400">{it.observations}</span>}
+                      </td>
+                      <td className="py-2 text-right text-slate-600">{brl(it.total)}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </Card>
+
+          {order.customer_notes && (
+            <Card>
+              <h3 className="mb-2 text-sm font-semibold text-slate-700">Observações do pedido</h3>
+              <p className="whitespace-pre-line text-sm font-medium text-amber-700">{order.customer_notes}</p>
+            </Card>
+          )}
 
           {addr && (
             <Card>
               <h3 className="mb-2 flex items-center gap-1 text-sm font-semibold text-slate-700"><MapPin size={15} /> Entrega</h3>
               <p className="text-sm text-slate-600">{formatAddress(addr)}</p>
+              {typeof addr.reference === 'string' && addr.reference.trim() !== '' && (
+                <p className="mt-1 text-xs text-slate-500">Obs.: {addr.reference}</p>
+              )}
               {order.delivery_mode && (
                 <p className="mt-1 text-xs text-slate-400">{order.delivery_mode === 'own' ? 'Entrega própria' : 'Entrega parceira'}{order.delivery_distance_m ? ` · ${(order.delivery_distance_m / 1000).toFixed(1)} km` : ''}</p>
               )}
@@ -144,14 +188,3 @@ function Row({ label, value, bold }: { label: string; value: string; bold?: bool
   );
 }
 
-function formatAddress(addr: Record<string, unknown>): string {
-  const get = (k: string) => (addr[k] != null ? String(addr[k]) : '');
-  const parts = [
-    [get('streetName') || get('street'), get('streetNumber') || get('number')].filter(Boolean).join(', '),
-    get('complement'),
-    get('neighborhood') || get('district'),
-    get('city'),
-    get('postalCode') || get('zipCode'),
-  ].filter(Boolean);
-  return parts.join(' · ') || JSON.stringify(addr);
-}

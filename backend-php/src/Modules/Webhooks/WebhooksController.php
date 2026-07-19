@@ -38,13 +38,20 @@ final class WebhooksController
         $raw = file_get_contents('php://input');
         $raw = is_string($raw) ? $raw : '';
 
-        $body = $req->body;
+        // order_id/shop_id do DiDi são inteiros de 64 bits: decodifica preservando a
+        // precisão (JSON_BIGINT_AS_STRING) para o order_id não ser arredondado/corrompido
+        // ao ser guardado — senão ready/cancel depois falham com errno 10001. Escopo local
+        // ao webhook (não altera o parser global usado pelos demais módulos).
+        $body = $raw !== '' ? json_decode($raw, true, 512, JSON_BIGINT_AS_STRING) : null;
+        if (!is_array($body)) {
+            $body = $req->body;
+        }
         $merchantId = self::merchantFromBody($body);
         $channel = IngestService::findChannel($platform, $merchantId);
 
         // Sem canal cadastrado: responde 200 (não queremos reentrega) mas não processa.
         if (!$channel) {
-            Http::json(['ok' => true, 'ignored' => 'no channel configured'], 200);
+            self::ack($platform, ['ignored' => 'no channel configured']);
         }
 
         if (!self::signatureOk($platform, $req, $channel, $raw)) {
@@ -52,7 +59,20 @@ final class WebhooksController
         }
 
         $result = IngestService::handleWebhook($platform, $body, $channel);
-        Http::json(['ok' => true] + $result, 200);
+        self::ack($platform, $result);
+    }
+
+    /**
+     * Resposta de sucesso do webhook. O DiDi/99Food EXIGE {errno:0,errmsg:ok} —
+     * qualquer outra coisa e ele reenvia o callback várias vezes. O iFood só checa
+     * o status 2xx, então mantém o formato antigo {ok:true}+extra.
+     */
+    private static function ack(string $platform, array $extra = []): never
+    {
+        if ($platform === '99food') {
+            Http::json(['errno' => 0, 'errmsg' => 'ok'], 200);
+        }
+        Http::json(['ok' => true] + $extra, 200);
     }
 
     private static function signatureOk(string $platform, Request $req, array $channel, string $raw): bool
@@ -72,13 +92,25 @@ final class WebhooksController
             return hash_equals($expected, strtolower(trim($sig)));
         }
 
-        // 99food (e fallback): segredo compartilhado.
-        $expected = (string) ($channel['webhook_secret'] ?? '');
-        if ($expected === '') {
-            return true; // canal sem segredo configurado: aceita
+        // 99food/DiDi: header `didi-header-sign` = MD5(corpo_cru . app_secret).
+        // app_secret = client_secret do canal.
+        $secret = (string) ($channel['client_secret'] ?? '');
+        $sig = $_SERVER['HTTP_DIDI_HEADER_SIGN'] ?? '';
+        $sig = is_string($sig) ? strtolower(trim($sig)) : '';
+        if ($secret === '' || $sig === '') {
+            error_log('[99food] webhook sem verificação (secret ' . ($secret === '' ? 'ausente' : 'ok')
+                . ', sign ' . ($sig === '' ? 'ausente' : 'presente') . ') — aceitando');
+            return true;
         }
-        $got = $_SERVER['HTTP_X_WEBHOOK_SECRET'] ?? $req->query('secret');
-        return is_string($got) && hash_equals($expected, $got);
+        if (hash_equals(md5($raw . $secret), $sig)) {
+            error_log('[99food] webhook sign OK');
+            return true;
+        }
+        // Mismatch: loga sempre. Só REJEITA se DELIVERY_99FOOD_ENFORCE_SIGN=1 (rollout
+        // seguro: primeiro confirmamos no tráfego real que o algoritmo bate, depois
+        // liga o enforce — pra não perder pedido real por alguma sutileza de encoding).
+        error_log('[99food] webhook sign MISMATCH esperado=' . md5($raw . $secret) . ' recebido=' . $sig);
+        return !Env::bool('DELIVERY_99FOOD_ENFORCE_SIGN', false);
     }
 
     /** Tenta achar o merchantId no payload (varia entre plataformas/eventos). */

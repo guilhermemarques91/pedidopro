@@ -89,11 +89,16 @@ final class OrderNormalizer
             'status' => self::mapStatus('ifood', $o['status'] ?? null),
             'order_type' => strtolower((string) ($o['orderType'] ?? 'delivery')),
             'delivery_mode' => self::ifoodMode($delivery),
-            'delivery_address' => $address,
+            'delivery_address' => self::address('ifood', $address),
             'delivery_distance_m' => isset($delivery['distance']) ? (int) round(((float) $delivery['distance']) * 1000) : null,
             'eta' => self::ts($delivery['deliveryDateTime'] ?? null),
             'customer_name' => $customer['name'] ?? null,
             'customer_phone' => $phone,
+            // Localizador (código de 8 dígitos exibido no app do lojista). Confirmado no
+            // raw real: vem em customer.phone.localizer (não em pickupCode, que é outro código).
+            'locator' => self::str($customer['phone']['localizer'] ?? null),
+            // Observação em nível de pedido (talheres, "cancelar só o que faltar", etc.).
+            'customer_notes' => self::firstStr($o, ['observations', 'note', 'deliveryObservations', 'additionalInfo']),
             'items_amount' => self::money($total['subTotal'] ?? null),
             'delivery_fee' => self::money($total['deliveryFee'] ?? ($delivery['deliveryFee'] ?? null)),
             'discount_merchant' => $discMerchant,
@@ -137,7 +142,23 @@ final class OrderNormalizer
 
         // Telefone: calling_code + phone.
         $phone = trim((string) ($addr['calling_code'] ?? '') . ' ' . (string) ($addr['phone'] ?? '')) ?: null;
-        $name = $addr['name'] ?? trim((string) ($addr['first_name'] ?? '') . ' ' . (string) ($addr['last_name'] ?? '')) ?: null;
+        // Em pedidos de entrega parceira (rider DiDi), `name`/`last_name` vêm mascarados
+        // como o literal "privacy protection" — só `first_name` traz o nome real do
+        // cliente. Descarta qualquer campo mascarado antes de montar o nome exibido.
+        $unmasked = static fn(mixed $v): ?string => (is_scalar($v) && trim((string) $v) !== '' && strcasecmp(trim((string) $v), 'privacy protection') !== 0)
+            ? trim((string) $v) : null;
+        $name = $unmasked($addr['name'] ?? null)
+            ?? trim(((string) ($unmasked($addr['first_name'] ?? null) ?? '')) . ' ' . ((string) ($unmasked($addr['last_name'] ?? null) ?? ''))) ?: null;
+
+        // Observações do pedido: texto livre (`remark`, quase sempre vazio) + flag de
+        // talheres (`need_cutlery`, booleano em inglês). Junta o que houver numa linha.
+        $notes = [];
+        if (($remark = self::firstStr($o, ['remark', 'user_remark', 'order_remark', 'buyer_remark', 'note'])) !== null) {
+            $notes[] = $remark;
+        }
+        if (!empty($o['need_cutlery'])) {
+            $notes[] = 'Precisa de talheres';
+        }
 
         $order = [
             'platform_order_id' => (string) ($o['order_id'] ?? ''),
@@ -149,16 +170,22 @@ final class OrderNormalizer
             'order_type' => 'delivery',
             // delivery_type: 1 = DiDi (parceira), 2 = Store (própria).
             'delivery_mode' => ((int) ($o['delivery_type'] ?? 1)) === 2 ? 'own' : 'partner',
-            'delivery_address' => $addr ?: null,
+            'delivery_address' => self::address('99food', $addr),
             'delivery_distance_m' => null,
             'eta' => self::ts($o['expected_arrived_eta'] ?? ($o['delivery_eta'] ?? null)),
             'customer_name' => $name,
             'customer_phone' => $phone,
+            // Localizador do 99Food: campo `locator` que vem junto do endereço do cliente.
+            'locator' => self::str($addr['locator'] ?? null),
+            'customer_notes' => $notes ? implode(' · ', $notes) : null,
             'items_amount' => self::cents($price['order_price'] ?? null),
             'delivery_fee' => self::cents($price['delivery_price'] ?? null),
             'discount_merchant' => $discMerchant,
             'discount_platform' => $discPlatform,
-            'customer_paid' => self::cents($price['customer_need_paying_money'] ?? ($price['real_pay_price'] ?? null)),
+            // Entrega parceira (rider DiDi) só expõe order_price; os demais valores
+            // (customer_need_paying_money/real_pay_price/real_price) vêm nulos por
+            // privacidade. Cai pro melhor disponível p/ sempre mostrar um valor.
+            'customer_paid' => self::cents($price['customer_need_paying_money'] ?? $price['real_pay_price'] ?? $price['real_price'] ?? $price['order_price'] ?? null),
             'placed_at' => self::ts($o['create_time'] ?? null),
         ];
 
@@ -237,6 +264,77 @@ final class OrderNormalizer
         }
         // DEFAULT/MERCHANT = própria; demais (logística iFood) = parceira.
         return in_array($mode, ['DEFAULT', 'MERCHANT'], true) ? 'own' : 'partner';
+    }
+
+    /**
+     * Normaliza o endereço de entrega (iFood camelCase / 99Food snake_case) num
+     * formato único, pro frontend e os relatórios lerem sempre as mesmas chaves.
+     * Inclui um 'formatted' pronto pra exibir. Devolve null se não houver endereço.
+     * @return array<string,mixed>|null
+     */
+    private static function address(string $platform, mixed $a): ?array
+    {
+        if (is_string($a)) {
+            $a = json_decode($a, true); // a API às vezes manda o endereço como string JSON
+        }
+        if (!is_array($a) || !$a) {
+            return null;
+        }
+        if ($platform === '99food') {
+            $out = [
+                'street' => self::str($a['street_name'] ?? null),
+                'number' => self::str($a['street_number'] ?? null),
+                'complement' => self::str($a['complement'] ?? null),
+                'neighborhood' => self::str($a['district'] ?? null),
+                'city' => self::str($a['city'] ?? null),
+                'state' => self::str($a['state'] ?? null),
+                'postal_code' => self::str($a['postal_code'] ?? null),
+                'reference' => self::str($a['reference'] ?? null),
+                'lat' => $a['poi_lat'] ?? null,
+                'lng' => $a['poi_lng'] ?? null,
+                'formatted' => self::str($a['poi_address'] ?? null),
+            ];
+        } else { // ifood
+            $coords = $a['coordinates'] ?? [];
+            $out = [
+                'street' => self::str($a['streetName'] ?? null),
+                'number' => self::str($a['streetNumber'] ?? null),
+                'complement' => self::str($a['complement'] ?? null),
+                'neighborhood' => self::str($a['neighborhood'] ?? null),
+                'city' => self::str($a['city'] ?? null),
+                'state' => self::str($a['state'] ?? null),
+                'postal_code' => self::str($a['postalCode'] ?? null),
+                'reference' => self::str($a['reference'] ?? null),
+                'lat' => (is_array($coords) ? ($coords['latitude'] ?? null) : null),
+                'lng' => (is_array($coords) ? ($coords['longitude'] ?? null) : null),
+                'formatted' => self::str($a['formattedAddress'] ?? null),
+            ];
+        }
+        // Monta um 'formatted' quando a plataforma não manda um pronto.
+        if ($out['formatted'] === null) {
+            $line = trim(($out['street'] ?? '') . ' ' . ($out['number'] ?? ''));
+            $parts = array_filter([$line, $out['neighborhood'], $out['city']]);
+            $out['formatted'] = $parts ? implode(', ', $parts) : null;
+        }
+        return $out;
+    }
+
+    /** Trim → string não-vazia, ou null. */
+    private static function str(mixed $v): ?string
+    {
+        $s = is_scalar($v) ? trim((string) $v) : '';
+        return $s !== '' ? $s : null;
+    }
+
+    /** Primeiro valor de texto não-vazio entre as chaves candidatas (tolerante a payloads variados). */
+    private static function firstStr(array $src, array $keys): ?string
+    {
+        foreach ($keys as $k) {
+            if (isset($src[$k]) && is_scalar($src[$k]) && trim((string) $src[$k]) !== '') {
+                return trim((string) $src[$k]);
+            }
+        }
+        return null;
     }
 
     private static function money(mixed $v): ?float

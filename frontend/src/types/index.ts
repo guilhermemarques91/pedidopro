@@ -342,23 +342,45 @@ export type DeliveryStatus =
   | 'placed' | 'confirmed' | 'preparing' | 'ready' | 'dispatched' | 'concluded' | 'cancelled';
 export type DeliveryMode = 'own' | 'partner';
 
+export interface DeliveryAddress {
+  street: string | null;
+  number: string | null;
+  complement: string | null;
+  neighborhood: string | null;
+  city: string | null;
+  state: string | null;
+  postal_code: string | null;
+  reference: string | null;
+  formatted: string | null;
+  lat: number | null;
+  lng: number | null;
+  geocode_source?: 'platform' | 'nominatim' | null;
+  geocoded_at?: string | null;
+  suggested_neighborhood?: string | null;
+  neighborhood_mismatch?: boolean | null;
+  neighborhood_original?: string | null;
+  neighborhood_corrected_at?: string | null;
+}
+
 export interface DeliveryOrder {
   id: number;
   channel_id: number | null;
   platform: DeliveryPlatform;
   platform_order_id: string;
   display_id: string | null;
+  locator: string | null;
   merchant_id: string | null;
   status: DeliveryStatus;
   platform_status: string | null;
   order_type: string;
   delivery_mode: DeliveryMode | null;
-  delivery_address: Record<string, unknown> | null;
+  delivery_address: DeliveryAddress | null;
   delivery_distance_m: number | null;
   eta: string | null;
   customer_id: number | null;
   customer_name: string | null;
   customer_phone: string | null;
+  customer_notes: string | null;
   items_amount: string | null;
   delivery_fee: string | null;
   discount_merchant: string | null;
@@ -372,6 +394,7 @@ export interface DeliveryOrder {
   dispatched_at: string | null;
   concluded_at: string | null;
   cancelled_at: string | null;
+  printed_at: string | null;
   created_at: string;
   items_count?: number;
 }
@@ -389,6 +412,44 @@ export interface DeliveryOrderItem {
 
 export interface DeliveryOrderDetail extends DeliveryOrder {
   items: DeliveryOrderItem[];
+}
+
+// ---- Mapa de pedidos Delivery + relatório de distância ----
+export interface StoreSettings {
+  id: 1;
+  name: string | null;
+  street: string | null;
+  number: string | null;
+  complement: string | null;
+  neighborhood: string | null;
+  city: string | null;
+  state: string | null;
+  postal_code: string | null;
+  formatted_address: string | null;
+  lat: number | null;
+  lng: number | null;
+  geocoded_at: string | null;
+}
+
+export interface DeliveryMapOrder {
+  id: number;
+  display_id: string | null;
+  platform: DeliveryPlatform;
+  customer_name: string | null;
+  address: DeliveryAddress | null;
+  distance_m: number | null;
+  needs_geocode: boolean;
+}
+
+export interface DeliveryMapResponse {
+  store: StoreSettings;
+  orders: DeliveryMapOrder[];
+}
+
+export interface GeocodeBackfillResult {
+  geocoded: number;
+  reverse_geocoded: number;
+  remaining: number;
 }
 
 export interface DeliveryAlert {
@@ -433,6 +494,74 @@ export interface OpeningShift {
   dayOfWeek: string; // MONDAY..SUNDAY
   start: string;     // 'HH:mm:ss'
   duration: number;  // minutos
+}
+
+// ---- Cardápio mestre local (delivery) ----
+export interface MenuOption {
+  id: number;
+  group_id: number;
+  name: string;
+  description: string | null;
+  price: number | string;
+  sort: number;
+  active: number | boolean;
+}
+export interface MenuOptionGroup {
+  id: number;
+  item_id: number;
+  name: string;
+  min: number;
+  max: number;
+  sort: number;
+  active: number | boolean;
+  options: MenuOption[];
+}
+export interface MenuItemChannelLink {
+  channel_id: number;
+  platform: DeliveryPlatform;
+  channel_name: string;
+  synced_at: string | null;
+}
+export interface MenuItem {
+  id: number;
+  category_id: number;
+  name: string;
+  description: string | null;
+  price: number | string;
+  original_price: number | string | null;
+  image_url: string | null;
+  external_code: string | null;
+  erp_product_id: number | null;
+  sort: number;
+  active: number | boolean;
+  groups: MenuOptionGroup[];
+  channels?: MenuItemChannelLink[];
+}
+export interface MenuCategory {
+  id: number;
+  name: string;
+  sort: number;
+  active: number | boolean;
+  items: MenuItem[];
+}
+export interface MenuItemInput {
+  category_id?: number;
+  name?: string;
+  description?: string | null;
+  price?: number;
+  original_price?: number | null;
+  image_url?: string | null;
+  external_code?: string | null;
+  sort?: number;
+  active?: boolean;
+  groups?: {
+    id?: number;
+    name: string;
+    min: number;
+    max: number;
+    active?: boolean;
+    options: { id?: number; name: string; description?: string | null; price: number; active?: boolean }[];
+  }[];
 }
 
 // ---- Relatórios de delivery ----

@@ -51,13 +51,14 @@ final class DeliveryController
         $conditions[] = 'o.org_id = ?';
         $params[] = $req->orgId();
         $where = 'WHERE ' . implode(' AND ', $conditions);
-        Http::json(Db::query(
+        $rows = Db::query(
             "SELECT o.*, (SELECT COUNT(*) FROM delivery_order_items i WHERE i.order_id = o.id) AS items_count
                FROM delivery_orders o
                {$where}
                ORDER BY o.created_at DESC",
             $params
-        ));
+        );
+        Http::json(array_map([self::class, 'hydrate'], $rows));
     }
 
     public static function getOrder(Request $req): void
@@ -99,6 +100,36 @@ final class DeliveryController
     public static function dispatch(Request $req): void { self::command($req, 'dispatch'); }
     public static function cancel(Request $req): void   { self::command($req, 'cancel'); }
 
+    /**
+     * PATCH /delivery/orders/:id/address — corrige o bairro do pedido depois de ver
+     * a localização real no mapa. Preserva o valor original (1ª correção) para auditoria.
+     */
+    public static function updateAddress(Request $req): void
+    {
+        $id = $req->intParam('id');
+        $order = self::row($id);
+        $neighborhood = $req->input()->requireString('neighborhood', 1, 120);
+
+        $addr = json_decode((string) ($order['delivery_address'] ?? 'null'), true);
+        if (!is_array($addr)) {
+            throw HttpError::badRequest('Pedido sem endereço cadastrado');
+        }
+        if (!isset($addr['neighborhood_original']) && ($addr['neighborhood'] ?? null) !== null) {
+            $addr['neighborhood_original'] = $addr['neighborhood'];
+        }
+        $addr['neighborhood'] = $neighborhood;
+        $addr['neighborhood_corrected_at'] = date('c');
+        if (isset($addr['suggested_neighborhood']) && is_string($addr['suggested_neighborhood'])
+            && mb_strtolower(trim($neighborhood)) === mb_strtolower(trim($addr['suggested_neighborhood']))) {
+            $addr['neighborhood_mismatch'] = false;
+        }
+
+        Db::execute('UPDATE delivery_orders SET delivery_address = ? WHERE id = ?', [
+            json_encode($addr, JSON_UNESCAPED_UNICODE), $id,
+        ]);
+        Http::json(self::detailed($id));
+    }
+
     /** GET /delivery/orders/:id/tracking — posição/ETA do entregador. */
     public static function tracking(Request $req): void
     {
@@ -116,11 +147,18 @@ final class DeliveryController
 
     public static function listAlerts(Request $req): void
     {
+        // Casa o pedido por FK OU por (plataforma, id da plataforma) — o alerta pode
+        // chegar antes do pedido (order_id nulo). Esconde alertas cujo pedido já está
+        // cancelado/concluído: a solicitação virou sem sentido (ex.: resolvida no app).
         Http::json(Db::query(
             "SELECT a.*, o.display_id, o.customer_name, o.customer_paid
                FROM delivery_alerts a
-               LEFT JOIN delivery_orders o ON o.id = a.order_id
-              WHERE a.status = 'pending' AND a.org_id = ?
+               LEFT JOIN delivery_orders o
+                 ON o.id = a.order_id
+                 OR (o.platform = a.platform AND o.platform_order_id = a.platform_order_id)
+              WHERE a.status = 'pending'
+                AND a.org_id = ?
+                AND (o.id IS NULL OR o.status NOT IN ('cancelled', 'concluded'))
               ORDER BY a.created_at DESC",
             [$req->orgId()]
         ));
@@ -255,6 +293,16 @@ final class DeliveryController
         }
     }
 
+    /** POST /delivery/channels/:id/authorization-url — link de autorização/bind da loja (99food). */
+    public static function authorizationUrl(Request $req): void
+    {
+        $channel = self::channelRow($req->intParam('id'));
+        if ((string) $channel['platform'] !== '99food') {
+            throw HttpError::badRequest('Link de autorização disponível apenas para canais 99Food');
+        }
+        Http::json(['url' => NineNineClient::authorizationUrl($channel)]);
+    }
+
     /** POST /delivery/sync — poll+ACK sob demanda pela UI (admin). Útil sem cron/deploy. */
     public static function sync(Request $req): void
     {
@@ -285,8 +333,32 @@ final class DeliveryController
 
     private static function detailed(int $id): array
     {
-        $order = self::row($id);
-        $order['items'] = Db::query('SELECT * FROM delivery_order_items WHERE order_id = ? ORDER BY id', [$id]);
+        $order = self::hydrate(self::row($id));
+        $items = Db::query('SELECT * FROM delivery_order_items WHERE order_id = ? ORDER BY id', [$id]);
+        // options é JSON armazenado como texto; decodifica p/ o frontend receber os
+        // complementos como objeto (mesmo motivo do delivery_address em hydrate()).
+        foreach ($items as &$it) {
+            if (isset($it['options']) && is_string($it['options'])) {
+                $decoded = json_decode($it['options'], true);
+                $it['options'] = is_array($decoded) ? $decoded : null;
+            }
+        }
+        unset($it);
+        $order['items'] = $items;
+        return $order;
+    }
+
+    /**
+     * A coluna delivery_address é JSON armazenado como texto; sem decodificar, o
+     * Http::json reencoda e o frontend recebe uma STRING escapada em vez do objeto.
+     * Decodifica aqui pro endereço chegar como objeto.
+     */
+    private static function hydrate(array $order): array
+    {
+        if (isset($order['delivery_address']) && is_string($order['delivery_address'])) {
+            $decoded = json_decode($order['delivery_address'], true);
+            $order['delivery_address'] = is_array($decoded) ? $decoded : null;
+        }
         return $order;
     }
 

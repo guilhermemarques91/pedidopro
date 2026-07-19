@@ -9,7 +9,8 @@
     "ext-mbstring": "*",
     "ext-curl": "*",
     "phpoffice/phpspreadsheet": "^2.3",
-    "smalot/pdfparser": "^2.10"
+    "smalot/pdfparser": "^2.10",
+    "textalk/websocket": "^1.6"
   },
   "autoload": {
     "psr-4": {

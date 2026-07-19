@@ -16,6 +16,14 @@
       "port": 5174,
       "autoPort": true,
       "cwd": "frontend"
+    },
+    {
+      "name": "backend-php",
+      "runtimeExecutable": "C:\\php83\\php.exe",
+      "runtimeArgs": ["-S", "localhost:8000", "-t", ".", "index.php"],
+      "port": 8000,
+      "autoPort": false,
+      "cwd": "backend-php"
     }
   ]
 }

@@ -1,13 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { Bike, Store, Clock, ExternalLink, RefreshCw } from 'lucide-react';
+import { Bike, Store, Clock, MapPin, ExternalLink, RefreshCw } from 'lucide-react';
 import { deliveryApi } from '../../services/resources';
 import { apiError } from '../../services/api';
 import { useAuth } from '../../store/auth.store';
 import type { DeliveryOrder, DeliveryStatus, DeliveryAlert } from '../../types';
 import { PageHeader } from '../../components/PageHeader';
 import { Button, Card, Spinner, ErrorBox, EmptyState } from '../../components/ui';
-import { brl } from '../../utils/format';
+import { brl, formatAddress } from '../../utils/format';
 
 // Colunas operacionais do painel (kanban). 'preparing' entra junto de 'confirmed'.
 const COLUMNS: { key: DeliveryStatus; title: string; match: DeliveryStatus[] }[] = [
@@ -196,6 +196,9 @@ function OrderCard({
         </Link>
       </div>
       <p className="truncate text-sm font-medium text-slate-800">{order.customer_name ?? 'Cliente'}</p>
+      {order.locator && (
+        <p className="mt-1 inline-block rounded bg-slate-800 px-2 py-0.5 text-xs font-bold text-white">Localizador: {order.locator}</p>
+      )}
       <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
         {mode && (
           <span className="flex items-center gap-1">
@@ -223,6 +226,14 @@ function OrderCard({
           <Button variant="ghost" className="px-3 py-1.5 text-xs" disabled={busy} onClick={onCancel}>Cancelar</Button>
         )}
       </div>
+      {(() => {
+        const addr = formatAddress(order.delivery_address);
+        return addr ? (
+          <p className="mt-2 flex items-start gap-1 border-t border-slate-100 pt-2 text-xs text-slate-500">
+            <MapPin size={11} className="mt-0.5 shrink-0" /> <span className="line-clamp-2">{addr}</span>
+          </p>
+        ) : null;
+      })()}
     </Card>
   );
 }

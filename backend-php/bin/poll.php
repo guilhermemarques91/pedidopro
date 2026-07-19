@@ -48,6 +48,7 @@ for ($i = 0; $i < $iterations; $i++) {
         // Db::query já reconecta sozinho se a conexão cair no laço longo.
         echo '[' . date('Y-m-d H:i:s') . '] ERRO: ' . $e->getMessage() . "\n";
     }
+
     if ($i + 1 < $iterations) {
         usleep($intervalMs * 1000);
     }

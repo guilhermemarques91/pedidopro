@@ -1,9 +1,9 @@
-import { FormEvent, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2, RefreshCw } from 'lucide-react';
-import { channelsApi, merchantApi } from '../../services/resources';
+import { channelsApi, merchantApi, storeSettingsApi } from '../../services/resources';
 import { apiError } from '../../services/api';
-import type { OpeningShift } from '../../types';
+import type { OpeningShift, StoreSettings } from '../../types';
 import { PageHeader } from '../../components/PageHeader';
 import { Button, Card, Field, Input, Select, Spinner, ErrorBox, EmptyState } from '../../components/ui';
 
@@ -18,50 +18,155 @@ const fromMin = (min: number) => `${String(Math.floor(min / 60) % 24).padStart(2
 
 interface Row { dayOfWeek: string; start: string; end: string }
 
+const PLATFORM_LABEL: Record<string, string> = { ifood: 'iFood', '99food': '99Food' };
+
 export function Store() {
   const { data: channels } = useQuery({ queryKey: ['channels'], queryFn: channelsApi.list });
-  const ifoodChannels = useMemo(() => (channels ?? []).filter((c) => c.platform === 'ifood'), [channels]);
+  const storeChannels = useMemo(
+    () => (channels ?? []).filter((c) => c.platform === 'ifood' || c.platform === '99food'),
+    [channels],
+  );
   const [channelId, setChannelId] = useState<number | null>(null);
-  const cid = channelId ?? ifoodChannels[0]?.id ?? null;
-
-  if (!channels) return <Spinner />;
-  if (ifoodChannels.length === 0) {
-    return (
-      <div>
-        <PageHeader title="Loja (iFood)" subtitle="Gestão da loja: disponibilidade, pausas e horários" />
-        <EmptyState message="Nenhum canal iFood configurado. Cadastre em Integrações." />
-      </div>
-    );
-  }
+  const selected = storeChannels.find((c) => c.id === channelId) ?? storeChannels[0] ?? null;
+  const cid = selected?.id ?? null;
 
   return (
     <div>
-      <PageHeader title="Loja (iFood)" subtitle="Gestão da loja: disponibilidade, pausas e horário de funcionamento" />
-      {ifoodChannels.length > 1 && (
-        <div className="mb-4 max-w-xs">
-          <Field label="Canal">
-            <Select value={String(cid)} onChange={(e) => setChannelId(Number(e.target.value))}>
-              {ifoodChannels.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </Select>
-          </Field>
-        </div>
-      )}
-      {cid && (
-        <div className="space-y-6">
-          <StoreInfo cid={cid} />
-          <Interruptions cid={cid} />
-          <OpeningHours cid={cid} />
-        </div>
-      )}
+      <PageHeader title="Loja" subtitle="Endereço do estabelecimento, disponibilidade, pausas e horário de funcionamento (iFood e 99Food)" />
+
+      <div className="space-y-6">
+        <StoreAddress />
+
+        {!channels ? <Spinner /> : storeChannels.length === 0 ? (
+          <EmptyState message="Nenhum canal configurado. Cadastre em Integrações para gerenciar disponibilidade/horários." />
+        ) : (
+          <>
+            {storeChannels.length > 1 && (
+              <div className="max-w-xs">
+                <Field label="Canal">
+                  <Select value={String(cid)} onChange={(e) => setChannelId(Number(e.target.value))}>
+                    {storeChannels.map((c) => (
+                      <option key={c.id} value={c.id}>{PLATFORM_LABEL[c.platform] ?? c.platform} — {c.name}</option>
+                    ))}
+                  </Select>
+                </Field>
+              </div>
+            )}
+            {cid && selected && (
+              <>
+                <StoreInfo cid={cid} platform={selected.platform} />
+                {selected.platform === 'ifood' && <Interruptions cid={cid} />}
+                <OpeningHours cid={cid} />
+              </>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }
 
+/** Endereço do estabelecimento — base para o cálculo de distância no mapa de pedidos. */
+function StoreAddress() {
+  const qc = useQueryClient();
+  const { data, isLoading, error } = useQuery({ queryKey: ['store-settings'], queryFn: storeSettingsApi.get });
+  const [form, setForm] = useState<Partial<StoreSettings> | null>(null);
+  const [err, setErr] = useState('');
+
+  useEffect(() => {
+    if (data && !form) setForm(data);
+  }, [data, form]);
+
+  const save = useMutation({
+    mutationFn: (body: Partial<StoreSettings>) => storeSettingsApi.update(body),
+    onSuccess: (updated) => { setErr(''); setForm(updated); qc.setQueryData(['store-settings'], updated); },
+    onError: (e) => setErr(apiError(e)),
+  });
+
+  function set<K extends keyof StoreSettings>(key: K, value: StoreSettings[K]) {
+    setForm((f) => ({ ...(f ?? {}), [key]: value }));
+  }
+
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    setErr('');
+    if (!form) return;
+    save.mutate({
+      name: form.name ?? null,
+      street: form.street ?? null,
+      number: form.number ?? null,
+      complement: form.complement ?? null,
+      neighborhood: form.neighborhood ?? null,
+      city: form.city ?? null,
+      state: form.state ?? null,
+      postal_code: form.postal_code ?? null,
+    });
+  }
+
+  return (
+    <Card>
+      <h3 className="mb-1 text-sm font-semibold text-slate-700">Endereço do estabelecimento</h3>
+      <p className="mb-3 text-xs text-slate-400">Usado para calcular a distância de cada pedido no Mapa &amp; Distâncias.</p>
+      {isLoading && <Spinner />}
+      {error && <ErrorBox message={apiError(error)} />}
+      {err && <div className="mb-3"><ErrorBox message={err} /></div>}
+      {form && (
+        <form onSubmit={submit} className="space-y-3">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+            <Field label="Nome"><Input value={form.name ?? ''} onChange={(e) => set('name', e.target.value)} /></Field>
+            <div className="md:col-span-2">
+              <Field label="Rua"><Input value={form.street ?? ''} onChange={(e) => set('street', e.target.value)} /></Field>
+            </div>
+            <Field label="Número"><Input value={form.number ?? ''} onChange={(e) => set('number', e.target.value)} /></Field>
+          </div>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+            <Field label="Complemento"><Input value={form.complement ?? ''} onChange={(e) => set('complement', e.target.value)} /></Field>
+            <Field label="Bairro"><Input value={form.neighborhood ?? ''} onChange={(e) => set('neighborhood', e.target.value)} /></Field>
+            <Field label="Cidade"><Input value={form.city ?? ''} onChange={(e) => set('city', e.target.value)} /></Field>
+            <Field label="UF"><Input value={form.state ?? ''} maxLength={2} onChange={(e) => set('state', e.target.value.toUpperCase())} /></Field>
+          </div>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+            <Field label="CEP"><Input value={form.postal_code ?? ''} onChange={(e) => set('postal_code', e.target.value)} /></Field>
+            <div className="flex items-end md:col-span-3">
+              <Button type="submit" disabled={save.isPending}>{save.isPending ? 'Salvando…' : 'Salvar endereço'}</Button>
+            </div>
+          </div>
+          <p className="text-xs text-slate-400">
+            {form.lat != null && form.lng != null
+              ? `Coordenadas: ${form.lat.toFixed(6)}, ${form.lng.toFixed(6)}${form.geocoded_at ? ` (geocodificado em ${new Date(form.geocoded_at).toLocaleString('pt-BR')})` : ''}`
+              : 'Sem coordenadas ainda — salve o endereço para geocodificar automaticamente (OpenStreetMap).'}
+          </p>
+        </form>
+      )}
+    </Card>
+  );
+}
+
+/** Rótulo do sub_biz_status do 99Food (estado detalhado em tempo real). */
+const SUB_BIZ_LABEL: Record<number, string> = {
+  0: '—', 1: 'Loja aberta', 2: 'Pausada', 3: 'Fechada', 4: 'Desconectada',
+  5: 'Fechada por hoje', 6: 'Bloqueada', 7: 'Fechada pelo sistema (sem entregador)',
+};
+
 /** Cenário 1: informações e disponibilidade da loja. */
-function StoreInfo({ cid }: { cid: number }) {
+function StoreInfo({ cid, platform }: { cid: number; platform: string }) {
+  const qc = useQueryClient();
   const details = useQuery({ queryKey: ['merchant-details', cid], queryFn: () => merchantApi.details(cid) });
   const status = useQuery({ queryKey: ['merchant-status', cid], queryFn: () => merchantApi.status(cid) });
   const statusArr = Array.isArray(status.data) ? status.data as Record<string, unknown>[] : null;
+  const statusObj = !Array.isArray(status.data) && status.data && typeof status.data === 'object'
+    ? status.data as Record<string, unknown> : null;
+  const [err, setErr] = useState('');
+
+  const setOpen = useMutation({
+    mutationFn: (open: boolean) => merchantApi.setStoreStatus(cid, open),
+    onSuccess: () => {
+      setErr('');
+      qc.invalidateQueries({ queryKey: ['merchant-status', cid] });
+      qc.invalidateQueries({ queryKey: ['merchant-details', cid] });
+    },
+    onError: (e) => setErr(apiError(e)),
+  });
 
   return (
     <Card>
@@ -71,14 +176,32 @@ function StoreInfo({ cid }: { cid: number }) {
       {details.data && (
         <div className="space-y-1 text-sm">
           <Row label="Nome" value={String(details.data.name ?? details.data.corporateName ?? '—')} />
-          <Row label="ID" value={String(details.data.id ?? '—')} />
+          <Row label="ID" value={String(details.data.id ?? details.data.app_shop_id ?? '—')} />
           {'status' in details.data && <Row label="Status" value={String(details.data.status)} />}
+          {'addr' in details.data && <Row label="Endereço" value={String(details.data.addr ?? '—')} />}
         </div>
       )}
 
       <h4 className="mb-2 mt-4 text-sm font-semibold text-slate-700">Disponibilidade</h4>
+      {err && <div className="mb-3"><ErrorBox message={err} /></div>}
       {status.isLoading && <Spinner />}
       {status.error && <ErrorBox message={apiError(status.error)} />}
+      {platform === '99food' && statusObj && (
+        <div className="space-y-2 text-sm">
+          <div className="flex items-center gap-2">
+            <span className={`h-2 w-2 rounded-full ${statusObj.available ? 'bg-emerald-500' : 'bg-red-500'}`} />
+            <span className="text-slate-700">{statusObj.available ? 'Loja aberta' : 'Loja fechada'}</span>
+            <span className="text-slate-500">
+              {SUB_BIZ_LABEL[Number(statusObj.sub_biz_status ?? 0)] ? `— ${SUB_BIZ_LABEL[Number(statusObj.sub_biz_status ?? 0)]}` : ''}
+            </span>
+          </div>
+          <div className="flex gap-2">
+            <Button onClick={() => setOpen.mutate(true)} disabled={setOpen.isPending || Boolean(statusObj.available)}>Abrir loja</Button>
+            <Button onClick={() => setOpen.mutate(false)} disabled={setOpen.isPending || !statusObj.available} variant="secondary">Fechar loja</Button>
+          </div>
+          <p className="text-xs text-slate-400">Fechar aqui deixa a loja offline no 99Food até você abrir de novo (ou reabrir pelo app da 99).</p>
+        </div>
+      )}
       {statusArr && (
         statusArr.length === 0 ? <p className="text-sm text-slate-400">Sem informação de disponibilidade.</p> : (
           <ul className="space-y-1 text-sm">

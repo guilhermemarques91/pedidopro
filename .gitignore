@@ -22,3 +22,7 @@ backend/dist/
 backend/uploads/
 *.tsbuildinfo
 backups/
+
+# Páginas web salvas (referência do portal 99Food/iFood — não versionar)
+*· Open platform.html
+*· Open platform_files/
