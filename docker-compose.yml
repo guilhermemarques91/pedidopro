@@ -36,11 +36,12 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile
+    image: pedidopro-erp-app
     restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
-    environment:
+    environment: &app-env
       TZ: ${TZ:-America/Sao_Paulo}
       DB_HOST: db
       DB_PORT: "3306"
@@ -58,6 +59,26 @@ services:
     ports:
       # 8090 por padrão: a 8080 costuma estar ocupada pela Evolution API (WhatsApp) neste PC.
       - "${APP_PORT:-8090}:80"
+
+  # Poller das plataformas de delivery (substitui o cron do HostGator):
+  # iFood opera por POLLING; para o 99Food o loop também reconcilia estado
+  # (callback perdido não deixa pedido preso). Sem canais ativos (ou com
+  # INTEGRATIONS_MOCK=1) o loop é inofensivo — não chama nada externo.
+  poller:
+    image: pedidopro-erp-app
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_started
+      db:
+        condition: service_healthy
+    environment: *app-env
+    # O entrypoint padrão da imagem roda migrations+Apache; aqui só o loop de poll
+    # (as migrations ficam a cargo do serviço `app`).
+    entrypoint: ["php", "/var/www/html/api/bin/poll.php", "--loop"]
+    # O healthcheck da imagem testa o Apache na :80 — não se aplica ao loop de CLI.
+    healthcheck:
+      disable: true
 
 volumes:
   db_data:
