@@ -450,6 +450,7 @@ export interface GeocodeBackfillResult {
   geocoded: number;
   reverse_geocoded: number;
   rejected: number; // resultado do Nominatim longe demais da loja (rua homônima em outra cidade)
+  not_found: number; // endereço que o OpenStreetMap não conhece (fica sem pin, honesto)
   remaining: number;
 }
 

@@ -107,6 +107,7 @@ export function DeliveryMap() {
         <div className="mb-4 rounded-lg bg-emerald-50 px-4 py-2 text-sm text-emerald-700">
           {backfill.data.geocoded} endereço(s) geocodificado(s), {backfill.data.reverse_geocoded} bairro(s) sugerido(s)
           {backfill.data.rejected > 0 && `, ${backfill.data.rejected} descartado(s) por caírem longe demais da loja`}
+          {backfill.data.not_found > 0 && `, ${backfill.data.not_found} sem resultado no OpenStreetMap (ficam sem pin)`}
           {backfill.data.remaining > 0 && ` — ainda restam ${backfill.data.remaining} sem coordenada (rode de novo)`}.
         </div>
       )}

@@ -89,6 +89,7 @@ final class GeoService
         $geocoded = 0;
         $reverseGeocoded = 0;
         $rejected = 0;
+        $notFound = 0;
         $store = self::storeSettings($orgId);
         $sLat = $store['lat'];
         $sLng = $store['lng'];
@@ -172,7 +173,7 @@ final class GeoService
             [$orgId]
         )['n'] ?? 0);
 
-        return ['geocoded' => $geocoded, 'reverse_geocoded' => $reverseGeocoded, 'rejected' => $rejected, 'remaining' => $remaining];
+        return ['geocoded' => $geocoded, 'reverse_geocoded' => $reverseGeocoded, 'rejected' => $rejected, 'not_found' => $notFound, 'remaining' => $remaining];
     }
 
     private static function addressChanged(array $current, array $fields): bool
