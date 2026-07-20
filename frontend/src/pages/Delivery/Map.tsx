@@ -61,7 +61,9 @@ export function DeliveryMap() {
   });
 
   const backfill = useMutation({
-    mutationFn: () => mapApi.backfill(15),
+    // Lote de 10: com a cadeia de fallback do geocode (até 3 tentativas × 1.1s por
+    // endereço), 15 poderia estourar o timeout de 120s da chamada.
+    mutationFn: () => mapApi.backfill(10),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['delivery-map'] }),
   });
   const correct = useMutation({
@@ -104,6 +106,7 @@ export function DeliveryMap() {
       {backfill.isSuccess && (
         <div className="mb-4 rounded-lg bg-emerald-50 px-4 py-2 text-sm text-emerald-700">
           {backfill.data.geocoded} endereço(s) geocodificado(s), {backfill.data.reverse_geocoded} bairro(s) sugerido(s)
+          {backfill.data.rejected > 0 && `, ${backfill.data.rejected} descartado(s) por caírem longe demais da loja`}
           {backfill.data.remaining > 0 && ` — ainda restam ${backfill.data.remaining} sem coordenada (rode de novo)`}.
         </div>
       )}

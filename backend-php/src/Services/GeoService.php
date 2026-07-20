@@ -28,7 +28,11 @@ final class GeoService
 
     public static function storeSettings(int $orgId): array
     {
-        return Db::queryOne('SELECT * FROM store_settings WHERE org_id = ?', [$orgId]) ?? ['org_id' => $orgId];
+        $row = Db::queryOne('SELECT * FROM store_settings WHERE org_id = ?', [$orgId]) ?? ['org_id' => $orgId];
+        // DECIMAL sai como string do PDO; o frontend (e o cálculo de distância) esperam número.
+        $row['lat'] = isset($row['lat']) && $row['lat'] !== null ? (float) $row['lat'] : null;
+        $row['lng'] = isset($row['lng']) && $row['lng'] !== null ? (float) $row['lng'] : null;
+        return $row;
     }
 
     /** Atualiza o endereço da loja; geocodifica automaticamente se lat/lng não vierem explícitos e o endereço mudou. */
@@ -77,16 +81,26 @@ final class GeoService
      * do Nominatim (~1 req/seg). Só toca pedidos que já têm delivery_address.
      * @return array{geocoded:int,reverse_geocoded:int,remaining:int}
      */
+    /** Resultado a mais de 50km da loja = rua homônima em outra cidade; rejeita. */
+    private const MAX_GEOCODE_DISTANCE_M = 50_000;
+
     public static function backfill(int $limit, int $orgId): array
     {
         $geocoded = 0;
         $reverseGeocoded = 0;
+        $rejected = 0;
+        $store = self::storeSettings($orgId);
+        $sLat = $store['lat'];
+        $sLng = $store['lng'];
 
+        // geocode_failed marca endereços já rejeitados (fora do raio) — não re-tenta
+        // a cada rodada, senão o lote inteiro se esgota nos mesmos endereços ruins.
         $rows = Db::query(
             "SELECT id, delivery_address FROM delivery_orders
               WHERE delivery_address IS NOT NULL
                 AND org_id = ?
                 AND JSON_EXTRACT(delivery_address, '$.lat') IS NULL
+                AND JSON_EXTRACT(delivery_address, '$.geocode_failed') IS NULL
               ORDER BY created_at DESC
               LIMIT " . max(1, $limit),
             [$orgId]
@@ -96,20 +110,23 @@ final class GeoService
             if (!is_array($addr)) {
                 continue;
             }
-            $query = self::addressQuery($addr);
-            if ($query === '') {
-                continue;
-            }
-            $g = NominatimClient::geocode($query);
+            $g = self::geocodeWithFallback($addr, $store);
             if ($g !== null && $g['lat'] !== null && $g['lng'] !== null) {
-                $addr['lat'] = $g['lat'];
-                $addr['lng'] = $g['lng'];
-                $addr['geocode_source'] = 'nominatim';
-                $addr['geocoded_at'] = date('c');
+                $far = $sLat !== null && $sLng !== null
+                    && self::haversineMeters($sLat, $sLng, $g['lat'], $g['lng']) > self::MAX_GEOCODE_DISTANCE_M;
+                if ($far) {
+                    $addr['geocode_failed'] = 'far_from_store';
+                    $rejected++;
+                } else {
+                    $addr['lat'] = $g['lat'];
+                    $addr['lng'] = $g['lng'];
+                    $addr['geocode_source'] = 'nominatim';
+                    $addr['geocoded_at'] = date('c');
+                    $geocoded++;
+                }
                 Db::execute('UPDATE delivery_orders SET delivery_address = ? WHERE id = ?', [
                     json_encode($addr, JSON_UNESCAPED_UNICODE), $row['id'],
                 ]);
-                $geocoded++;
             }
             usleep(1_100_000);
         }
@@ -142,11 +159,14 @@ final class GeoService
         }
 
         $remaining = (int) (Db::queryOne(
-            "SELECT COUNT(*) AS n FROM delivery_orders WHERE delivery_address IS NOT NULL AND org_id = ? AND JSON_EXTRACT(delivery_address, '$.lat') IS NULL",
+            "SELECT COUNT(*) AS n FROM delivery_orders
+              WHERE delivery_address IS NOT NULL AND org_id = ?
+                AND JSON_EXTRACT(delivery_address, '$.lat') IS NULL
+                AND JSON_EXTRACT(delivery_address, '$.geocode_failed') IS NULL",
             [$orgId]
         )['n'] ?? 0);
 
-        return ['geocoded' => $geocoded, 'reverse_geocoded' => $reverseGeocoded, 'remaining' => $remaining];
+        return ['geocoded' => $geocoded, 'reverse_geocoded' => $reverseGeocoded, 'rejected' => $rejected, 'remaining' => $remaining];
     }
 
     private static function addressChanged(array $current, array $fields): bool
@@ -162,11 +182,89 @@ final class GeoService
         return false;
     }
 
-    private static function addressQuery(array $a): string
+    /**
+     * Geocodifica tentando do mais específico ao mais genérico. O Nominatim raramente
+     * resolve "rua + número + bairro" num free-text só (testado: falha até com endereço
+     * limpo), mas resolve bem rua+cidade, CEP+cidade e bairro+cidade — precisão de rua
+     * já basta para o relatório de distância. Cidade/UF ausentes caem para as da LOJA
+     * (sem cidade o Nominatim acha rua homônima em outra cidade).
+     */
+    private static function geocodeWithFallback(array $addr, array $store): ?array
+    {
+        $city = trim((string) ($addr['city'] ?? '')) !== '' ? trim((string) $addr['city']) : trim((string) ($store['city'] ?? ''));
+        $state = trim((string) ($addr['state'] ?? '')) !== '' ? trim((string) $addr['state']) : trim((string) ($store['state'] ?? ''));
+        $suffix = implode(', ', array_filter([$city ?: null, $state ?: null, 'Brasil']));
+
+        $street = self::normalizePart($addr['street'] ?? null);
+        $number = trim((string) ($addr['number'] ?? ''));
+        $neighborhood = self::normalizePart($addr['neighborhood'] ?? null);
+        $postal = trim((string) ($addr['postal_code'] ?? ''));
+
+        $tries = [];
+        if ($street !== null) {
+            if ($number !== '') {
+                $tries[] = "{$street} {$number}, {$suffix}";
+            }
+            $tries[] = "{$street}, {$suffix}";
+        }
+        if ($postal !== '' && $city !== '') {
+            $tries[] = "{$city}, {$state}, {$postal}, Brasil";
+        }
+        if ($neighborhood !== null) {
+            $tries[] = "{$neighborhood}, {$suffix}";
+        }
+
+        foreach (array_values(array_unique($tries)) as $i => $q) {
+            if ($i > 0) {
+                usleep(1_100_000); // limite de uso do Nominatim (~1 req/s) entre tentativas
+            }
+            $g = NominatimClient::geocode($q);
+            if ($g !== null && $g['lat'] !== null && $g['lng'] !== null) {
+                return $g;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Limpa um pedaço de endereço vindo da plataforma: o 99Food abrevia com espaços
+     * estranhos ("R . Geraldo Ribeiro", "Maria Imac .") que o Nominatim não entende.
+     */
+    private static function normalizePart(?string $v): ?string
+    {
+        $v = trim((string) $v);
+        if ($v === '') {
+            return null;
+        }
+        $v = (string) preg_replace('/\s+\.\s*/', ' ', $v); // "R . X" -> "R X"; "Imac ." -> "Imac"
+        $v = (string) preg_replace('/\s{2,}/', ' ', trim($v));
+        $abbr = [
+            '/^r\.?\s+/iu' => 'Rua ',
+            '/^av\.?\s+/iu' => 'Avenida ',
+            '/^tv\.?\s+/iu' => 'Travessa ',
+            '/^al\.?\s+/iu' => 'Alameda ',
+            '/^(pç|pc|pca)\.?\s+/iu' => 'Praça ',
+            '/^rod\.?\s+/iu' => 'Rodovia ',
+            '/^estr\.?\s+/iu' => 'Estrada ',
+        ];
+        foreach ($abbr as $re => $full) {
+            $n = preg_replace($re, $full, $v, 1, $count);
+            if ($count > 0) {
+                $v = (string) $n;
+                break;
+            }
+        }
+        return $v !== '' ? $v : null;
+    }
+
+    /** Monta a query de geocodificação; $fallback (endereço da loja) preenche cidade/UF ausentes. */
+    private static function addressQuery(array $a, array $fallback = []): string
     {
         $line = trim(($a['street'] ?? '') . ' ' . ($a['number'] ?? ''));
+        $city = trim((string) ($a['city'] ?? '')) !== '' ? $a['city'] : ($fallback['city'] ?? null);
+        $state = trim((string) ($a['state'] ?? '')) !== '' ? $a['state'] : ($fallback['state'] ?? null);
         $parts = array_filter(
-            [$line, $a['neighborhood'] ?? null, $a['city'] ?? null, $a['state'] ?? null, $a['postal_code'] ?? null, 'Brasil'],
+            [$line, $a['neighborhood'] ?? null, $city, $state, $a['postal_code'] ?? null, 'Brasil'],
             static fn ($v) => $v !== null && trim((string) $v) !== ''
         );
         return implode(', ', $parts);

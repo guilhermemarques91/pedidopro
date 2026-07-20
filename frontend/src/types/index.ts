@@ -449,6 +449,7 @@ export interface DeliveryMapResponse {
 export interface GeocodeBackfillResult {
   geocoded: number;
   reverse_geocoded: number;
+  rejected: number; // resultado do Nominatim longe demais da loja (rua homônima em outra cidade)
   remaining: number;
 }
 

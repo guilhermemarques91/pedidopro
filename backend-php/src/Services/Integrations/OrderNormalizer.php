@@ -310,6 +310,19 @@ final class OrderNormalizer
                 'formatted' => self::str($a['formattedAddress'] ?? null),
             ];
         }
+        // Coordenadas: normaliza para float e descarta o par "arredondado" que o
+        // 99Food manda quando não tem o pin exato (ex.: poi_lat=-22, poi_lng=-47 —
+        // cai a ~48km da cidade). Lat/lng ambos inteiros exatos nunca são um endereço
+        // real; sem eles o pedido fica precisando de geocode e o backfill resolve
+        // pelo endereço textual.
+        $lat = is_numeric($out['lat'] ?? null) ? (float) $out['lat'] : null;
+        $lng = is_numeric($out['lng'] ?? null) ? (float) $out['lng'] : null;
+        if ($lat !== null && $lng !== null && $lat === floor($lat) && $lng === floor($lng)) {
+            $lat = $lng = null;
+        }
+        $out['lat'] = $lat;
+        $out['lng'] = $lng;
+
         // Monta um 'formatted' quando a plataforma não manda um pronto.
         if ($out['formatted'] === null) {
             $line = trim(($out['street'] ?? '') . ' ' . ($out['number'] ?? ''));

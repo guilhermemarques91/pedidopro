@@ -26,3 +26,6 @@ backups/
 # Páginas web salvas (referência do portal 99Food/iFood — não versionar)
 *· Open platform.html
 *· Open platform_files/
+
+# Dumps de banco nunca entram no repo (ficam em backups/, ja ignorado)
+/*.sql

@@ -351,7 +351,9 @@ export const storeSettingsApi = {
 export const mapApi = {
   list: (f: MapFilters = {}) => api.get<DeliveryMapResponse>('/delivery/map', { params: f }).then((r) => r.data),
   backfill: (limit = 15) =>
-    api.post<GeocodeBackfillResult>('/delivery/map/backfill', { limit }, { timeout: 35000 }).then((r) => r.data),
+    // Cada endereço custa ~2×(1.1s de pausa + rede) no Nominatim: um lote de 15 pode
+    // passar de 60s — timeout folgado para não estourar no meio do lote.
+    api.post<GeocodeBackfillResult>('/delivery/map/backfill', { limit }, { timeout: 120000 }).then((r) => r.data),
   correctNeighborhood: (orderId: number, neighborhood: string) =>
     api.patch<DeliveryOrderDetail>(`/delivery/orders/${orderId}/address`, { neighborhood }).then((r) => r.data),
 };
