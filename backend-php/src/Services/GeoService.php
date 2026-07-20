@@ -121,13 +121,19 @@ final class GeoService
                     $addr['lat'] = $g['lat'];
                     $addr['lng'] = $g['lng'];
                     $addr['geocode_source'] = 'nominatim';
+                    $addr['geocode_precision'] = $g['precision'] ?? null; // street|neighborhood
                     $addr['geocoded_at'] = date('c');
                     $geocoded++;
                 }
-                Db::execute('UPDATE delivery_orders SET delivery_address = ? WHERE id = ?', [
-                    json_encode($addr, JSON_UNESCAPED_UNICODE), $row['id'],
-                ]);
+            } else {
+                // Endereço que o OpenStreetMap não conhece: marca para não re-tentar em
+                // toda rodada (fica sem pin; melhor cinza do que um pin errado).
+                $addr['geocode_failed'] = 'not_found';
+                $notFound++;
             }
+            Db::execute('UPDATE delivery_orders SET delivery_address = ? WHERE id = ?', [
+                json_encode($addr, JSON_UNESCAPED_UNICODE), $row['id'],
+            ]);
             usleep(1_100_000);
         }
 
@@ -198,30 +204,46 @@ final class GeoService
         $street = self::normalizePart($addr['street'] ?? null);
         $number = trim((string) ($addr['number'] ?? ''));
         $neighborhood = self::normalizePart($addr['neighborhood'] ?? null);
-        $postal = trim((string) ($addr['postal_code'] ?? ''));
 
+        // [query, termo que o resultado PRECISA citar, precisão]. Sem tentativa por CEP:
+        // o Nominatim não resolve CEP brasileiro — devolve o centroide da cidade (ou um
+        // bairro aleatório) fingindo sucesso, e o pin cai longe do endereço real.
         $tries = [];
         if ($street !== null) {
             if ($number !== '') {
-                $tries[] = "{$street} {$number}, {$suffix}";
+                $tries[] = ["{$street} {$number}, {$suffix}", $street, 'street'];
             }
-            $tries[] = "{$street}, {$suffix}";
-        }
-        if ($postal !== '' && $city !== '') {
-            $tries[] = "{$city}, {$state}, {$postal}, Brasil";
+            $tries[] = ["{$street}, {$suffix}", $street, 'street'];
         }
         if ($neighborhood !== null) {
-            $tries[] = "{$neighborhood}, {$suffix}";
+            $tries[] = ["{$neighborhood}, {$suffix}", $neighborhood, 'neighborhood'];
         }
 
-        foreach (array_values(array_unique($tries)) as $i => $q) {
-            if ($i > 0) {
+        $seen = [];
+        $first = true;
+        foreach ($tries as [$q, $mustContain, $precision]) {
+            if (isset($seen[$q])) {
+                continue;
+            }
+            $seen[$q] = true;
+            if (!$first) {
                 usleep(1_100_000); // limite de uso do Nominatim (~1 req/s) entre tentativas
             }
+            $first = false;
             $g = NominatimClient::geocode($q);
-            if ($g !== null && $g['lat'] !== null && $g['lng'] !== null) {
-                return $g;
+            if ($g === null || $g['lat'] === null || $g['lng'] === null) {
+                continue;
             }
+            // O Nominatim "acha alguma coisa" mesmo sem ter o dado (ex.: só a cidade):
+            // válido apenas se o resultado citar a rua/bairro pedidos. Sem match em
+            // nenhuma tentativa, o pedido fica SEM coordenada (pin cinza) — honesto,
+            // em vez de um pin confiante no lugar errado.
+            $display = self::normalizeText((string) ($g['display_name'] ?? ''));
+            if ($display === '' || !str_contains($display, self::normalizeText($mustContain))) {
+                continue;
+            }
+            $g['precision'] = $precision;
+            return $g;
         }
         return null;
     }

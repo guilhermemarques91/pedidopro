@@ -101,6 +101,19 @@ final class DeliveryController
     public static function cancel(Request $req): void   { self::command($req, 'cancel'); }
 
     /**
+     * POST /delivery/orders/:id/printed — reivindica a impressão da comanda.
+     * Atômico: só o primeiro cliente a chamar "reivindica" (claimed=true); os demais
+     * (ex.: painel aberto em 2 telas) recebem claimed=false e não reimprimem.
+     */
+    public static function markPrinted(Request $req): void
+    {
+        $id = $req->intParam('id');
+        self::row($id); // 404 se não existir
+        $claimed = Db::execute('UPDATE delivery_orders SET printed_at = NOW() WHERE id = ? AND printed_at IS NULL', [$id]) > 0;
+        Http::json(['claimed' => $claimed]);
+    }
+
+    /**
      * PATCH /delivery/orders/:id/address — corrige o bairro do pedido depois de ver
      * a localização real no mapa. Preserva o valor original (1ª correção) para auditoria.
      */

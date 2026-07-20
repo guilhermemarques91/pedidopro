@@ -1,13 +1,18 @@
+import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { Bike, Store, Clock, MapPin, ExternalLink, RefreshCw } from 'lucide-react';
+import { Bike, Store, Clock, MapPin, ExternalLink, RefreshCw, Printer } from 'lucide-react';
 import { deliveryApi } from '../../services/resources';
 import { apiError } from '../../services/api';
 import { useAuth } from '../../store/auth.store';
 import type { DeliveryOrder, DeliveryStatus, DeliveryAlert } from '../../types';
 import { PageHeader } from '../../components/PageHeader';
-import { Button, Card, Spinner, ErrorBox, EmptyState } from '../../components/ui';
+import { Button, Card, Spinner, ErrorBox, EmptyState, Modal } from '../../components/ui';
 import { brl, formatAddress } from '../../utils/format';
+import { getPrinterMap, setPrinterMap, listSystemPrinters, isPrintConfigured, printReceipt, printTest, type PrinterMap } from '../../services/print';
+
+// Status em que a comanda deve ser impressa automaticamente ao aparecer no painel.
+const AUTOPRINT_STATUS: DeliveryStatus[] = ['placed', 'confirmed', 'preparing'];
 
 // Colunas operacionais do painel (kanban). 'preparing' entra junto de 'confirmed'.
 const COLUMNS: { key: DeliveryStatus; title: string; match: DeliveryStatus[] }[] = [
@@ -26,6 +31,7 @@ const PLATFORM_META: Record<string, { label: string; cls: string }> = {
 export function Delivery() {
   const qc = useQueryClient();
   const isAdmin = useAuth((s) => s.can('delivery:admin'));
+  const [showPrinters, setShowPrinters] = useState(false);
   const { data, isLoading, error } = useQuery({
     queryKey: ['delivery-orders'],
     queryFn: () => deliveryApi.list(),
@@ -49,17 +55,63 @@ export function Delivery() {
   const acceptAlert = useMutation({ mutationFn: deliveryApi.acceptAlert, onSuccess: invalidateAlerts });
   const rejectAlert = useMutation({ mutationFn: deliveryApi.rejectAlert, onSuccess: invalidateAlerts });
 
+  // Impressão manual pelo card (fallback caso a automática falhe). Busca o detalhe
+  // (itens) e manda pro QZ; se QZ indisponível, cai no diálogo do navegador.
+  const printOrder = async (id: number) => {
+    try {
+      const full = await deliveryApi.get(id);
+      if (isPrintConfigured()) await printReceipt(full);
+      else window.open(`/delivery/${id}/print`, '_blank');
+    } catch (e) {
+      console.error('Falha na impressão pelo QZ', e);
+      window.open(`/delivery/${id}/print`, '_blank');
+    }
+  };
+
+  // Impressão automática da comanda (2 impressoras via QZ Tray) ao chegar/confirmar o
+  // pedido. Roda no navegador do PC do caixa (painel aberto = operação normal); o
+  // endpoint /printed marca após o sucesso e deduplica entre telas.
+  const printAttempts = useRef<Set<number>>(new Set());
+  useEffect(() => {
+    if (!data || !isPrintConfigured()) return;
+    const pending = data.filter(
+      (o) => !o.printed_at && AUTOPRINT_STATUS.includes(o.status) && !printAttempts.current.has(o.id),
+    );
+    for (const o of pending) {
+      printAttempts.current.add(o.id);
+      (async () => {
+        try {
+          const full = await deliveryApi.get(o.id);
+          await printReceipt(full);
+          await deliveryApi.printed(o.id); // marca só após imprimir com sucesso (dedup entre telas)
+        } catch (e) {
+          printAttempts.current.delete(o.id); // libera p/ nova tentativa no próximo poll (ex.: QZ offline)
+          console.error('Impressão automática falhou para o pedido', o.id, e);
+        }
+      })();
+    }
+  }, [data]);
+
   return (
     <div>
       <PageHeader
         title="Painel de Pedidos"
         subtitle="Pedidos de delivery em tempo real — iFood e 99Food"
-        action={isAdmin && (
-          <Button variant="secondary" disabled={sync.isPending} onClick={() => sync.mutate()}>
-            <RefreshCw size={16} className={sync.isPending ? 'animate-spin' : ''} /> Sincronizar agora
-          </Button>
-        )}
+        action={
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" onClick={() => setShowPrinters(true)}>
+              <Printer size={16} /> Impressoras
+            </Button>
+            {isAdmin && (
+              <Button variant="secondary" disabled={sync.isPending} onClick={() => sync.mutate()}>
+                <RefreshCw size={16} className={sync.isPending ? 'animate-spin' : ''} /> Sincronizar agora
+              </Button>
+            )}
+          </div>
+        }
       />
+
+      {showPrinters && <PrinterConfig onClose={() => setShowPrinters(false)} />}
 
       {isLoading && <Spinner />}
       {error && <ErrorBox message={apiError(error)} />}
@@ -88,6 +140,7 @@ export function Delivery() {
                       onReady={() => ready.mutate(o.id)}
                       onDispatch={() => dispatch.mutate(o.id)}
                       onCancel={() => { if (window.confirm(`Cancelar o pedido ${o.display_id ?? o.id}?`)) cancel.mutate(o.id); }}
+                      onPrint={() => printOrder(o.id)}
                     />
                   ))}
                 </div>
@@ -176,7 +229,7 @@ function CancelledStrip({ orders }: { orders: DeliveryOrder[] }) {
 }
 
 function OrderCard({
-  order, busy, onConfirm, onReady, onDispatch, onCancel,
+  order, busy, onConfirm, onReady, onDispatch, onCancel, onPrint,
 }: {
   order: DeliveryOrder;
   busy: boolean;
@@ -184,7 +237,10 @@ function OrderCard({
   onReady: () => void;
   onDispatch: () => void;
   onCancel: () => void;
+  onPrint: () => Promise<void>;
 }) {
+  const [printing, setPrinting] = useState(false);
+  const handlePrint = async () => { setPrinting(true); try { await onPrint(); } finally { setPrinting(false); } };
   const p = PLATFORM_META[order.platform] ?? { label: order.platform, cls: 'bg-slate-100 text-slate-700' };
   const mode = order.delivery_mode;
   return (
@@ -222,6 +278,9 @@ function OrderCard({
         {order.status === 'dispatched' && (
           <Link to={`/delivery/${order.id}`}><Button variant="secondary" className="px-3 py-1.5 text-xs">Acompanhar</Button></Link>
         )}
+        <Button variant="secondary" className="px-3 py-1.5 text-xs" disabled={printing} onClick={handlePrint} title="Imprimir comanda">
+          <Printer size={12} /> {printing ? '…' : 'Imprimir'}
+        </Button>
         {['placed', 'confirmed', 'preparing', 'ready'].includes(order.status) && (
           <Button variant="ghost" className="px-3 py-1.5 text-xs" disabled={busy} onClick={onCancel}>Cancelar</Button>
         )}
@@ -235,5 +294,102 @@ function OrderCard({
         ) : null;
       })()}
     </Card>
+  );
+}
+/**
+ * Configuração das impressoras da comanda (por PC). Detecta as impressoras do SO via
+ * QZ Tray e mapeia cada PAPEL: cozinha (via de preparo, sem valores) e balcão (via
+ * completa). O mapa fica no localStorage desta máquina — é ela que dispara a impressão.
+ */
+function PrinterConfig({ onClose }: { onClose: () => void }) {
+  const [available, setAvailable] = useState<string[]>([]);
+  const [map, setMap] = useState<PrinterMap>(getPrinterMap());
+  const [detecting, setDetecting] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const detect = async () => {
+    setDetecting(true);
+    setError(null);
+    try {
+      setAvailable(await listSystemPrinters());
+    } catch (e) {
+      setError('Não foi possível conectar ao QZ Tray. Verifique se ele está instalado e aberto neste PC.');
+      console.error(e);
+    } finally {
+      setDetecting(false);
+    }
+  };
+
+  const test = async () => {
+    setTesting(true);
+    setError(null);
+    setMsg(null);
+    try {
+      setPrinterMap(map);             // salva antes p/ o teste usar a seleção atual
+      await printTest();
+      setMsg('Teste enviado. Confira o papel nas impressoras configuradas.');
+    } catch (e) {
+      setError('Falha ao imprimir o teste. Verifique o QZ Tray e as impressoras escolhidas.');
+      console.error(e);
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const save = () => { setPrinterMap(map); onClose(); };
+
+  // Mostra também impressoras já salvas que ainda não foram redetectadas.
+  const options = Array.from(new Set([available, [map.kitchen, map.counter]].flat().filter(Boolean) as string[]));
+  const configured = !!(map.kitchen || map.counter);
+
+  const RoleSelect = ({ role, label, hint }: { role: keyof PrinterMap; label: string; hint: string }) => (
+    <label className="block">
+      <span className="text-sm font-medium text-slate-700">{label}</span>
+      <span className="ml-1 text-xs text-slate-400">{hint}</span>
+      <select
+        className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
+        value={map[role] ?? ''}
+        onChange={(e) => setMap((m) => ({ ...m, [role]: e.target.value || null }))}
+      >
+        <option value="">— nenhuma —</option>
+        {options.map((name) => <option key={name} value={name}>{name}</option>)}
+      </select>
+    </label>
+  );
+
+  return (
+    <Modal title="Impressoras da comanda" onClose={onClose}>
+      <p className="mb-3 text-xs text-slate-500">
+        Cada papel imprime uma via: a <b>cozinha</b> recebe só os itens (sem valores) e o <b>balcão</b>,
+        a comanda completa. Requer o QZ Tray instalado e aberto neste computador.
+      </p>
+
+      <Button variant="secondary" className="text-xs" disabled={detecting} onClick={detect}>
+        <RefreshCw size={14} className={detecting ? 'animate-spin' : ''} /> Detectar impressoras
+      </Button>
+
+      {error && <div className="mt-3"><ErrorBox message={error} /></div>}
+      {msg && <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-700">{msg}</p>}
+
+      {options.length === 0 ? (
+        <p className="mt-3 text-xs text-slate-400">Clique em “Detectar impressoras” para listar as impressoras deste PC.</p>
+      ) : (
+        <div className="mt-4 space-y-3">
+          <RoleSelect role="kitchen" label="Cozinha" hint="via de preparo (só itens)" />
+          <RoleSelect role="counter" label="Balcão" hint="via completa (valores + entrega)" />
+          <p className="text-xs text-slate-400">Pode usar a mesma impressora nos dois, ou deixar um deles como “nenhuma”.</p>
+        </div>
+      )}
+
+      <div className="mt-4 flex justify-end gap-2">
+        <Button variant="secondary" className="text-xs" disabled={testing || !configured} onClick={test}>
+          <Printer size={14} /> {testing ? 'Enviando…' : 'Imprimir teste'}
+        </Button>
+        <Button variant="ghost" className="text-xs" onClick={onClose}>Cancelar</Button>
+        <Button className="text-xs" onClick={save}>Salvar</Button>
+      </div>
+    </Modal>
   );
 }
