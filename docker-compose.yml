@@ -56,6 +56,10 @@ services:
       # Sem internet no bootstrap: não chamar plataformas externas (iFood/99Food).
       INTEGRATIONS_MOCK: ${INTEGRATIONS_MOCK:-1}
       CORS_ORIGINS: ""
+      # Assinatura da impressão QZ Tray (PEM em base64 no .env ao lado; vazio = modo
+      # não-assinado, o QZ pede "Permitir" no PC do painel).
+      QZ_CERT_B64: ${QZ_CERT_B64:-}
+      QZ_PRIVATE_KEY_B64: ${QZ_PRIVATE_KEY_B64:-}
     ports:
       # 8090 por padrão: a 8080 costuma estar ocupada pela Evolution API (WhatsApp) neste PC.
       - "${APP_PORT:-8090}:80"
