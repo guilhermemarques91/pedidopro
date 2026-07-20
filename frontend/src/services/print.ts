@@ -46,11 +46,11 @@ function loadQz(): Promise<QZ> {
  * Sem certificado (QZ_CERT_PATH não configurado), não registra nada: o QZ opera em modo
  * não-assinado e pede "Permitir" uma vez (com opção de lembrar). Evita erro de cert vazio.
  */
-async function configureSecurity(qz: QZ): Promise<void> {
+async function configureSecurity(qz: QZ): Promise<boolean> {
   const raw = { transformResponse: [(d: unknown) => d] }; // mantém texto cru (cert/base64)
   let cert = '';
   try { cert = (await api.get<string>('/delivery/print/cert', raw)).data ?? ''; } catch { cert = ''; }
-  if (!cert || !String(cert).trim()) return; // modo não-assinado (prompt único no QZ)
+  if (!cert || !String(cert).trim()) return false; // modo não-assinado (prompt único no QZ)
 
   qz.security.setCertificatePromise((resolve: (v: string) => void) => resolve(cert));
   qz.security.setSignatureAlgorithm('SHA512');
@@ -59,14 +59,24 @@ async function configureSecurity(qz: QZ): Promise<void> {
       api.post<string>('/delivery/print/sign', { request: toSign }, raw)
         .then((r) => resolve(r.data)).catch(reject);
     });
+  return true;
 }
 
-/** Garante conexão ativa com o QZ Tray. */
+// O certificado é apresentado ao QZ NA CONEXÃO: uma conexão aberta antes de a
+// assinatura existir fica anônima para sempre (o QZ trava o "Remember" e pede
+// Allow a cada impressão). Rastreia se a conexão ativa nasceu assinada.
+let connectedSigned = false;
+
+/** Garante conexão ativa com o QZ Tray (reconecta se a assinatura surgiu depois). */
 async function connect(): Promise<QZ> {
   const qz = await loadQz();
-  await configureSecurity(qz);
+  const signed = await configureSecurity(qz);
+  if (qz.websocket.isActive() && signed && !connectedSigned) {
+    try { await qz.websocket.disconnect(); } catch { /* conexão já caiu — segue */ }
+  }
   if (!qz.websocket.isActive()) {
     await qz.websocket.connect();
+    connectedSigned = signed;
   }
   return qz;
 }
