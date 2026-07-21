@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { Bike, Store, Clock, MapPin, ExternalLink, RefreshCw, Printer } from 'lucide-react';
@@ -10,9 +10,6 @@ import { PageHeader } from '../../components/PageHeader';
 import { Button, Card, Spinner, ErrorBox, EmptyState, Modal } from '../../components/ui';
 import { brl, formatAddress } from '../../utils/format';
 import { getPrinterMap, setPrinterMap, listSystemPrinters, isPrintConfigured, printReceipt, printTest, type PrinterMap } from '../../services/print';
-
-// Status em que a comanda deve ser impressa automaticamente ao aparecer no painel.
-const AUTOPRINT_STATUS: DeliveryStatus[] = ['placed', 'confirmed', 'preparing'];
 
 // Colunas operacionais do painel (kanban). 'preparing' entra junto de 'confirmed'.
 const COLUMNS: { key: DeliveryStatus; title: string; match: DeliveryStatus[] }[] = [
@@ -68,29 +65,9 @@ export function Delivery() {
     }
   };
 
-  // Impressão automática da comanda (2 impressoras via QZ Tray) ao chegar/confirmar o
-  // pedido. Roda no navegador do PC do caixa (painel aberto = operação normal); o
-  // endpoint /printed marca após o sucesso e deduplica entre telas.
-  const printAttempts = useRef<Set<number>>(new Set());
-  useEffect(() => {
-    if (!data || !isPrintConfigured()) return;
-    const pending = data.filter(
-      (o) => !o.printed_at && AUTOPRINT_STATUS.includes(o.status) && !printAttempts.current.has(o.id),
-    );
-    for (const o of pending) {
-      printAttempts.current.add(o.id);
-      (async () => {
-        try {
-          const full = await deliveryApi.get(o.id);
-          await printReceipt(full);
-          await deliveryApi.printed(o.id); // marca só após imprimir com sucesso (dedup entre telas)
-        } catch (e) {
-          printAttempts.current.delete(o.id); // libera p/ nova tentativa no próximo poll (ex.: QZ offline)
-          console.error('Impressão automática falhou para o pedido', o.id, e);
-        }
-      })();
-    }
-  }, [data]);
+  // A impressão automática da comanda agora roda GLOBALMENTE (componente <AutoPrint/>
+  // no Layout), então imprime mesmo com o operador em outra tela do app. Aqui sobra
+  // só a impressão manual pelo card (printOrder acima).
 
   return (
     <div>

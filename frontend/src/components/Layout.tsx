@@ -10,6 +10,7 @@ import {
 import { useAuth } from '../store/auth.store';
 import { inboxApi } from '../services/resources';
 import { AppName, Logo } from '../config/brand';
+import { AutoPrint } from './AutoPrint';
 
 type NavItem = {
   to: string;
@@ -199,6 +200,8 @@ export function Layout() {
 
   return (
     <div className="flex h-screen bg-slate-50">
+      {/* Impressão automática de comandas: roda em qualquer página (não só no painel). */}
+      {can('delivery:operate') && <AutoPrint />}
       {/* Backdrop no mobile quando o menu está aberto */}
       {menuOpen && (
         <div className="fixed inset-0 z-30 bg-black/40 md:hidden" onClick={() => setMenuOpen(false)} />
