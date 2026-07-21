@@ -244,7 +244,7 @@ final class IngestService
             return 0;
         }
         $active = Db::query(
-            "SELECT platform_order_id FROM delivery_orders
+            "SELECT platform_order_id, status FROM delivery_orders
               WHERE channel_id = ? AND status NOT IN ('concluded','cancelled')
                 AND created_at >= (NOW() - INTERVAL 2 DAY)",
             [(int) $channel['id']]
@@ -252,6 +252,7 @@ final class IngestService
         $updated = 0;
         foreach ($active as $o) {
             $oid = (string) $o['platform_order_id'];
+            $cur = (string) $o['status'];
             try {
                 $detail = NineNineClient::getOrder($channel, $oid);
             } catch (\Throwable $e) {
@@ -261,32 +262,60 @@ final class IngestService
             if (!is_array($detail)) {
                 continue;
             }
-            $new = self::terminalFromDetail($detail);
+            $new = self::statusFromDetail($detail);
             if ($new === null) {
                 continue;
             }
-            $tsCol = $new === 'cancelled' ? 'cancelled_at' : 'concluded_at';
+            // Monotônico: nunca regride o pedido (o operador pode ter avançado por aqui).
+            if ((self::STATUS_RANK[$new] ?? -1) <= (self::STATUS_RANK[$cur] ?? -1)) {
+                continue;
+            }
+            $tsCol = self::STATUS_TS[$new] ?? null;
+            $set = $tsCol ? ", {$tsCol} = COALESCE({$tsCol}, NOW())" : '';
             $n = Db::execute(
-                "UPDATE delivery_orders SET status = ?, {$tsCol} = COALESCE({$tsCol}, NOW())
+                "UPDATE delivery_orders SET status = ?{$set}
                   WHERE platform = '99food' AND platform_order_id = ? AND status NOT IN ('concluded','cancelled')",
                 [$new, $oid]
             );
             if ($n > 0) {
                 $updated++;
-                self::log("reconcile 99food {$oid} -> {$new}");
+                self::log("reconcile 99food {$oid} status=" . (string) ($detail['status'] ?? '?') . " {$cur} -> {$new}");
             }
         }
         return $updated;
     }
 
-    /** Estado terminal do pedido 99Food pelos timestamps do detalhe (ou null). */
-    private static function terminalFromDetail(array $detail): ?string
+    /** Ordem do fluxo (p/ avanço monotônico); terminais no topo. */
+    private const STATUS_RANK = [
+        'placed' => 0, 'confirmed' => 1, 'preparing' => 2, 'ready' => 3,
+        'dispatched' => 4, 'concluded' => 5, 'cancelled' => 5,
+    ];
+
+    /** Coluna de carimbo por status alvo. */
+    private const STATUS_TS = [
+        'confirmed' => 'confirmed_at', 'ready' => 'ready_at', 'dispatched' => 'dispatched_at',
+        'concluded' => 'concluded_at', 'cancelled' => 'cancelled_at',
+    ];
+
+    /**
+     * Estado do pedido 99Food a partir do order/detail. Prioriza os timestamps
+     * confiáveis (cancel_time/complete_time/shop_confirm_time) e usa o status
+     * numérico do DiDi p/ detectar "saiu para entrega" (500) — 600=concluído
+     * confirmado empiricamente. Retorna null se nada a mudar.
+     */
+    private static function statusFromDetail(array $detail): ?string
     {
         if ((int) ($detail['cancel_time'] ?? 0) > 0) {
             return 'cancelled';
         }
-        if ((int) ($detail['complete_time'] ?? 0) > 0) {
+        if ((int) ($detail['complete_time'] ?? 0) > 0 || (int) ($detail['status'] ?? 0) === 600) {
             return 'concluded';
+        }
+        if ((int) ($detail['status'] ?? 0) === 500) {
+            return 'dispatched'; // em rota de entrega no app do 99Food
+        }
+        if ((int) ($detail['shop_confirm_time'] ?? 0) > 0) {
+            return 'confirmed';
         }
         return null;
     }
