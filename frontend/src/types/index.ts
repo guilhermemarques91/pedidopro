@@ -505,6 +505,7 @@ export interface MenuOption {
   name: string;
   description: string | null;
   price: number | string;
+  image_data: string | null;
   sort: number;
   active: number | boolean;
 }
@@ -532,6 +533,7 @@ export interface MenuItem {
   price: number | string;
   original_price: number | string | null;
   image_url: string | null;
+  image_data: string | null;
   external_code: string | null;
   erp_product_id: number | null;
   sort: number;
@@ -553,6 +555,7 @@ export interface MenuItemInput {
   price?: number;
   original_price?: number | null;
   image_url?: string | null;
+  image_data?: string | null;
   external_code?: string | null;
   sort?: number;
   active?: boolean;
@@ -562,7 +565,7 @@ export interface MenuItemInput {
     min: number;
     max: number;
     active?: boolean;
-    options: { id?: number; name: string; description?: string | null; price: number; active?: boolean }[];
+    options: { id?: number; name: string; description?: string | null; price: number; image_data?: string | null; active?: boolean }[];
   }[];
 }
 

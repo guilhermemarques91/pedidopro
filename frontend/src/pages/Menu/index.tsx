@@ -1,4 +1,4 @@
-import { FormEvent, useMemo, useState } from 'react';
+import { ChangeEvent, FormEvent, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2, Pencil, UploadCloud, DownloadCloud, ChevronDown, ChevronRight } from 'lucide-react';
 import { channelsApi, menuApi } from '../../services/resources';
@@ -9,6 +9,59 @@ import { Button, Card, Field, Input, Select, Spinner, ErrorBox, EmptyState, Moda
 import { brl, parseNum, numToInput } from '../../utils/format';
 
 const PLATFORM_LABEL: Record<string, string> = { ifood: 'iFood', '99food': '99Food' };
+
+const MAX_PHOTO_BYTES = 2 * 1024 * 1024; // ~2MB — cabe no MEDIUMTEXT e evita payloads gigantes
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result));
+    r.onerror = () => reject(new Error('Falha ao ler a imagem'));
+    r.readAsDataURL(file);
+  });
+}
+
+/** Seletor de foto: preview + enviar + remover. Guarda a imagem como data URL (base64). */
+function PhotoPicker({
+  value, onChange, size = 64, label = 'Foto',
+}: {
+  value: string | null;
+  onChange: (dataUrl: string | null) => void;
+  size?: number;
+  label?: string;
+}) {
+  const [err, setErr] = useState('');
+  async function pick(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // permite reenviar o mesmo arquivo
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { setErr('Selecione uma imagem'); return; }
+    if (file.size > MAX_PHOTO_BYTES) { setErr('Imagem muito grande (máx. 2MB)'); return; }
+    try { setErr(''); onChange(await readFileAsDataUrl(file)); }
+    catch { setErr('Falha ao ler a imagem'); }
+  }
+  return (
+    <div className="flex items-center gap-2">
+      {value ? (
+        <img src={value} alt={label} className="rounded border border-slate-200 object-cover" style={{ width: size, height: size }} />
+      ) : (
+        <div className="flex items-center justify-center rounded border border-dashed border-slate-300 text-slate-300" style={{ width: size, height: size }}>
+          <UploadCloud size={Math.round(size / 3)} />
+        </div>
+      )}
+      <div className="flex flex-col gap-1">
+        <label className="cursor-pointer text-xs text-emerald-600 hover:underline">
+          {value ? 'Trocar foto' : 'Enviar foto'}
+          <input type="file" accept="image/*" className="hidden" onChange={pick} />
+        </label>
+        {value && (
+          <button type="button" onClick={() => onChange(null)} className="text-left text-xs text-slate-400 hover:text-red-600">Remover</button>
+        )}
+        {err && <span className="text-xs text-red-600">{err}</span>}
+      </div>
+    </div>
+  );
+}
 
 export function MenuPage() {
   const qc = useQueryClient();
@@ -245,12 +298,19 @@ function CategoryCard({
   );
 }
 
+interface OptionDraft {
+  id?: number;
+  name: string;
+  price: string;
+  image_data: string | null;
+  active: boolean;
+}
 interface GroupDraft {
   id?: number;
   name: string;
   min: number;
   max: number;
-  options: { id?: number; name: string; price: string }[];
+  options: OptionDraft[];
 }
 
 function ItemModal({
@@ -268,13 +328,20 @@ function ItemModal({
   const [originalPrice, setOriginalPrice] = useState(numToInput(item?.original_price ?? ''));
   const [externalCode, setExternalCode] = useState(item?.external_code ?? '');
   const [catId, setCatId] = useState(item?.category_id ?? categoryId);
+  const [imageData, setImageData] = useState<string | null>(item?.image_data ?? item?.image_url ?? null);
   const [groups, setGroups] = useState<GroupDraft[]>(
     (item?.groups ?? []).map((g) => ({
       id: g.id,
       name: g.name,
       min: g.min,
       max: g.max,
-      options: g.options.map((o) => ({ id: o.id, name: o.name, price: numToInput(o.price) })),
+      options: g.options.map((o) => ({
+        id: o.id,
+        name: o.name,
+        price: numToInput(o.price),
+        image_data: o.image_data ?? null,
+        active: o.active === undefined ? true : Boolean(Number(o.active)),
+      })),
     })),
   );
   const [err, setErr] = useState('');
@@ -303,6 +370,7 @@ function ItemModal({
       description: description.trim() || null,
       price: p,
       original_price: op,
+      image_data: imageData,
       external_code: externalCode.trim() || null,
       groups: groups
         .filter((g) => g.name.trim())
@@ -313,7 +381,7 @@ function ItemModal({
           max: Math.max(g.max, 1),
           options: g.options
             .filter((o) => o.name.trim())
-            .map((o) => ({ id: o.id, name: o.name.trim(), price: parseNum(o.price) ?? 0 })),
+            .map((o) => ({ id: o.id, name: o.name.trim(), price: parseNum(o.price) ?? 0, image_data: o.image_data, active: o.active })),
         })),
     });
   }
@@ -335,6 +403,9 @@ function ItemModal({
           </Field>
         </div>
         <Field label="Descrição"><Input value={description ?? ''} onChange={(e) => setDescription(e.target.value)} maxLength={300} /></Field>
+        <Field label="Foto do item">
+          <PhotoPicker value={imageData} onChange={setImageData} size={72} label="Foto do item" />
+        </Field>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
           <Field label="Preço (R$)"><Input value={price} onChange={(e) => setPrice(e.target.value)} inputMode="decimal" /></Field>
           <Field label='Preço "de" (riscado, opcional)'><Input value={originalPrice} onChange={(e) => setOriginalPrice(e.target.value)} inputMode="decimal" /></Field>
@@ -347,7 +418,7 @@ function ItemModal({
             <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Complementos</span>
             <button
               type="button"
-              onClick={() => setGroups([...groups, { name: '', min: 0, max: 1, options: [{ name: '', price: '' }] }])}
+              onClick={() => setGroups([...groups, { name: '', min: 0, max: 1, options: [{ name: '', price: '', image_data: null, active: true }] }])}
               className="text-xs text-emerald-600 hover:underline"
             >
               + grupo
@@ -377,28 +448,41 @@ function ItemModal({
                 </div>
                 <p className="mt-1 text-xs text-slate-400">Mín. 0 = opcional; mín. ≥ 1 = obrigatório.</p>
                 <div className="mt-2 space-y-2">
-                  {g.options.map((o, j) => (
-                    <div key={j} className="grid grid-cols-12 items-center gap-2">
-                      <div className="col-span-7">
-                        <Input placeholder="Opção (ex.: Frango grelhado)" value={o.name} maxLength={50}
-                          onChange={(e) => setGroup(i, { options: g.options.map((x, idx) => (idx === j ? { ...x, name: e.target.value } : x)) })} />
+                  {g.options.map((o, j) => {
+                    const patchOpt = (patch: Partial<OptionDraft>) =>
+                      setGroup(i, { options: g.options.map((x, idx) => (idx === j ? { ...x, ...patch } : x)) });
+                    return (
+                      <div key={j} className={`rounded-lg border border-slate-100 bg-slate-50/50 p-2 ${o.active ? '' : 'opacity-60'}`}>
+                        <div className="grid grid-cols-12 items-center gap-2">
+                          <div className="col-span-6">
+                            <Input placeholder="Opção (ex.: Frango grelhado)" value={o.name} maxLength={50}
+                              onChange={(e) => patchOpt({ name: e.target.value })} />
+                          </div>
+                          <div className="col-span-3">
+                            <Input placeholder="R$ (0 = incluso)" inputMode="decimal" value={o.price}
+                              onChange={(e) => patchOpt({ price: e.target.value })} />
+                          </div>
+                          <label className="col-span-2 flex cursor-pointer items-center gap-1 text-xs text-slate-500" title="Pausar/ativar complemento">
+                            <input type="checkbox" checked={o.active} onChange={(e) => patchOpt({ active: e.target.checked })} />
+                            ativo
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => setGroup(i, { options: g.options.filter((_, idx) => idx !== j) })}
+                            className="col-span-1 flex justify-end text-slate-300 hover:text-red-600"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                        <div className="mt-2">
+                          <PhotoPicker value={o.image_data} onChange={(v) => patchOpt({ image_data: v })} size={48} label="Foto do complemento" />
+                        </div>
                       </div>
-                      <div className="col-span-3">
-                        <Input placeholder="R$ (0 = incluso)" inputMode="decimal" value={o.price}
-                          onChange={(e) => setGroup(i, { options: g.options.map((x, idx) => (idx === j ? { ...x, price: e.target.value } : x)) })} />
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setGroup(i, { options: g.options.filter((_, idx) => idx !== j) })}
-                        className="col-span-2 flex justify-end text-slate-300 hover:text-red-600"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  ))}
+                    );
+                  })}
                   <button
                     type="button"
-                    onClick={() => setGroup(i, { options: [...g.options, { name: '', price: '' }] })}
+                    onClick={() => setGroup(i, { options: [...g.options, { name: '', price: '', image_data: null, active: true }] })}
                     className="text-xs text-emerald-600 hover:underline"
                   >
                     + opção

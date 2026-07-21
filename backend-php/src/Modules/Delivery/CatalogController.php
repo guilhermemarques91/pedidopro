@@ -165,13 +165,14 @@ final class CatalogController
             'price' => $in->has('price') ? (float) ($in->number('price') ?? 0) : null,
             'original_price' => $in->has('original_price') ? $in->number('original_price') : null,
             'image_url' => $in->string('image_url'),
+            'image_data' => $in->string('image_data'),
             'external_code' => $in->string('external_code'),
             'sort' => $in->has('sort') ? ($in->integer('sort') ?? 0) : null,
         ];
 
         if ($id === null) {
             $id = self::insertId(
-                'INSERT INTO menu_items (org_id, category_id, name, description, price, original_price, image_url, external_code, sort, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                'INSERT INTO menu_items (org_id, category_id, name, description, price, original_price, image_url, image_data, external_code, sort, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                 [
                     $orgId,
                     $categoryId,
@@ -180,6 +181,7 @@ final class CatalogController
                     $cols['price'] ?? 0,
                     $cols['original_price'],
                     $cols['image_url'],
+                    $cols['image_data'],
                     $cols['external_code'],
                     $cols['sort'] ?? 0,
                     ($in->boolean('active', true) ?? true) ? 1 : 0,
@@ -193,7 +195,7 @@ final class CatalogController
                 $fields[] = 'category_id = ?';
                 $values[] = $categoryId;
             }
-            foreach (['name', 'description', 'price', 'original_price', 'image_url', 'external_code', 'sort'] as $k) {
+            foreach (['name', 'description', 'price', 'original_price', 'image_url', 'image_data', 'external_code', 'sort'] as $k) {
                 if ($in->has($k)) {
                     $fields[] = "{$k} = ?";
                     $values[] = $cols[$k];
@@ -255,11 +257,12 @@ final class CatalogController
                 }
                 $price = (float) ($o['price'] ?? 0);
                 $desc = isset($o['description']) ? (string) $o['description'] : null;
+                $oImg = isset($o['image_data']) ? (string) $o['image_data'] : null;
                 $oActive = !empty($o['active']) || !isset($o['active']) ? 1 : 0;
                 if ($oid !== null && Db::queryOne('SELECT id FROM menu_options WHERE id = ? AND group_id = ?', [$oid, $gid])) {
-                    Db::execute('UPDATE menu_options SET name = ?, description = ?, price = ?, sort = ?, active = ? WHERE id = ?', [$oName, $desc, $price, $oSort, $oActive, $oid]);
+                    Db::execute('UPDATE menu_options SET name = ?, description = ?, price = ?, image_data = ?, sort = ?, active = ? WHERE id = ?', [$oName, $desc, $price, $oImg, $oSort, $oActive, $oid]);
                 } else {
-                    $oid = self::insertId('INSERT INTO menu_options (group_id, name, description, price, sort, active) VALUES (?, ?, ?, ?, ?, ?)', [$gid, $oName, $desc, $price, $oSort, $oActive], 'menu_options');
+                    $oid = self::insertId('INSERT INTO menu_options (group_id, name, description, price, image_data, sort, active) VALUES (?, ?, ?, ?, ?, ?, ?)', [$gid, $oName, $desc, $price, $oImg, $oSort, $oActive], 'menu_options');
                 }
                 $keptOptions[] = $oid;
                 $oSort++;
