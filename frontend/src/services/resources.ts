@@ -389,6 +389,10 @@ export const menuApi = {
   deleteItem: (id: number) => api.delete(`/delivery/menu/items/${id}`).then((r) => r.data),
   setItemAvailability: (id: number, active: boolean) =>
     api.post<{ ok: boolean; active: boolean; errors: { channel: string; error: string }[] }>(`/delivery/menu/items/${id}/availability`, { active }).then((r) => r.data),
+  setOptionAvailability: (id: number, active: boolean) =>
+    api.post<{ ok: boolean; active: boolean }>(`/delivery/menu/options/${id}/availability`, { active }).then((r) => r.data),
+  setGroupAvailability: (id: number, active: boolean) =>
+    api.post<{ ok: boolean; active: boolean }>(`/delivery/menu/groups/${id}/availability`, { active }).then((r) => r.data),
   publish: (channelId: number) =>
     api.post<Record<string, unknown>>(`/delivery/menu/publish/${channelId}`, undefined, { timeout: 120000 }).then((r) => r.data),
   import: (channelId: number) =>

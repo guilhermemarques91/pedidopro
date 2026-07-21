@@ -1,9 +1,9 @@
 import { ChangeEvent, FormEvent, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2, Pencil, UploadCloud, DownloadCloud, ChevronDown, ChevronRight } from 'lucide-react';
+import { Plus, Trash2, Pencil, UploadCloud, DownloadCloud, ChevronDown, ChevronRight, Play, Pause, Search, Image as ImageIcon } from 'lucide-react';
 import { channelsApi, menuApi } from '../../services/resources';
 import { apiError } from '../../services/api';
-import type { MenuCategory, MenuItem, MenuItemInput } from '../../types';
+import type { MenuCategory, MenuItem, MenuItemInput, MenuOption, MenuOptionGroup } from '../../types';
 import { PageHeader } from '../../components/PageHeader';
 import { Button, Card, Field, Input, Select, Spinner, ErrorBox, EmptyState, Modal } from '../../components/ui';
 import { brl, parseNum, numToInput } from '../../utils/format';
@@ -71,6 +71,8 @@ export function MenuPage() {
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
   const [editItem, setEditItem] = useState<{ item: MenuItem | null; categoryId: number } | null>(null);
+  const [search, setSearch] = useState('');
+  const [catFilter, setCatFilter] = useState('all');
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['menu-tree'] });
 
@@ -85,14 +87,20 @@ export function MenuPage() {
     onError: (e) => { setMsg(''); setErr(apiError(e)); },
   });
 
-  const isEmpty = (tree.data ?? []).length === 0;
+  const allCats = tree.data ?? [];
+  const isEmpty = allCats.length === 0;
+  const term = search.trim().toLowerCase();
+  const visibleCats = allCats
+    .filter((c) => catFilter === 'all' || String(c.id) === catFilter)
+    .map((c) => ({ ...c, items: term ? c.items.filter((i) => i.name.toLowerCase().includes(term)) : c.items }))
+    .filter((c) => !term || c.items.length > 0);
 
   return (
     <div>
-      <PageHeader title="Cardápio" subtitle="Cardápio mestre local — edite aqui e publique para iFood e 99Food" />
+      <PageHeader title="Cardápio" subtitle="Defina o que seus clientes pedem no iFood e 99Food — edite e pause com um clique" />
 
       {/* Ações por canal: publicar / importar */}
-      <Card className="mb-6">
+      <Card className="mb-4">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-semibold text-slate-700">Canais:</span>
           {activeChannels.length === 0 && <span className="text-sm text-slate-400">nenhum canal ativo (cadastre em Integrações)</span>}
@@ -124,7 +132,7 @@ export function MenuPage() {
         {msg && <p className="mt-2 text-xs text-emerald-700">{msg}</p>}
         {err && <div className="mt-2"><ErrorBox message={err} /></div>}
         <p className="mt-2 text-xs text-slate-400">
-          Publicar no 99Food substitui o cardápio inteiro da loja. No iFood, itens são criados/atualizados e itens desativados são pausados.
+          Pausar item/complemento vale na hora aqui. Para refletir nas plataformas, use Publicar (no 99Food substitui o cardápio inteiro da loja).
         </p>
       </Card>
 
@@ -132,21 +140,38 @@ export function MenuPage() {
       {tree.error && <ErrorBox message={apiError(tree.error)} />}
 
       {tree.data && (
-        <div className="space-y-4">
-          <NewCategory onDone={invalidate} />
-          {tree.data.length === 0 && (
-            <EmptyState message="Cardápio vazio. Crie uma categoria acima ou importe o cardápio de um canal." />
-          )}
-          {tree.data.map((cat) => (
-            <CategoryCard
-              key={cat.id}
-              category={cat}
-              onChanged={invalidate}
-              onEditItem={(item) => setEditItem({ item, categoryId: cat.id })}
-              onNewItem={() => setEditItem({ item: null, categoryId: cat.id })}
-            />
-          ))}
-        </div>
+        <>
+          {/* Barra: buscar + filtrar categoria + adicionar categoria */}
+          <Card className="mb-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="relative min-w-[200px] flex-1">
+                <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar um item" className="pl-9" />
+              </div>
+              <div className="min-w-[180px]">
+                <Select value={catFilter} onChange={(e) => setCatFilter(e.target.value)}>
+                  <option value="all">Todas as categorias</option>
+                  {allCats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </Select>
+              </div>
+              <NewCategoryButton onDone={invalidate} />
+            </div>
+          </Card>
+
+          {isEmpty && <EmptyState message="Cardápio vazio. Adicione uma categoria ou importe o cardápio de um canal." />}
+          <div className="space-y-4">
+            {visibleCats.map((cat) => (
+              <CategorySection
+                key={cat.id}
+                category={cat}
+                onChanged={invalidate}
+                onEditItem={(item) => setEditItem({ item, categoryId: cat.id })}
+                onNewItem={() => setEditItem({ item: null, categoryId: cat.id })}
+              />
+            ))}
+            {!isEmpty && visibleCats.length === 0 && <EmptyState message="Nenhum item encontrado para essa busca." />}
+          </div>
+        </>
       )}
 
       {editItem && (
@@ -162,31 +187,139 @@ export function MenuPage() {
   );
 }
 
-function NewCategory({ onDone }: { onDone: () => void }) {
+function NewCategoryButton({ onDone }: { onDone: () => void }) {
+  const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [err, setErr] = useState('');
   const create = useMutation({
-    mutationFn: () => menuApi.createCategory({ name }),
-    onSuccess: () => { setName(''); setErr(''); onDone(); },
+    mutationFn: () => menuApi.createCategory({ name: name.trim() }),
+    onSuccess: () => { setName(''); setErr(''); setOpen(false); onDone(); },
     onError: (e) => setErr(apiError(e)),
   });
+  if (!open) {
+    return (
+      <Button type="button" variant="ghost" onClick={() => setOpen(true)}><Plus size={16} /> Adicionar categoria</Button>
+    );
+  }
   return (
-    <Card>
-      <form
-        onSubmit={(e: FormEvent) => { e.preventDefault(); if (name.trim()) create.mutate(); }}
-        className="flex items-end gap-3"
-      >
-        <div className="max-w-xs flex-1">
-          <Field label="Nova categoria"><Input value={name} placeholder="Ex.: Lanches" onChange={(e) => setName(e.target.value)} /></Field>
-        </div>
-        <Button type="submit" disabled={create.isPending || !name.trim()}><Plus size={16} /> Adicionar</Button>
-        {err && <span className="text-xs text-red-600">{err}</span>}
-      </form>
-    </Card>
+    <form
+      onSubmit={(e: FormEvent) => { e.preventDefault(); if (name.trim()) create.mutate(); }}
+      className="flex items-center gap-2"
+    >
+      <Input value={name} placeholder="Nome da categoria" onChange={(e) => setName(e.target.value)} autoFocus />
+      <Button type="submit" disabled={create.isPending || !name.trim()}>Criar</Button>
+      <Button type="button" variant="ghost" onClick={() => { setOpen(false); setErr(''); }}>Cancelar</Button>
+      {err && <span className="text-xs text-red-600">{err}</span>}
+    </form>
   );
 }
 
-function CategoryCard({
+const isActive = (v: number | boolean) => Boolean(Number(v));
+
+/** Miniatura quadrada com placeholder quando não há imagem. */
+function Thumb({ src, size = 44, alt = '' }: { src?: string | null; size?: number; alt?: string }) {
+  return src ? (
+    <img src={src} alt={alt} className="shrink-0 rounded-md object-cover" style={{ width: size, height: size }} />
+  ) : (
+    <div className="flex shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-300" style={{ width: size, height: size }}>
+      <ImageIcon size={Math.round(size / 2.4)} />
+    </div>
+  );
+}
+
+/** Botão pausar/ativar no estilo iFood: Pause quando ativo, Play (âmbar) quando pausado. */
+function PauseToggle({ active, onToggle, busy, title }: { active: boolean; onToggle: () => void; busy?: boolean; title?: string }) {
+  return (
+    <button
+      type="button"
+      disabled={busy}
+      onClick={onToggle}
+      title={active ? (title ?? 'Pausar') : 'Ativar'}
+      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition disabled:opacity-40 ${
+        active ? 'border-slate-200 text-slate-500 hover:bg-slate-50' : 'border-amber-300 bg-amber-50 text-amber-600 hover:bg-amber-100'
+      }`}
+    >
+      {active ? <Pause size={15} /> : <Play size={15} />}
+    </button>
+  );
+}
+
+function OptionRow({ option, onChanged }: { option: MenuOption; onChanged: () => void }) {
+  const active = isActive(option.active);
+  const avail = useMutation({ mutationFn: (a: boolean) => menuApi.setOptionAvailability(option.id, a), onSuccess: onChanged });
+  return (
+    <div className={`flex items-center gap-3 px-3 py-2 ${active ? '' : 'opacity-55'}`}>
+      <Thumb src={option.image_data} size={36} alt={option.name} />
+      <span className="min-w-0 flex-1 truncate text-sm text-slate-700">{option.name}</span>
+      <span className="w-24 shrink-0 text-right text-sm text-slate-500">{Number(option.price) > 0 ? brl(option.price) : 'Incluso'}</span>
+      <PauseToggle active={active} busy={avail.isPending} onToggle={() => avail.mutate(!active)} title="Pausar complemento" />
+    </div>
+  );
+}
+
+function GroupBlock({ group, onChanged }: { group: MenuOptionGroup; onChanged: () => void }) {
+  const active = isActive(group.active);
+  const required = group.min >= 1;
+  const avail = useMutation({ mutationFn: (a: boolean) => menuApi.setGroupAvailability(group.id, a), onSuccess: onChanged });
+  return (
+    <div className={`overflow-hidden rounded-lg border border-slate-200 ${active ? '' : 'opacity-55'}`}>
+      <div className="flex items-center gap-2 bg-slate-50 px-3 py-2">
+        <span className="text-sm font-semibold text-slate-700">{group.name}</span>
+        <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${required ? 'bg-slate-800 text-white' : 'bg-slate-200 text-slate-600'}`}>
+          {required ? 'Obrigatório' : 'Opcional'}
+        </span>
+        <span className="text-xs text-slate-400">mín {group.min} · máx {group.max}</span>
+        <div className="ml-auto"><PauseToggle active={active} busy={avail.isPending} onToggle={() => avail.mutate(!active)} title="Pausar grupo" /></div>
+      </div>
+      <div className="divide-y divide-slate-100">
+        {(group.options ?? []).length === 0 && <p className="px-3 py-2 text-xs text-slate-400">Sem complementos.</p>}
+        {(group.options ?? []).map((o) => <OptionRow key={o.id} option={o} onChanged={onChanged} />)}
+      </div>
+    </div>
+  );
+}
+
+function ItemRow({ item, onEdit, onChanged }: { item: MenuItem; onEdit: (item: MenuItem) => void; onChanged: () => void }) {
+  const [open, setOpen] = useState(false);
+  const active = isActive(item.active);
+  const groups = item.groups ?? [];
+  const avail = useMutation({ mutationFn: (a: boolean) => menuApi.setItemAvailability(item.id, a), onSuccess: onChanged });
+  return (
+    <div className="border-t border-slate-100 first:border-t-0">
+      <div className={`flex items-center gap-3 py-2.5 ${active ? '' : 'opacity-55'}`}>
+        <Thumb src={item.image_data ?? item.image_url} alt={item.name} />
+        <div className="min-w-0 flex-1">
+          <button onClick={() => onEdit(item)} className="block max-w-full truncate text-left text-sm font-semibold text-slate-800 hover:text-emerald-700">
+            {item.name}
+          </button>
+          {item.description && <p className="truncate text-xs text-slate-400">{item.description}</p>}
+        </div>
+        {groups.length > 0 && (
+          <button
+            onClick={() => setOpen((v) => !v)}
+            className={`flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition ${
+              open ? 'bg-slate-800 text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-50'
+            }`}
+            title="Ver e pausar complementos"
+          >
+            Complementos
+            <span className={`rounded-full px-1.5 text-[11px] ${open ? 'bg-white/20' : 'bg-slate-100'}`}>{groups.length}</span>
+          </button>
+        )}
+        <span className="w-20 shrink-0 text-right text-sm font-semibold text-slate-700">{brl(item.price)}</span>
+        <button onClick={() => onEdit(item)} className="shrink-0 text-slate-300 hover:text-slate-600" title="Editar item"><Pencil size={15} /></button>
+        <PauseToggle active={active} busy={avail.isPending} onToggle={() => avail.mutate(!active)} title="Pausar item" />
+      </div>
+      {open && groups.length > 0 && (
+        <div className="mb-3 ml-6 space-y-2 border-l-2 border-slate-100 pl-4">
+          {groups.map((g) => <GroupBlock key={g.id} group={g} onChanged={onChanged} />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CategorySection({
   category, onChanged, onEditItem, onNewItem,
 }: {
   category: MenuCategory;
@@ -197,6 +330,7 @@ function CategoryCard({
   const [open, setOpen] = useState(true);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [err, setErr] = useState('');
+  const active = isActive(category.active);
 
   const update = useMutation({
     mutationFn: (body: Partial<{ name: string; active: boolean }>) => menuApi.updateCategory(category.id, body),
@@ -208,16 +342,9 @@ function CategoryCard({
     onSuccess: onChanged,
     onError: (e) => setErr(apiError(e)),
   });
-  const availability = useMutation({
-    mutationFn: ({ id, active }: { id: number; active: boolean }) => menuApi.setItemAvailability(id, active),
-    onSuccess: (r) => { setErr(r.errors.length ? r.errors.map((x) => `${x.channel}: ${x.error}`).join(' | ') : ''); onChanged(); },
-    onError: (e) => setErr(apiError(e)),
-  });
-
-  const catActive = Boolean(Number(category.active));
 
   return (
-    <Card className={catActive ? '' : 'opacity-60'}>
+    <Card className={active ? '' : 'opacity-70'}>
       <div className="flex items-center gap-2">
         <button onClick={() => setOpen(!open)} className="text-slate-400 hover:text-slate-600">
           {open ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
@@ -233,17 +360,13 @@ function CategoryCard({
           </form>
         ) : (
           <>
-            <h3 className="text-sm font-semibold text-slate-700">{category.name}</h3>
+            <h3 className="text-sm font-bold text-slate-800">{category.name}</h3>
             <span className="text-xs text-slate-400">({category.items.length} {category.items.length === 1 ? 'item' : 'itens'})</span>
-            <button onClick={() => setRenaming(category.name)} className="text-slate-300 hover:text-slate-600" title="Renomear"><Pencil size={14} /></button>
+            <button onClick={() => setRenaming(category.name)} className="text-slate-300 hover:text-slate-600" title="Renomear categoria"><Pencil size={13} /></button>
           </>
         )}
-        <div className="ml-auto flex items-center gap-3">
-          <label className="flex cursor-pointer items-center gap-1 text-xs text-slate-500">
-            <input type="checkbox" checked={catActive} onChange={(e) => update.mutate({ active: e.target.checked })} />
-            ativa
-          </label>
-          <button onClick={onNewItem} className="flex items-center gap-1 text-xs text-emerald-600 hover:underline"><Plus size={14} /> item</button>
+        <div className="ml-auto flex items-center gap-2">
+          <button onClick={onNewItem} className="flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-xs text-emerald-700 hover:bg-emerald-50"><Plus size={14} /> item</button>
           <button
             onClick={() => { if (confirm(`Excluir a categoria "${category.name}" e todos os seus itens?`)) remove.mutate(); }}
             className="text-slate-300 hover:text-red-600"
@@ -251,47 +374,15 @@ function CategoryCard({
           >
             <Trash2 size={15} />
           </button>
+          <PauseToggle active={active} busy={update.isPending} onToggle={() => update.mutate({ active: !active })} title="Pausar categoria" />
         </div>
       </div>
       {err && <div className="mt-2"><ErrorBox message={err} /></div>}
 
       {open && (
-        <div className="mt-3 divide-y divide-slate-100">
-          {category.items.length === 0 && <p className="py-2 text-sm text-slate-400">Nenhum item nesta categoria.</p>}
-          {category.items.map((item) => {
-            const active = Boolean(Number(item.active));
-            return (
-              <div key={item.id} className={`flex items-center gap-3 py-2 ${active ? '' : 'opacity-50'}`}>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-slate-700">{item.name}</p>
-                  {item.description && <p className="truncate text-xs text-slate-400">{item.description}</p>}
-                </div>
-                <div className="flex items-center gap-1">
-                  {(item.channels ?? []).map((l) => (
-                    <span
-                      key={l.channel_id}
-                      title={`${PLATFORM_LABEL[l.platform] ?? l.platform}: publicado ${l.synced_at ? new Date(l.synced_at).toLocaleString('pt-BR') : ''}`}
-                      className={`h-2 w-2 rounded-full ${l.platform === 'ifood' ? 'bg-red-400' : 'bg-yellow-400'}`}
-                    />
-                  ))}
-                </div>
-                {(item.groups ?? []).length > 0 && (
-                  <span className="text-xs text-slate-400">{item.groups.length} grupo(s)</span>
-                )}
-                <span className="w-20 text-right text-sm text-slate-700">{brl(item.price)}</span>
-                <label className="flex cursor-pointer items-center gap-1 text-xs text-slate-500" title="Pausar/reativar em todos os canais">
-                  <input
-                    type="checkbox"
-                    checked={active}
-                    onChange={(e) => availability.mutate({ id: item.id, active: e.target.checked })}
-                    disabled={availability.isPending}
-                  />
-                  à venda
-                </label>
-                <button onClick={() => onEditItem(item)} className="text-slate-300 hover:text-slate-600" title="Editar"><Pencil size={15} /></button>
-              </div>
-            );
-          })}
+        <div className="mt-2">
+          {category.items.length === 0 && <p className="py-3 text-sm text-slate-400">Nenhum item nesta categoria.</p>}
+          {category.items.map((item) => <ItemRow key={item.id} item={item} onEdit={onEditItem} onChanged={onChanged} />)}
         </div>
       )}
     </Card>

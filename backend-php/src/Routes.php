@@ -269,6 +269,8 @@ final class Routes
         $r->put('/delivery/menu/items/:id', [CatalogController::class, 'updateItem'], self::DELIVERY_ADMIN);
         $r->delete('/delivery/menu/items/:id', [CatalogController::class, 'deleteItem'], self::DELIVERY_ADMIN);
         $r->post('/delivery/menu/items/:id/availability', [CatalogController::class, 'itemAvailability'], self::DELIVERY);
+        $r->post('/delivery/menu/options/:id/availability', [CatalogController::class, 'optionAvailability'], self::DELIVERY);
+        $r->post('/delivery/menu/groups/:id/availability', [CatalogController::class, 'groupAvailability'], self::DELIVERY);
         $r->post('/delivery/menu/publish/:channelId', [CatalogController::class, 'publish'], self::DELIVERY_ADMIN);
         $r->post('/delivery/menu/import/:channelId', [CatalogController::class, 'import'], self::DELIVERY_ADMIN);
         $r->get('/delivery/alerts', [DeliveryController::class, 'listAlerts'], self::DELIVERY);

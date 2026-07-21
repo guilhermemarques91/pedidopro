@@ -318,6 +318,49 @@ final class CatalogController
         Http::json(['ok' => !$errors, 'active' => $active, 'errors' => $errors]);
     }
 
+    /** POST /delivery/menu/options/:id/availability { active } — pausa/reativa um complemento (local). */
+    public static function optionAvailability(Request $req): void
+    {
+        $id = $req->intParam('id');
+        $active = $req->input()->boolean('active', null);
+        if ($active === null) {
+            throw HttpError::badRequest("Informe 'active' (true/false)");
+        }
+        $row = Db::queryOne(
+            'SELECT o.id FROM menu_options o
+               JOIN menu_option_groups g ON g.id = o.group_id
+               JOIN menu_items i ON i.id = g.item_id
+              WHERE o.id = ? AND i.org_id = ?',
+            [$id, $req->orgId()]
+        );
+        if (!$row) {
+            throw HttpError::notFound('Complemento não encontrado');
+        }
+        Db::execute('UPDATE menu_options SET active = ? WHERE id = ?', [$active ? 1 : 0, $id]);
+        Http::json(['ok' => true, 'active' => $active]);
+    }
+
+    /** POST /delivery/menu/groups/:id/availability { active } — pausa/reativa um grupo de complementos (local). */
+    public static function groupAvailability(Request $req): void
+    {
+        $id = $req->intParam('id');
+        $active = $req->input()->boolean('active', null);
+        if ($active === null) {
+            throw HttpError::badRequest("Informe 'active' (true/false)");
+        }
+        $row = Db::queryOne(
+            'SELECT g.id FROM menu_option_groups g
+               JOIN menu_items i ON i.id = g.item_id
+              WHERE g.id = ? AND i.org_id = ?',
+            [$id, $req->orgId()]
+        );
+        if (!$row) {
+            throw HttpError::notFound('Grupo não encontrado');
+        }
+        Db::execute('UPDATE menu_option_groups SET active = ? WHERE id = ?', [$active ? 1 : 0, $id]);
+        Http::json(['ok' => true, 'active' => $active]);
+    }
+
     // ---- publicação / importação ----
 
     /** POST /delivery/menu/publish/:channelId — publica o cardápio local no canal. */
