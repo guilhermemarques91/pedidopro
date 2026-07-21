@@ -44,9 +44,13 @@ final class DeliveryController
             $conditions[] = 'DATE(o.created_at) = ?';
             $params[] = $d;
         }
-        // Por padrão, esconde finalizados/cancelados antigos do painel operacional.
+        // Painel do dia: sempre mostra os pedidos que ainda exigem ação da loja
+        // (placed/confirmed/preparing/ready — qualquer data, p/ não perder pedido em
+        // aberto na virada). Os demais (a caminho, concluídos, cancelados) só aparecem
+        // se forem de HOJE. Ao virar o dia (meia-noite local — o MySQL roda em
+        // America/Sao_Paulo), os de ontem saem sozinhos da tela.
         if ($req->query('all') === null && !$conditions) {
-            $conditions[] = "(o.status NOT IN ('concluded','cancelled') OR o.created_at >= (NOW() - INTERVAL 1 DAY))";
+            $conditions[] = "(o.status IN ('placed','confirmed','preparing','ready') OR DATE(o.created_at) = CURDATE())";
         }
         $conditions[] = 'o.org_id = ?';
         $params[] = $req->orgId();
