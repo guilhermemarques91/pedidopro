@@ -57,7 +57,7 @@ export function Delivery() {
   const printOrder = async (id: number) => {
     try {
       const full = await deliveryApi.get(id);
-      if (isPrintConfigured()) await printReceipt(full);
+      if (isPrintConfigured()) await printReceipt(full, { reprint: true }); // manual reimprime todas as vias
       else window.open(`/delivery/${id}/print`, '_blank');
     } catch (e) {
       console.error('Falha na impressão pelo QZ', e);

@@ -148,12 +148,44 @@ export async function printTest(): Promise<void> {
   }
 }
 
-/** Imprime a comanda: cozinha (via de preparo) e balcão (via completa). Lança se QZ off. */
-export async function printReceipt(order: DeliveryOrderDetail): Promise<void> {
+/** Vias já impressas com sucesso nesta sessão (`${orderId}:${variant}`). Evita que o
+ *  retry automático reimprima a via que JÁ saiu quando a OUTRA via falhou (ex.: balcão
+ *  offline não pode fazer a cozinha sair em duplicidade a cada ciclo). Zera no reload;
+ *  o `printed_at` do pedido é o trava durável. */
+const printedVias = new Set<string>();
+
+/** Rótulo amigável da via, para mensagens ao operador. */
+const viaLabel = (v: ReceiptVariant): string => (v === 'kitchen' ? 'cozinha' : 'balcão');
+
+/** Erro de impressão que carrega quais vias falharam (para a UI mostrar). */
+export class PrintError extends Error {
+  constructor(public readonly failed: ReceiptVariant[]) {
+    super(`Falha ao imprimir a via de ${failed.map(viaLabel).join(' e ')}`);
+    this.name = 'PrintError';
+  }
+}
+
+/**
+ * Imprime a comanda: cozinha (via de preparo) e balcão (via completa). Cada via é
+ * INDEPENDENTE — se uma impressora falhar, a outra ainda sai, e a que já saiu não é
+ * reimpressa no retry (dedup por via). Lança PrintError listando as vias que falharam
+ * (inclui QZ offline → todas falham). `reprint:true` ignora o dedup (reimpressão manual).
+ */
+export async function printReceipt(order: DeliveryOrderDetail, opts?: { reprint?: boolean }): Promise<void> {
   const jobs = jobsFor(getPrinterMap());
   if (jobs.length === 0) throw new Error('Nenhuma impressora configurada');
   const qz = await connect();
+  const failed: ReceiptVariant[] = [];
   for (const { printer, variant } of jobs) {
-    await printHtml(qz, printer, receiptHtml(order, variant));
+    const key = `${order.id}:${variant}`;
+    if (!opts?.reprint && printedVias.has(key)) continue; // via já saiu nesta sessão
+    try {
+      await printHtml(qz, printer, receiptHtml(order, variant));
+      printedVias.add(key);
+    } catch (e) {
+      failed.push(variant);
+      console.error(`Falha ao imprimir a via de ${viaLabel(variant)} (${printer}) do pedido ${order.id}`, e);
+    }
   }
+  if (failed.length > 0) throw new PrintError(failed);
 }
