@@ -33,12 +33,19 @@ export function AutoPrint() {
     for (const o of pending) {
       attempts.current.add(o.id);
       (async () => {
+        // RESERVA o pedido ANTES de imprimir: o claim é atômico no servidor, então se
+        // outro cliente (outra aba/PC) estiver rodando o daemon, só um ganha e imprime —
+        // sem isso os dois imprimem e sai comanda duplicada. claimed=false → outro já pegou.
+        let claimed = false;
         try {
+          claimed = (await deliveryApi.printed(o.id)).claimed;
+          if (!claimed) return; // outro cliente já reservou/imprimiu este pedido
           const full = await deliveryApi.get(o.id);
           await printReceipt(full);
-          await deliveryApi.printed(o.id); // marca só após imprimir com sucesso
         } catch (e) {
           attempts.current.delete(o.id); // libera p/ nova tentativa no próximo poll (ex.: QZ offline)
+          // Se já tínhamos reservado, desfaz — senão o pedido fica "impresso" sem ter saído papel.
+          if (claimed) await deliveryApi.printReset(o.id).catch(() => {});
           console.error('Impressão automática falhou para o pedido', o.id, e);
         }
       })();

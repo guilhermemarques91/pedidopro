@@ -118,6 +118,20 @@ final class DeliveryController
     }
 
     /**
+     * POST /delivery/orders/:id/print-reset — desfaz a reivindicação de impressão.
+     * O auto-print RESERVA o pedido (markPrinted) ANTES de mandar pra impressora; se a
+     * impressão falhar (QZ offline etc.), este reset libera o pedido pra nova tentativa,
+     * sem deixá-lo marcado como impresso sem ter saído papel.
+     */
+    public static function resetPrinted(Request $req): void
+    {
+        $id = $req->intParam('id');
+        self::row($id); // 404 se não existir
+        Db::execute('UPDATE delivery_orders SET printed_at = NULL WHERE id = ?', [$id]);
+        Http::json(['ok' => true]);
+    }
+
+    /**
      * PATCH /delivery/orders/:id/address — corrige o bairro do pedido depois de ver
      * a localização real no mapa. Preserva o valor original (1ª correção) para auditoria.
      */
