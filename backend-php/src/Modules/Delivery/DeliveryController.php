@@ -105,6 +105,28 @@ final class DeliveryController
     public static function cancel(Request $req): void   { self::command($req, 'cancel'); }
 
     /**
+     * POST /delivery/orders/:id/conclude — fecha o pedido no painel (status 'concluded').
+     * É LOCAL, não chama a plataforma: o iFood não expõe comando de "concluir" (o
+     * CONCLUDED é status que a própria plataforma emite) e, na entrega própria, esse
+     * evento nem sempre chega — deixando o pedido preso em 'A caminho' aqui e em
+     * 'Pronto' no painel de Vendas. Espelha a rede de segurança do autoConcludeSweep,
+     * só que acionada na hora pelo operador. Não regride estado terminal.
+     */
+    public static function conclude(Request $req): void
+    {
+        $id = $req->intParam('id');
+        if (!Db::queryOne('SELECT id FROM delivery_orders WHERE id = ? AND org_id = ?', [$id, $req->orgId()])) {
+            throw HttpError::notFound('Pedido não encontrado');
+        }
+        Db::execute(
+            "UPDATE delivery_orders SET status = 'concluded', concluded_at = COALESCE(concluded_at, NOW())
+              WHERE id = ? AND status NOT IN ('concluded', 'cancelled')",
+            [$id]
+        );
+        Http::json(self::detailed($id));
+    }
+
+    /**
      * POST /delivery/orders/:id/printed — reivindica a impressão da comanda.
      * Atômico: só o primeiro cliente a chamar "reivindica" (claimed=true); os demais
      * (ex.: painel aberto em 2 telas) recebem claimed=false e não reimprimem.

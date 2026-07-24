@@ -40,8 +40,9 @@ export function Delivery() {
   const confirm = useMutation({ mutationFn: deliveryApi.confirm, onSuccess: invalidate });
   const ready = useMutation({ mutationFn: deliveryApi.ready, onSuccess: invalidate });
   const dispatch = useMutation({ mutationFn: deliveryApi.dispatch, onSuccess: invalidate });
+  const conclude = useMutation({ mutationFn: deliveryApi.conclude, onSuccess: invalidate });
   const cancel = useMutation({ mutationFn: deliveryApi.cancel, onSuccess: invalidate });
-  const busy = confirm.isPending || ready.isPending || dispatch.isPending || cancel.isPending;
+  const busy = confirm.isPending || ready.isPending || dispatch.isPending || conclude.isPending || cancel.isPending;
 
   // Solicitações de cancelamento do cliente (alertas acionáveis).
   const { data: alerts } = useQuery({ queryKey: ['delivery-alerts'], queryFn: deliveryApi.alerts, refetchInterval: 15_000 });
@@ -92,8 +93,8 @@ export function Delivery() {
 
       {isLoading && <Spinner />}
       {error && <ErrorBox message={apiError(error)} />}
-      {(confirm.error || ready.error || dispatch.error || cancel.error) && (
-        <div className="mb-3"><ErrorBox message={apiError(confirm.error || ready.error || dispatch.error || cancel.error)} /></div>
+      {(confirm.error || ready.error || dispatch.error || conclude.error || cancel.error) && (
+        <div className="mb-3"><ErrorBox message={apiError(confirm.error || ready.error || dispatch.error || conclude.error || cancel.error)} /></div>
       )}
 
       {data && (
@@ -116,6 +117,7 @@ export function Delivery() {
                       onConfirm={() => confirm.mutate(o.id)}
                       onReady={() => ready.mutate(o.id)}
                       onDispatch={() => dispatch.mutate(o.id)}
+                      onConclude={() => conclude.mutate(o.id)}
                       onCancel={() => { if (window.confirm(`Cancelar o pedido ${o.display_id ?? o.id}?`)) cancel.mutate(o.id); }}
                       onPrint={() => printOrder(o.id)}
                     />
@@ -206,13 +208,14 @@ function CancelledStrip({ orders }: { orders: DeliveryOrder[] }) {
 }
 
 function OrderCard({
-  order, busy, onConfirm, onReady, onDispatch, onCancel, onPrint,
+  order, busy, onConfirm, onReady, onDispatch, onConclude, onCancel, onPrint,
 }: {
   order: DeliveryOrder;
   busy: boolean;
   onConfirm: () => void;
   onReady: () => void;
   onDispatch: () => void;
+  onConclude: () => void;
   onCancel: () => void;
   onPrint: () => Promise<void>;
 }) {
@@ -253,7 +256,10 @@ function OrderCard({
         )}
         {order.status === 'ready' && <Button className="px-3 py-1.5 text-xs" disabled={busy} onClick={onDispatch}>Despachar</Button>}
         {order.status === 'dispatched' && (
-          <Link to={`/delivery/${order.id}`}><Button variant="secondary" className="px-3 py-1.5 text-xs">Acompanhar</Button></Link>
+          <>
+            <Button className="px-3 py-1.5 text-xs" disabled={busy} onClick={onConclude}>Concluir</Button>
+            <Link to={`/delivery/${order.id}`}><Button variant="secondary" className="px-3 py-1.5 text-xs">Acompanhar</Button></Link>
+          </>
         )}
         <Button variant="secondary" className="px-3 py-1.5 text-xs" disabled={printing} onClick={handlePrint} title="Imprimir comanda">
           <Printer size={12} /> {printing ? '…' : 'Imprimir'}

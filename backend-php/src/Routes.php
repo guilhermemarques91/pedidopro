@@ -238,6 +238,7 @@ final class Routes
         $r->post('/delivery/orders/:id/confirm', [DeliveryController::class, 'confirm'], self::DELIVERY);
         $r->post('/delivery/orders/:id/ready', [DeliveryController::class, 'ready'], self::DELIVERY);
         $r->post('/delivery/orders/:id/dispatch', [DeliveryController::class, 'dispatch'], self::DELIVERY);
+        $r->post('/delivery/orders/:id/conclude', [DeliveryController::class, 'conclude'], self::DELIVERY); // fecha no painel (local; iFood próprio não emite CONCLUDED confiável)
         $r->post('/delivery/orders/:id/cancel', [DeliveryController::class, 'cancel'], self::DELIVERY);
         $r->patch('/delivery/orders/:id/address', [DeliveryController::class, 'updateAddress'], self::DELIVERY); // corrige bairro após ver no mapa
         $r->post('/delivery/orders/:id/printed', [DeliveryController::class, 'markPrinted'], self::DELIVERY); // reivindica impressão da comanda (idempotente)

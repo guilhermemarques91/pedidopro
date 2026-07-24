@@ -55,6 +55,10 @@ services:
       APP_ENV: ${APP_ENV:-dev}
       # Sem internet no bootstrap: não chamar plataformas externas (iFood/99Food).
       INTEGRATIONS_MOCK: ${INTEGRATIONS_MOCK:-1}
+      # Rede de segurança: conclui localmente pedidos 'dispatched' há >N min (0 = off).
+      # iFood de entrega própria nem sempre emite CONCLUDED — sem isso o pedido fica
+      # preso em 'A caminho' (e como 'Pronto' no painel de Vendas).
+      DELIVERY_AUTO_CONCLUDE_MIN: ${DELIVERY_AUTO_CONCLUDE_MIN:-0}
       CORS_ORIGINS: ""
       # Assinatura da impressão QZ Tray (PEM em base64 no .env ao lado; vazio = modo
       # não-assinado, o QZ pede "Permitir" no PC do painel).
