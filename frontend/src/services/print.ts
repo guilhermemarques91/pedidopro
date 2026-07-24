@@ -124,7 +124,11 @@ async function printHtml(qz: QZ, printer: string, bodyHtml: string): Promise<voi
   // imprimível real menor que o rolo físico (a 80mm cortava os últimos dígitos dos
   // valores). Altura bem folgada (3000mm) garante que ela nunca é o fator limitante,
   // então a fonte não encolhe em pedidos longos.
-  const cfg = qz.configs.create(printer, { size: { width: PAPER_WIDTH_MM, height: 3000 }, units: 'mm', margins: 0 });
+  // copies:1 EXPLÍCITO: sem isso o QZ herda o padrão do driver da impressora no SO —
+  // se o driver estiver com "Cópias = 2" (comum em térmica recém-instalada), cada via
+  // sai em dobro (4 papéis: 2 na cozinha + 2 no caixa). Forçar 1 torna o app a
+  // autoridade e imuniza contra essa config de máquina.
+  const cfg = qz.configs.create(printer, { copies: 1, size: { width: PAPER_WIDTH_MM, height: 3000 }, units: 'mm', margins: 0 });
   await qz.print(cfg, [{ type: 'pixel', format: 'html', flavor: 'plain', data: html }]);
 }
 
