@@ -1,4 +1,15 @@
 # Webroot do container (frontend SPA). A API vive em /api e tem seu próprio .htaccess.
+
+# index.html e version.json NUNCA em cache: o navegador precisa revalidar a cada load
+# para pegar o bundle novo após um deploy. Sem isto, uma aba recarregada ainda pode
+# reusar o index.html velho (→ JS velho → comanda duplicada). Os assets do Vite têm
+# hash no nome, então podem ser cacheados à vontade (não precisam de regra aqui).
+<IfModule mod_headers.c>
+  <FilesMatch "^(index\.html|version\.json)$">
+    Header set Cache-Control "no-cache, no-store, must-revalidate"
+  </FilesMatch>
+</IfModule>
+
 RewriteEngine On
 
 # /api é tratado pelo .htaccess da subpasta (não reescrever aqui).

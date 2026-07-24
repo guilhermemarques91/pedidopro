@@ -11,6 +11,7 @@ import { useAuth } from '../store/auth.store';
 import { inboxApi } from '../services/resources';
 import { AppName, Logo } from '../config/brand';
 import { AutoPrint } from './AutoPrint';
+import { VersionWatcher } from './VersionWatcher';
 
 type NavItem = {
   to: string;
@@ -200,6 +201,8 @@ export function Layout() {
 
   return (
     <div className="flex h-screen bg-slate-50">
+      {/* Recarrega a aba quando sai versão nova (evita bundle velho imprimindo duplicado). */}
+      <VersionWatcher />
       {/* Impressão automática de comandas: roda em qualquer página (não só no painel). */}
       {can('delivery:operate') && <AutoPrint />}
       {/* Backdrop no mobile quando o menu está aberto */}
