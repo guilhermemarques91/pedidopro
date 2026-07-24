@@ -11,6 +11,7 @@ import type { Product, ProductType, Subclass, ProductionPrinter, RecipeLine, Sto
 import { useAuth } from '../../store/auth.store';
 import { PageHeader } from '../../components/PageHeader';
 import { Button, Card, Input, Select, Textarea, Modal, IconBtn, Spinner, ErrorBox, EmptyState } from '../../components/ui';
+import { PhotoPicker } from '../../components/PhotoPicker';
 
 const numOrNull = (v: string): number | null => (v.trim() === '' ? null : Number(v));
 
@@ -211,11 +212,16 @@ export function Products() {
               <div className="space-y-2 sm:hidden">
                 {products.data.map((p) => (
                   <Card key={p.id} className="flex items-center justify-between gap-3 p-3">
-                    <div className="min-w-0">
+                    <div className="flex min-w-0 items-center gap-3">
+                      {p.image_data
+                        ? <img src={p.image_data} alt="" className="h-10 w-10 shrink-0 rounded object-cover" />
+                        : <div className="h-10 w-10 shrink-0 rounded bg-slate-100" />}
+                      <div className="min-w-0">
                       <p className="truncate font-medium text-slate-800"><span className="mr-1 text-xs text-slate-400">{p.id}</span>{p.name}</p>
                       <p className="mt-0.5 truncate text-xs text-slate-500">
                         {p.tipo ?? 'sem tipo'} · {p.type_name ?? 's/ classe'} · {p.unit ?? p.default_unit ?? 's/ un.'}
                       </p>
+                      </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-1">
                       <IconBtn title="Situação tributária" onClick={() => setFiscalOf(p)}><Receipt size={16} /></IconBtn>
@@ -251,8 +257,15 @@ export function Products() {
                       return (
                       <tr key={p.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
                         <td className="px-3 py-2.5 font-semibold text-slate-500">{p.id}</td>
-                        <td className="px-3 py-2.5 font-medium text-slate-800">{p.name}
-                          {Number(p.item_count ?? 0) > 0 && <span className="ml-2 text-xs text-slate-400">{p.item_count} item(ns)</span>}
+                        <td className="px-3 py-2.5 font-medium text-slate-800">
+                          <div className="flex items-center gap-2">
+                            {p.image_data
+                              ? <img src={p.image_data} alt="" className="h-8 w-8 shrink-0 rounded object-cover" />
+                              : <div className="h-8 w-8 shrink-0 rounded bg-slate-100" />}
+                            <span>{p.name}
+                              {Number(p.item_count ?? 0) > 0 && <span className="ml-2 text-xs text-slate-400">{p.item_count} item(ns)</span>}
+                            </span>
+                          </div>
                         </td>
                         <td className="px-3 py-2.5 text-slate-600">{p.tipo ?? <span className="text-slate-300">—</span>}</td>
                         <td className="px-3 py-2.5 text-slate-600">{p.type_name ?? <span className="text-slate-300">—</span>}</td>
@@ -503,6 +516,7 @@ function ProductForm({ product, defaultTipo, types, subclasses, printers, catego
   const [purchaseUnit, setPurchaseUnit] = useState(product?.purchase_unit ?? '');
   const [cost, setCost] = useState(product?.cost_price ?? '');
   const [sale, setSale] = useState(product?.sale_price ?? '');
+  const [imageData, setImageData] = useState<string | null>(product?.image_data ?? null);
   // Ficha técnica (campos livres)
   const [yieldQty, setYieldQty] = useState(product?.yield_qty ?? '');
   const [yieldUnit, setYieldUnit] = useState(product?.yield_unit ?? '');
@@ -549,6 +563,16 @@ function ProductForm({ product, defaultTipo, types, subclasses, printers, catego
   const unitCostOf = (r: RecipeRow): number => r.item_id
     ? Number(itemById.get(r.item_id)?.base_price ?? 0)
     : (r.component_id ? costById.get(Number(r.component_id)) ?? 0 : 0);
+  // Unidade padrão de cada produto: usada para preencher a coluna "un" automaticamente
+  // ao escolher o insumo (deixa de ser digitada à mão).
+  const unitByProduct = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const p of allProducts.data ?? []) {
+      const u = p.unit ?? p.default_unit;
+      if (u) m.set(p.id, u);
+    }
+    return m;
+  }, [allProducts.data]);
 
   // Em edição: carrega a receita salva.
   const detail = useQuery({ queryKey: ['product', product?.id], queryFn: () => productsApi.get(product!.id), enabled: !!product });
@@ -581,9 +605,15 @@ function ProductForm({ product, defaultTipo, types, subclasses, printers, catego
     return sum + unitCostOf(r) * q;
   }, 0), [recipe, costById, itemById]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const addRow = () => setRecipe((rs) => [...rs, { component_id: '', component_name: '', free: false, quantity: '', unit: '' }]);
+  const emptyRow = (): RecipeRow => ({ component_id: '', component_name: '', free: false, quantity: '', unit: '' });
+  const addRow = () => setRecipe((rs) => [...rs, emptyRow()]);
   const setRow = (i: number, patch: Partial<RecipeRow>) => setRecipe((rs) => rs.map((r, idx) => idx === i ? { ...r, ...patch } : r));
   const delRow = (i: number) => setRecipe((rs) => rs.filter((_, idx) => idx !== i));
+  // Ao escolher um insumo na ÚLTIMA linha, abre outra linha vazia embaixo — assim dá para
+  // lançar vários insumos em sequência sem clicar em "Insumo" a cada item.
+  const appendIfLast = (i: number) => setRecipe((rs) => i === rs.length - 1 ? [...rs, emptyRow()] : rs);
+  // Linha p/ a qual o mini-cadastro de insumo (matéria-prima) está aberto; null = fechado.
+  const [newInsumoRow, setNewInsumoRow] = useState<number | null>(null);
 
   const save = useMutation({
     mutationFn: async () => {
@@ -624,6 +654,7 @@ function ProductForm({ product, defaultTipo, types, subclasses, printers, catego
         prep_time_min: prepTime.trim() ? Number(prepTime) : null,
         prep_method: prepMethod.trim() || null,
         tech_notes: techNotes.trim() || null,
+        image_data: imageData,
         // Tributação (passo 3)
         origem: origem || null,
         ncm: ncm.trim() || null,
@@ -688,6 +719,7 @@ function ProductForm({ product, defaultTipo, types, subclasses, printers, catego
   }
 
   return (
+    <>
     <Modal title={product ? 'Editar cadastro' : 'Novo cadastro'} onClose={onClose} size="xl">
       <form onSubmit={submit} className="space-y-5">
         {/* Passos do cadastro */}
@@ -701,7 +733,12 @@ function ProductForm({ product, defaultTipo, types, subclasses, printers, catego
 
         {current === 'Informações básicas' && (
           <div className="space-y-3">
-            <Field label="Nome"><Input value={name} onChange={(e) => setName(e.target.value)} required autoFocus /></Field>
+            <div className="flex items-start gap-4">
+              <PhotoPicker value={imageData} onChange={setImageData} size={80} label="Foto do produto" maxDim={640} />
+              <div className="flex-1">
+                <Field label="Nome"><Input value={name} onChange={(e) => setName(e.target.value)} required autoFocus /></Field>
+              </div>
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <Field label="Tipo">
                 <Select value={tipo} onChange={(e) => setTipo(e.target.value)}>
@@ -777,12 +814,21 @@ function ProductForm({ product, defaultTipo, types, subclasses, printers, catego
                             value={r.item_id ? `item:${r.item_id}` : r.component_id}
                             onChange={(e) => {
                               const v = e.target.value;
-                              if (v === 'free') setRow(i, { free: true, component_id: '', item_id: undefined, component_name: '' });
-                              else if (v.startsWith('item:')) setRow(i, { item_id: Number(v.slice(5)), component_id: '', component_name: '' });
-                              else setRow(i, { component_id: v ? Number(v) : '', item_id: undefined, component_name: '' });
+                              if (v === 'free') { setRow(i, { free: true, component_id: '', item_id: undefined, component_name: '' }); return; }
+                              if (v === 'new') { setNewInsumoRow(i); return; }
+                              if (v.startsWith('item:')) {
+                                const itId = Number(v.slice(5));
+                                // Preenche a unidade a partir do insumo (só se ainda vazia — não sobrescreve o que foi digitado).
+                                setRow(i, { item_id: itId, component_id: '', component_name: '', unit: r.unit || (itemById.get(itId)?.unit ?? '') });
+                              } else {
+                                const pid = v ? Number(v) : '';
+                                setRow(i, { component_id: pid, item_id: undefined, component_name: '', unit: r.unit || (pid ? unitByProduct.get(pid) ?? '' : '') });
+                              }
+                              if (v) appendIfLast(i); // escolheu na última linha → abre a próxima
                             }}
                           >
                             <option value="">— escolher insumo —</option>
+                            <option value="new">➕ novo insumo (matéria-prima)…</option>
                             <option value="free">✎ digitar avulso</option>
                             {componentOptions.length > 0 && (
                               <optgroup label="Produtos">
@@ -969,6 +1015,57 @@ function ProductForm({ product, defaultTipo, types, subclasses, printers, catego
               ? <Button type="button" onClick={() => setStep(idx + 1)}>Próximo</Button>
               : <Button type="submit" disabled={save.isPending}>Salvar</Button>}
           </div>
+        </div>
+      </form>
+    </Modal>
+    {newInsumoRow !== null && (
+      <NewInsumoModal
+        onClose={() => setNewInsumoRow(null)}
+        onCreated={(p) => {
+          const row = recipe[newInsumoRow];
+          setRow(newInsumoRow, { component_id: p.id, item_id: undefined, component_name: '', free: false, unit: (row?.unit || p.unit) ?? '' });
+          appendIfLast(newInsumoRow);
+        }}
+      />
+    )}
+    </>
+  );
+}
+
+/** Mini-cadastro de insumo (matéria-prima) direto da ficha técnica — evita sair do form. */
+function NewInsumoModal({ onClose, onCreated }: { onClose: () => void; onCreated: (p: Product) => void }) {
+  const qc = useQueryClient();
+  const [name, setName] = useState('');
+  const [unit, setUnit] = useState('');
+  const [cost, setCost] = useState('');
+  const [error, setError] = useState('');
+  const save = useMutation({
+    mutationFn: () => productsApi.create({
+      name: name.trim(),
+      tipo: 'Matéria-prima',
+      unit: unit.trim() || null,
+      cost_price: cost.trim() ? Number(cost.replace(',', '.')) : null,
+    }),
+    onSuccess: (p) => { qc.invalidateQueries({ queryKey: ['products'] }); onCreated(p as Product); onClose(); },
+    onError: (e) => setError(apiError(e)),
+  });
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    if (name.trim().length < 1) { setError('Informe o nome do insumo.'); return; }
+    save.mutate();
+  }
+  return (
+    <Modal title="Novo insumo (matéria-prima)" onClose={onClose}>
+      <form onSubmit={submit} className="space-y-3">
+        {error && <ErrorBox message={error} />}
+        <Field label="Nome"><Input value={name} onChange={(e) => setName(e.target.value)} required autoFocus placeholder="Ex.: Filé de frango" /></Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Unidade"><Input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="kg, g, un, L…" /></Field>
+          <Field label="Custo de compra (R$)"><Input value={cost} onChange={(e) => setCost(e.target.value)} placeholder="0,00" inputMode="decimal" /></Field>
+        </div>
+        <div className="flex justify-end gap-2 border-t border-slate-100 pt-3">
+          <Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button>
+          <Button type="submit" disabled={save.isPending}>Criar e usar</Button>
         </div>
       </form>
     </Modal>

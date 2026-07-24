@@ -159,6 +159,8 @@ final class ProductsController
         'origem' => 'str', 'cst_csosn' => 'str', 'gtin' => 'str', 'regime_tributario' => 'str',
         'yield_qty' => 'num', 'yield_unit' => 'str', 'prep_time_min' => 'int',
         'prep_method' => 'str', 'tech_notes' => 'str',
+        // Foto (data URL base64, thumbnail leve enviado pelo cliente — ver migration 035).
+        'image_data' => 'str',
     ];
 
     public static function create(Request $req): void

@@ -1,4 +1,4 @@
-import { ChangeEvent, FormEvent, useMemo, useState } from 'react';
+import { FormEvent, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2, Pencil, UploadCloud, DownloadCloud, ChevronDown, ChevronRight, Play, Pause, Search, Image as ImageIcon } from 'lucide-react';
 import { channelsApi, menuApi } from '../../services/resources';
@@ -6,62 +6,10 @@ import { apiError } from '../../services/api';
 import type { MenuCategory, MenuItem, MenuItemInput, MenuOption, MenuOptionGroup } from '../../types';
 import { PageHeader } from '../../components/PageHeader';
 import { Button, Card, Field, Input, Select, Spinner, ErrorBox, EmptyState, Modal } from '../../components/ui';
+import { PhotoPicker } from '../../components/PhotoPicker';
 import { brl, parseNum, numToInput } from '../../utils/format';
 
 const PLATFORM_LABEL: Record<string, string> = { ifood: 'iFood', '99food': '99Food' };
-
-const MAX_PHOTO_BYTES = 2 * 1024 * 1024; // ~2MB — cabe no MEDIUMTEXT e evita payloads gigantes
-
-function readFileAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(String(r.result));
-    r.onerror = () => reject(new Error('Falha ao ler a imagem'));
-    r.readAsDataURL(file);
-  });
-}
-
-/** Seletor de foto: preview + enviar + remover. Guarda a imagem como data URL (base64). */
-function PhotoPicker({
-  value, onChange, size = 64, label = 'Foto',
-}: {
-  value: string | null;
-  onChange: (dataUrl: string | null) => void;
-  size?: number;
-  label?: string;
-}) {
-  const [err, setErr] = useState('');
-  async function pick(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = ''; // permite reenviar o mesmo arquivo
-    if (!file) return;
-    if (!file.type.startsWith('image/')) { setErr('Selecione uma imagem'); return; }
-    if (file.size > MAX_PHOTO_BYTES) { setErr('Imagem muito grande (máx. 2MB)'); return; }
-    try { setErr(''); onChange(await readFileAsDataUrl(file)); }
-    catch { setErr('Falha ao ler a imagem'); }
-  }
-  return (
-    <div className="flex items-center gap-2">
-      {value ? (
-        <img src={value} alt={label} className="rounded border border-slate-200 object-cover" style={{ width: size, height: size }} />
-      ) : (
-        <div className="flex items-center justify-center rounded border border-dashed border-slate-300 text-slate-300" style={{ width: size, height: size }}>
-          <UploadCloud size={Math.round(size / 3)} />
-        </div>
-      )}
-      <div className="flex flex-col gap-1">
-        <label className="cursor-pointer text-xs text-emerald-600 hover:underline">
-          {value ? 'Trocar foto' : 'Enviar foto'}
-          <input type="file" accept="image/*" className="hidden" onChange={pick} />
-        </label>
-        {value && (
-          <button type="button" onClick={() => onChange(null)} className="text-left text-xs text-slate-400 hover:text-red-600">Remover</button>
-        )}
-        {err && <span className="text-xs text-red-600">{err}</span>}
-      </div>
-    </div>
-  );
-}
 
 export function MenuPage() {
   const qc = useQueryClient();

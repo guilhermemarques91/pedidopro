@@ -85,6 +85,7 @@ export interface ProductInput {
   prep_time_min?: number | null;
   prep_method?: string | null;
   tech_notes?: string | null;
+  image_data?: string | null;   // foto (data URL base64, thumbnail leve)
   // Ficha técnica (receita)
   recipe?: RecipeLineInput[];
   // Variações de ficha técnica (grupos de escolha do PDV)

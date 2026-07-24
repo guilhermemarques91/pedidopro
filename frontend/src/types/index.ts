@@ -103,6 +103,7 @@ export interface Product {
   prep_time_min?: number | string | null;
   prep_method?: string | null;
   tech_notes?: string | null;
+  image_data?: string | null;  // foto (data URL base64, thumbnail leve)
   stock_qty?: string;          // saldo atual (etapa 2 do estoque)
   avg_cost?: string | null;    // custo médio ponderado
   item_count?: string;

@@ -346,7 +346,9 @@ export function NewOrderModal({
                             {qty}
                           </span>
                         )}
-                        <Package size={20} className="text-slate-300" />
+                        {p.image_data
+                          ? <img src={p.image_data} alt="" className="h-12 w-12 rounded-lg object-cover" />
+                          : <Package size={20} className="text-slate-300" />}
                         <span className="line-clamp-2 text-xs font-medium text-slate-800">{p.name}</span>
                         <span className="text-xs font-semibold text-emerald-700">{brl(p.sale_price)}</span>
                       </button>
