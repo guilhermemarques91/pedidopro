@@ -250,6 +250,9 @@ function PdvCodeInput({ item, onChanged }: { item: MenuItem; onChanged: () => vo
       onBlur={commit}
       onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
       placeholder="Cód. PDV"
+      // O placeholder some ao digitar e se repete em toda linha: o nome acessível precisa
+      // ser explícito e dizer de QUAL item é este campo.
+      aria-label={`Código PDV de ${item.name}`}
       title="Código PDV / ERP (externalCode) — salva automaticamente"
       className={`w-24 shrink-0 rounded-lg border px-2.5 py-1.5 text-right text-sm text-slate-700 focus:border-emerald-400 focus:outline-none ${save.isPending ? 'opacity-60' : ''} ${save.isError ? 'border-red-400' : 'border-slate-200'}`}
     />

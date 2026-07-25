@@ -1,9 +1,14 @@
 import { ChangeEvent, useState } from 'react';
 import { UploadCloud } from 'lucide-react';
 
-// ~2MB cru: cabe no MEDIUMTEXT e evita payloads gigantes. O cardápio guarda a imagem
-// nesse tamanho (qualidade para publicar no iFood); o cadastro reduz com `maxDim`.
-const MAX_PHOTO_BYTES = 2 * 1024 * 1024;
+// Limite de ARMAZENAMENTO cru (~2MB): vale quando a imagem vai para o banco como veio
+// (cardápio — qualidade para publicar no iFood). Cabe no MEDIUMTEXT.
+const MAX_RAW_BYTES = 2 * 1024 * 1024;
+// Limite de ENTRADA quando vamos redimensionar (`maxDim`): aqui o tamanho do arquivo
+// original não importa — ele é reduzido para uns 60KB antes de sair daqui. Foto de
+// celular tem 3–8MB e era barrada por engano pelo limite de 2MB. Este teto existe só
+// para não estourar a memória do navegador com um arquivo absurdo.
+const MAX_INPUT_BYTES = 25 * 1024 * 1024;
 
 function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -36,6 +41,11 @@ async function resizeDataUrl(dataUrl: string, maxDim: number, quality = 0.72): P
   canvas.height = h;
   const ctx = canvas.getContext('2d');
   if (!ctx) return dataUrl; // sem canvas: guarda o original
+  // Fundo BRANCO antes de desenhar: o canvas nasce transparente e o JPEG não tem canal
+  // alpha, então área transparente (PNG de catálogo) sairia PRETA. Pinta de branco para
+  // a foto ficar como o usuário espera.
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, w, h);
   ctx.drawImage(img, 0, 0, w, h);
   return canvas.toDataURL('image/jpeg', quality);
 }
@@ -55,17 +65,26 @@ export function PhotoPicker({
   maxDim?: number;
 }) {
   const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
   async function pick(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = ''; // permite reenviar o mesmo arquivo
     if (!file) return;
     if (!file.type.startsWith('image/')) { setErr('Selecione uma imagem'); return; }
-    if (file.size > MAX_PHOTO_BYTES) { setErr('Imagem muito grande (máx. 2MB)'); return; }
+    // Só limita o arquivo de ENTRADA quando ele vai ser guardado como veio. Com `maxDim`
+    // a imagem é reduzida aqui mesmo, então foto de celular (3–8MB) é bem-vinda.
+    const limit = maxDim ? MAX_INPUT_BYTES : MAX_RAW_BYTES;
+    if (file.size > limit) {
+      setErr(`Imagem muito grande (máx. ${Math.round(limit / 1024 / 1024)}MB)`);
+      return;
+    }
     try {
       setErr('');
+      setBusy(true);
       const raw = await readFileAsDataUrl(file);
       onChange(maxDim ? await resizeDataUrl(raw, maxDim) : raw);
     } catch { setErr('Falha ao ler a imagem'); }
+    finally { setBusy(false); }
   }
   return (
     <div className="flex items-center gap-2">
@@ -76,15 +95,24 @@ export function PhotoPicker({
           <UploadCloud size={Math.round(size / 3)} />
         </div>
       )}
-      <div className="flex flex-col gap-1">
-        <label className="cursor-pointer text-xs text-emerald-600 hover:underline">
-          {value ? 'Trocar foto' : 'Enviar foto'}
-          <input type="file" accept="image/*" className="hidden" onChange={pick} />
+      <div className="flex flex-col items-start gap-1">
+        {/* `sr-only` em vez de `hidden`: display:none tiraria o input da ordem de tabulação
+            e quem navega por teclado não conseguiria enviar foto. Assim ele segue focável
+            e o anel aparece no label via focus-within. */}
+        <label className="inline-flex cursor-pointer items-center rounded px-1 py-1 text-xs text-emerald-700 hover:underline focus-within:ring-2 focus-within:ring-emerald-500">
+          {busy ? 'Processando…' : value ? 'Trocar foto' : 'Enviar foto'}
+          <input type="file" accept="image/*" className="sr-only" onChange={pick} disabled={busy} />
         </label>
-        {value && (
-          <button type="button" onClick={() => onChange(null)} className="text-left text-xs text-slate-400 hover:text-red-600">Remover</button>
+        {value && !busy && (
+          <button
+            type="button"
+            onClick={() => onChange(null)}
+            className="rounded px-1 py-1 text-left text-xs text-slate-500 hover:text-red-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+          >
+            Remover
+          </button>
         )}
-        {err && <span className="text-xs text-red-600">{err}</span>}
+        {err && <span role="alert" className="text-xs text-red-600">{err}</span>}
       </div>
     </div>
   );

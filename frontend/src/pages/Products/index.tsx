@@ -224,10 +224,10 @@ export function Products() {
                       </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-1">
-                      <IconBtn title="Situação tributária" onClick={() => setFiscalOf(p)}><Receipt size={16} /></IconBtn>
-                      {canMove && <IconBtn title="Movimentar estoque" hover="emerald" onClick={() => setStockOf(p)}><ArrowDownUp size={16} /></IconBtn>}
-                      <IconBtn title="Editar" hover="emerald" onClick={() => setEditing(p)}><Pencil size={16} /></IconBtn>
-                      <IconBtn title="Excluir" hover="red" onClick={() => { if (confirm(`Excluir o cadastro "${p.name}"?`)) remove.mutate(p.id); }}><Trash2 size={16} /></IconBtn>
+                      <IconBtn title={`Situação tributária de ${p.name}`} onClick={() => setFiscalOf(p)}><Receipt size={16} /></IconBtn>
+                      {canMove && <IconBtn title={`Movimentar estoque de ${p.name}`} hover="emerald" onClick={() => setStockOf(p)}><ArrowDownUp size={16} /></IconBtn>}
+                      <IconBtn title={`Editar ${p.name}`} hover="emerald" onClick={() => setEditing(p)}><Pencil size={16} /></IconBtn>
+                      <IconBtn title={`Excluir ${p.name}`} hover="red" onClick={() => { if (confirm(`Excluir o cadastro "${p.name}"?`)) remove.mutate(p.id); }}><Trash2 size={16} /></IconBtn>
                     </div>
                   </Card>
                 ))}
@@ -274,11 +274,15 @@ export function Products() {
                         <td className="px-3 py-2.5 text-slate-500">{p.purchase_unit ?? <span className="text-slate-300">***</span>}</td>
                         <td className="px-3 py-2.5 text-right font-medium text-slate-800">{p.sale_price != null ? brl(p.sale_price) : <span className="text-slate-300">—</span>}</td>
                         <td className="px-3 py-2.5 text-right text-amber-700">{custo != null ? brl(custo) : <span className="text-slate-300">***</span>}</td>
+                        {/* IconBtn (em vez de <button> cru): traz aria-label, anel de foco e
+                            alvo de 44px no toque — o ícone solto tinha ~16px e nenhum dos três. */}
                         <td className="px-3 py-2.5 text-right whitespace-nowrap">
-                          <button onClick={() => setFiscalOf(p)} className="mr-2 text-slate-400 hover:text-blue-600" title="Situação tributária"><Receipt size={16} /></button>
-                          {canMove && <button onClick={() => setStockOf(p)} className="mr-2 text-slate-400 hover:text-emerald-600" title="Movimentar estoque"><ArrowDownUp size={16} /></button>}
-                          <button onClick={() => setEditing(p)} className="mr-2 text-slate-400 hover:text-emerald-600" title="Editar"><Pencil size={16} /></button>
-                          <button onClick={() => { if (confirm(`Excluir o cadastro "${p.name}"?`)) remove.mutate(p.id); }} className="text-slate-400 hover:text-red-600" title="Excluir"><Trash2 size={16} /></button>
+                          <div className="flex items-center justify-end gap-0.5">
+                            <IconBtn title={`Situação tributária de ${p.name}`} onClick={() => setFiscalOf(p)}><Receipt size={16} /></IconBtn>
+                            {canMove && <IconBtn title={`Movimentar estoque de ${p.name}`} hover="emerald" onClick={() => setStockOf(p)}><ArrowDownUp size={16} /></IconBtn>}
+                            <IconBtn title={`Editar ${p.name}`} hover="emerald" onClick={() => setEditing(p)}><Pencil size={16} /></IconBtn>
+                            <IconBtn title={`Excluir ${p.name}`} hover="red" onClick={() => { if (confirm(`Excluir o cadastro "${p.name}"?`)) remove.mutate(p.id); }}><Trash2 size={16} /></IconBtn>
+                          </div>
                         </td>
                       </tr>
                     ); })}

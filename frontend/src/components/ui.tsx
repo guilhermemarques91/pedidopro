@@ -1,13 +1,15 @@
-import { ReactNode, ButtonHTMLAttributes, InputHTMLAttributes, SelectHTMLAttributes, TextareaHTMLAttributes, useEffect, useRef, useState } from 'react';
+import { ReactNode, ButtonHTMLAttributes, InputHTMLAttributes, SelectHTMLAttributes, TextareaHTMLAttributes, useEffect, useId, useRef, useState } from 'react';
 import { MoreVertical, Plus } from 'lucide-react';
 
 type Variant = 'primary' | 'secondary' | 'danger' | 'ghost';
 
+// Cada variante leva a cor do próprio anel de foco: um anel emerald sobre o botão
+// vermelho de excluir ficaria ilegível.
 const variants: Record<Variant, string> = {
-  primary: 'bg-emerald-600 text-white hover:bg-emerald-700',
-  secondary: 'bg-slate-200 text-slate-800 hover:bg-slate-300',
-  danger: 'bg-red-600 text-white hover:bg-red-700',
-  ghost: 'bg-transparent text-slate-600 hover:bg-slate-100',
+  primary: 'bg-emerald-600 text-white hover:bg-emerald-700 focus-visible:ring-emerald-600',
+  secondary: 'bg-slate-200 text-slate-800 hover:bg-slate-300 focus-visible:ring-slate-500',
+  danger: 'bg-red-600 text-white hover:bg-red-700 focus-visible:ring-red-600',
+  ghost: 'bg-transparent text-slate-600 hover:bg-slate-100 focus-visible:ring-slate-500',
 };
 
 export function Button({
@@ -15,7 +17,9 @@ export function Button({
 }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: Variant }) {
   return (
     <button
-      className={`inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed ${variants[variant]} ${className}`}
+      // focus-visible (não focus): o anel aparece para quem navega por teclado e não
+      // pisca a cada clique de mouse. Antes não havia indicação de foco nenhuma.
+      className={`inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed ${variants[variant]} ${className}`}
       {...props}
     >
       {children}
@@ -259,13 +263,44 @@ export function Modal({
   title, onClose, children, size = 'lg',
 }: { title: string; onClose: () => void; children: ReactNode; size?: 'lg' | 'xl' | 'full' }) {
   const maxW = size === 'full' ? 'max-w-5xl' : size === 'xl' ? 'max-w-2xl' : 'max-w-lg';
+  const titleId = useId();
+  const panelRef = useRef<HTMLDivElement>(null);
+  // onClose quase sempre chega como arrow inline (`onClose={() => setX(null)}`), cuja
+  // identidade muda a cada render. Guardar num ref mantém o efeito com deps [] — sem
+  // re-registrar listener nem re-disputar o foco a cada render do pai.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  // Esc fecha (era preciso mirar o X ou o fundo) + trava o scroll da página atrás,
+  // que rolava junto e fazia perder a posição da lista ao fechar o modal.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onCloseRef.current(); };
+    document.addEventListener('keydown', onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    // Leva o foco ao modal — mas só se nada dentro dele já tiver o foco, para não
+    // roubar de um campo com autoFocus (formulários dependem disso).
+    if (panelRef.current && !panelRef.current.contains(document.activeElement)) {
+      panelRef.current.focus();
+    }
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prev;
+    };
+  }, []);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div
-        className={`max-h-[90vh] w-full ${maxW} overflow-y-auto rounded-xl bg-white p-6 shadow-xl`}
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        className={`max-h-[90vh] w-full ${maxW} overflow-y-auto rounded-xl bg-white p-6 shadow-xl outline-none`}
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="mb-4 text-lg font-semibold text-slate-800">{title}</h2>
+        <h2 id={titleId} className="mb-4 text-lg font-semibold text-slate-800">{title}</h2>
         {children}
       </div>
     </div>
@@ -278,8 +313,11 @@ export function IconBtn({
 }: { title: string; onClick: () => void; hover?: 'slate' | 'emerald' | 'red'; children: ReactNode }) {
   const h = hover === 'emerald' ? 'hover:text-emerald-600' : hover === 'red' ? 'hover:text-red-600' : 'hover:text-slate-700';
   return (
+    // `pointer-coarse`: em tela de toque o alvo vai a 44×44 (o dedo erra um alvo de 32px);
+    // no desktop com mouse a densidade das tabelas é preservada. text-slate-500 em vez de
+    // 400 para o ícone ter contraste suficiente em repouso.
     <button type="button" title={title} aria-label={title} onClick={onClick}
-      className={`rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 ${h}`}>
+      className={`inline-flex items-center justify-center rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 pointer-coarse:min-h-11 pointer-coarse:min-w-11 ${h}`}>
       {children}
     </button>
   );
