@@ -1,7 +1,7 @@
 import { FormEvent, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2, Pencil, UploadCloud, DownloadCloud, ChevronDown, ChevronRight, Play, Pause, Search, Image as ImageIcon } from 'lucide-react';
-import { channelsApi, menuApi } from '../../services/resources';
+import { channelsApi, menuApi, productsApi } from '../../services/resources';
 import { apiError } from '../../services/api';
 import type { MenuCategory, MenuItem, MenuItemInput, MenuOption, MenuOptionGroup } from '../../types';
 import { PageHeader } from '../../components/PageHeader';
@@ -367,7 +367,10 @@ function ItemModal({
   const [originalPrice, setOriginalPrice] = useState(numToInput(item?.original_price ?? ''));
   const [externalCode, setExternalCode] = useState(item?.external_code ?? '');
   const [catId, setCatId] = useState(item?.category_id ?? categoryId);
+  const [erpProductId, setErpProductId] = useState<number | ''>(item?.erp_product_id ?? '');
   const [imageData, setImageData] = useState<string | null>(item?.image_data ?? item?.image_url ?? null);
+  // Produtos do ERP p/ o de-para (baixa de estoque por ficha técnica + foto herdada).
+  const { data: erpProducts } = useQuery({ queryKey: ['products'], queryFn: () => productsApi.list() });
   const [groups, setGroups] = useState<GroupDraft[]>(
     (item?.groups ?? []).map((g) => ({
       id: g.id,
@@ -411,6 +414,7 @@ function ItemModal({
       original_price: op,
       image_data: imageData,
       external_code: externalCode.trim() || null,
+      erp_product_id: erpProductId === '' ? null : Number(erpProductId),
       groups: groups
         .filter((g) => g.name.trim())
         .map((g) => ({
@@ -444,6 +448,16 @@ function ItemModal({
         <Field label="Descrição"><Input value={description ?? ''} onChange={(e) => setDescription(e.target.value)} maxLength={300} /></Field>
         <Field label="Foto do item">
           <PhotoPicker value={imageData} onChange={setImageData} size={72} label="Foto do item" />
+        </Field>
+        <Field label="Produto do ERP (baixa de estoque · foto)">
+          <Select value={String(erpProductId)} onChange={(e) => setErpProductId(e.target.value ? Number(e.target.value) : '')}>
+            <option value="">— nenhum (sem baixa de estoque) —</option>
+            {(erpProducts ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </Select>
+          <p className="mt-1 text-xs text-slate-400">
+            Vincula este item a um produto do cadastro: dá baixa de estoque pela ficha técnica quando o
+            pedido entra{!imageData ? ' e usa a foto do produto (o item está sem foto própria)' : ''}.
+          </p>
         </Field>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
           <Field label="Preço (R$)"><Input value={price} onChange={(e) => setPrice(e.target.value)} inputMode="decimal" /></Field>

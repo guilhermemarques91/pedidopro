@@ -537,6 +537,7 @@ export interface MenuItem {
   image_data: string | null;
   external_code: string | null;
   erp_product_id: number | null;
+  erp_product_name?: string | null;   // nome do produto do ERP vinculado (só leitura, vem do tree)
   sort: number;
   active: number | boolean;
   groups: MenuOptionGroup[];
@@ -558,6 +559,7 @@ export interface MenuItemInput {
   image_url?: string | null;
   image_data?: string | null;
   external_code?: string | null;
+  erp_product_id?: number | null;
   sort?: number;
   active?: boolean;
   groups?: {

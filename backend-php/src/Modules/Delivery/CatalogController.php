@@ -36,9 +36,36 @@ final class CatalogController
                 'synced_at' => $l['synced_at'],
             ];
         }
+        // De-para com produtos do ERP: nome do produto vinculado (p/ exibir o vínculo)
+        // e foto herdada quando o item não tem imagem própria. Decora só a UI — não
+        // passa pelo localTree, então a publicação nas plataformas fica intocada.
+        $erpIds = [];
+        foreach ($tree as $cat) {
+            foreach ($cat['items'] as $item) {
+                if (!empty($item['erp_product_id'])) {
+                    $erpIds[(int) $item['erp_product_id']] = true;
+                }
+            }
+        }
+        $erpById = [];
+        if ($erpIds) {
+            $ph = implode(',', array_fill(0, count($erpIds), '?'));
+            $rows = Db::query(
+                "SELECT id, name, image_data FROM products WHERE org_id = ? AND id IN ($ph)",
+                array_merge([$req->orgId()], array_keys($erpIds))
+            );
+            foreach ($rows as $r) {
+                $erpById[(int) $r['id']] = $r;
+            }
+        }
         foreach ($tree as &$cat) {
             foreach ($cat['items'] as &$item) {
                 $item['channels'] = $byItem[(int) $item['id']] ?? [];
+                $prod = !empty($item['erp_product_id']) ? ($erpById[(int) $item['erp_product_id']] ?? null) : null;
+                $item['erp_product_name'] = $prod['name'] ?? null;
+                if (empty($item['image_data']) && empty($item['image_url']) && !empty($prod['image_data'])) {
+                    $item['image_data'] = $prod['image_data'];
+                }
             }
             unset($item);
         }
@@ -167,12 +194,15 @@ final class CatalogController
             'image_url' => $in->string('image_url'),
             'image_data' => $in->string('image_data'),
             'external_code' => $in->string('external_code'),
+            // De-para com o produto do ERP: destrava a baixa de estoque por ficha técnica
+            // e a herança da foto do produto quando o item não tem imagem própria.
+            'erp_product_id' => $in->has('erp_product_id') ? $in->integer('erp_product_id') : null,
             'sort' => $in->has('sort') ? ($in->integer('sort') ?? 0) : null,
         ];
 
         if ($id === null) {
             $id = self::insertId(
-                'INSERT INTO menu_items (org_id, category_id, name, description, price, original_price, image_url, image_data, external_code, sort, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                'INSERT INTO menu_items (org_id, category_id, name, description, price, original_price, image_url, image_data, external_code, erp_product_id, sort, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                 [
                     $orgId,
                     $categoryId,
@@ -183,6 +213,7 @@ final class CatalogController
                     $cols['image_url'],
                     $cols['image_data'],
                     $cols['external_code'],
+                    $cols['erp_product_id'],
                     $cols['sort'] ?? 0,
                     ($in->boolean('active', true) ?? true) ? 1 : 0,
                 ],
@@ -195,7 +226,7 @@ final class CatalogController
                 $fields[] = 'category_id = ?';
                 $values[] = $categoryId;
             }
-            foreach (['name', 'description', 'price', 'original_price', 'image_url', 'image_data', 'external_code', 'sort'] as $k) {
+            foreach (['name', 'description', 'price', 'original_price', 'image_url', 'image_data', 'external_code', 'erp_product_id', 'sort'] as $k) {
                 if ($in->has($k)) {
                     $fields[] = "{$k} = ?";
                     $values[] = $cols[$k];
