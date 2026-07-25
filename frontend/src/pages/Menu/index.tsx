@@ -1,4 +1,4 @@
-import { FormEvent, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2, Pencil, UploadCloud, DownloadCloud, ChevronDown, ChevronRight, Play, Pause, Search, Image as ImageIcon } from 'lucide-react';
 import { channelsApi, menuApi, productsApi } from '../../services/resources';
@@ -227,6 +227,35 @@ function GroupBlock({ group, onChanged }: { group: MenuOptionGroup; onChanged: (
   );
 }
 
+/**
+ * Código PDV/ERP (externalCode) editável direto na linha do cardápio — evita abrir o item
+ * só para digitar o código. Salva ao sair do campo (blur) ou no Enter, e só se mudou.
+ */
+function PdvCodeInput({ item, onChanged }: { item: MenuItem; onChanged: () => void }) {
+  const [code, setCode] = useState(item.external_code ?? '');
+  const save = useMutation({
+    mutationFn: (v: string) => menuApi.updateItem(item.id, { external_code: v.trim() || null }),
+    onSuccess: onChanged,
+  });
+  // Reflete alterações vindas de fora (ex.: edição pelo modal do item).
+  useEffect(() => { setCode(item.external_code ?? ''); }, [item.external_code]);
+  const commit = () => {
+    if (code.trim() === (item.external_code ?? '')) return; // sem mudança
+    save.mutate(code);
+  };
+  return (
+    <input
+      value={code}
+      onChange={(e) => setCode(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
+      placeholder="Cód. PDV"
+      title="Código PDV / ERP (externalCode) — salva automaticamente"
+      className={`w-24 shrink-0 rounded-lg border px-2.5 py-1.5 text-right text-sm text-slate-700 focus:border-emerald-400 focus:outline-none ${save.isPending ? 'opacity-60' : ''} ${save.isError ? 'border-red-400' : 'border-slate-200'}`}
+    />
+  );
+}
+
 function ItemRow({ item, onEdit, onChanged }: { item: MenuItem; onEdit: (item: MenuItem) => void; onChanged: () => void }) {
   const [open, setOpen] = useState(false);
   const active = isActive(item.active);
@@ -257,6 +286,7 @@ function ItemRow({ item, onEdit, onChanged }: { item: MenuItem; onEdit: (item: M
         <span className="w-20 shrink-0 text-right text-sm font-semibold text-slate-700">{brl(item.price)}</span>
         <button onClick={() => onEdit(item)} className="shrink-0 text-slate-300 hover:text-slate-600" title="Editar item"><Pencil size={15} /></button>
         <PauseToggle active={active} busy={avail.isPending} onToggle={() => avail.mutate(!active)} title="Pausar item" />
+        <PdvCodeInput item={item} onChanged={onChanged} />
       </div>
       {open && groups.length > 0 && (
         <div className="mb-3 ml-6 space-y-2 border-l-2 border-slate-100 pl-4">
