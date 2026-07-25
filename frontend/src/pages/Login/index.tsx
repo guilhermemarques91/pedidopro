@@ -30,11 +30,18 @@ export function Login() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-100 p-4">
-      <div className="w-full max-w-sm rounded-2xl bg-white p-8 shadow-lg">
-        <div className="mb-6 flex flex-col items-center gap-2">
-          <Logo size={36} />
-          <h1 className="text-2xl font-bold text-slate-800"><AppName /></h1>
+    // Fundo com um leve gradiente radial na cor da marca: dá profundidade à tela mais
+    // vista do sistema sem custo de imagem nem de rede.
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-slate-100 p-4">
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 opacity-[0.07]"
+        style={{ background: 'radial-gradient(60rem 40rem at 50% -10%, var(--brand), transparent 70%)' }}
+      />
+      <div className="ui-animate-pop relative w-full max-w-sm rounded-2xl border border-white/60 bg-white p-8 shadow-[var(--shadow-lg)]">
+        <div className="mb-7 flex flex-col items-center gap-2 text-center">
+          <Logo size={40} />
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900"><AppName /></h1>
           <p className="text-sm text-slate-500"><AppTagline /></p>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">

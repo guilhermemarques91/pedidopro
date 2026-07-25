@@ -1,15 +1,17 @@
 import { ReactNode, ButtonHTMLAttributes, InputHTMLAttributes, SelectHTMLAttributes, TextareaHTMLAttributes, useEffect, useId, useRef, useState } from 'react';
-import { MoreVertical, Plus } from 'lucide-react';
+import { AlertCircle, ChevronDown, MoreVertical, Plus } from 'lucide-react';
 
 type Variant = 'primary' | 'secondary' | 'danger' | 'ghost';
 
 // Cada variante leva a cor do próprio anel de foco: um anel emerald sobre o botão
 // vermelho de excluir ficaria ilegível.
+// `secondary` passou de cinza cheio (slate-200, pesado) para uma superfície branca
+// com borda — hierarquia mais clara: só a ação principal tem peso de cor.
 const variants: Record<Variant, string> = {
-  primary: 'bg-emerald-600 text-white hover:bg-emerald-700 focus-visible:ring-emerald-600',
-  secondary: 'bg-slate-200 text-slate-800 hover:bg-slate-300 focus-visible:ring-slate-500',
-  danger: 'bg-red-600 text-white hover:bg-red-700 focus-visible:ring-red-600',
-  ghost: 'bg-transparent text-slate-600 hover:bg-slate-100 focus-visible:ring-slate-500',
+  primary: 'bg-emerald-600 text-white shadow-[var(--shadow-xs)] hover:bg-emerald-700 active:translate-y-px focus-visible:ring-emerald-600',
+  secondary: 'border border-slate-200 bg-white text-slate-700 shadow-[var(--shadow-xs)] hover:border-slate-300 hover:bg-slate-50 active:translate-y-px focus-visible:ring-slate-400',
+  danger: 'bg-red-600 text-white shadow-[var(--shadow-xs)] hover:bg-red-700 active:translate-y-px focus-visible:ring-red-600',
+  ghost: 'bg-transparent text-slate-600 hover:bg-slate-100 active:translate-y-px focus-visible:ring-slate-400',
 };
 
 export function Button({
@@ -17,9 +19,14 @@ export function Button({
 }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: Variant }) {
   return (
     <button
+      // min-h pelo token: 38px no mouse, 44px no toque (o dedo erra alvo menor).
       // focus-visible (não focus): o anel aparece para quem navega por teclado e não
       // pisca a cada clique de mouse. Antes não havia indicação de foco nenhuma.
-      className={`inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed ${variants[variant]} ${className}`}
+      // active:translate-y-px dá a resposta tátil de "afundou" ao tocar.
+      // Transição EXPLÍCITA (nunca `transition-all`): all anima também largura/altura e
+      // custom properties, o que causa jank e — visto aqui na prática — deixa a cor de
+      // fundo presa num valor antigo quando a cor da marca muda em runtime.
+      className={`inline-flex min-h-[var(--control-h)] items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition-[background-color,border-color,color,box-shadow,translate] duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50 disabled:active:translate-y-0 ${variants[variant]} ${className}`}
       {...props}
     >
       {children}
@@ -27,30 +34,25 @@ export function Button({
   );
 }
 
+// Base comum dos campos. Borda slate-200 (em vez de 300) deixa o formulário mais
+// calmo: a borda marca o campo sem competir com o conteúdo. O anel de foco de 2px
+// substitui o de 1px — indicação mais clara de onde o cursor está.
+const controlBase =
+  'w-full min-h-[var(--control-h)] rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-[var(--shadow-xs)] outline-none transition-colors ' +
+  'placeholder:text-slate-400 hover:border-slate-300 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/25 ' +
+  'disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500';
+
 export function Input({ className = '', ...props }: InputHTMLAttributes<HTMLInputElement>) {
-  return (
-    <input
-      className={`w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 ${className}`}
-      {...props}
-    />
-  );
+  return <input className={`${controlBase} ${className}`} {...props} />;
 }
 
 export function Textarea({ className = '', ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return (
-    <textarea
-      className={`w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 ${className}`}
-      {...props}
-    />
-  );
+  return <textarea className={`${controlBase} py-2.5 leading-relaxed ${className}`} {...props} />;
 }
 
 export function Select({ className = '', children, ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
   return (
-    <select
-      className={`w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 ${className}`}
-      {...props}
-    >
+    <select className={`${controlBase} cursor-pointer pr-8 ${className}`} {...props}>
       {children}
     </select>
   );
@@ -102,13 +104,13 @@ export function Combobox({
           // No celular o popover pode ficar atrás do teclado; rola o campo para o centro ao abrir.
           requestAnimationFrame(() => ref.current?.scrollIntoView({ block: 'center', behavior: 'smooth' }));
         }}
-        className="flex w-full items-center justify-between rounded-lg border border-slate-300 bg-white px-3 py-2 text-left text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 disabled:opacity-50"
+        className="flex w-full min-h-[var(--control-h)] items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 text-left text-sm shadow-[var(--shadow-xs)] outline-none transition-colors hover:border-slate-300 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/25 disabled:cursor-not-allowed disabled:opacity-50"
       >
         <span className={selected ? 'text-slate-800' : 'text-slate-400'}>{selected ? selected.label : placeholder}</span>
-        <span className="ml-2 text-slate-400">▾</span>
+        <ChevronDown size={16} className="ml-2 shrink-0 text-slate-400" />
       </button>
       {open && (
-        <div className="absolute z-50 mt-1 w-full rounded-lg border border-slate-200 bg-white shadow-lg">
+        <div className="ui-animate-pop absolute z-50 mt-1.5 w-full rounded-xl border border-slate-200/80 bg-white shadow-[var(--shadow-lg)]">
           <div className="p-2">
             <input
               autoFocus
@@ -125,7 +127,7 @@ export function Combobox({
                 <button
                   type="button"
                   onClick={() => { onChange(o.value); setOpen(false); }}
-                  className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-emerald-50 ${o.value === value ? 'bg-emerald-50 text-emerald-700' : 'text-slate-700'}`}
+                  className={`flex w-full min-h-[var(--control-h)] items-center justify-between px-3 py-2 text-left text-sm transition-colors hover:bg-emerald-50 ${o.value === value ? 'bg-emerald-50 font-medium text-emerald-700' : 'text-slate-700'}`}
                 >
                   <span>{o.label}</span>
                   {o.hint && <span className="ml-2 text-xs text-slate-400">{o.hint}</span>}
@@ -178,15 +180,18 @@ export function ActionMenu({ actions }: { actions: MenuAction[] }) {
       <button
         type="button"
         aria-label="Ações"
+        aria-haspopup="menu"
+        aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
-        className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+        className="inline-flex items-center justify-center rounded-xl p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 pointer-coarse:min-h-11 pointer-coarse:min-w-11"
       >
         <MoreVertical size={18} />
       </button>
       {open && (
-        <div className="absolute right-0 z-30 mt-1 min-w-[11rem] overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+        <div role="menu" className="ui-animate-pop absolute right-0 z-30 mt-1.5 min-w-[12rem] overflow-hidden rounded-xl border border-slate-200/80 bg-white py-1.5 shadow-[var(--shadow-lg)]">
           {actions.map((a, i) => {
-            const cls = `flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-sm ${
+            // min-h pelo token: item de menu é alvo de toque como qualquer outro.
+            const cls = `flex w-full min-h-[var(--control-h)] items-center gap-2.5 px-3.5 py-2.5 text-left text-sm transition-colors ${
               a.danger ? 'text-red-600 hover:bg-red-50' : 'text-slate-700 hover:bg-slate-50'
             }`;
             const inner = <>{a.icon}<span>{a.label}</span></>;
@@ -217,7 +222,8 @@ export function Field({ label, children }: { label: string; children: ReactNode 
 
 export function Card({ className = '', children, onClick }: { className?: string; children: ReactNode; onClick?: () => void }) {
   return (
-    <div className={`rounded-xl border border-slate-200 bg-white p-5 shadow-sm ${className}`} onClick={onClick}>
+    // Raio maior + sombra em camadas: o cartão "descola" do fundo sem borda pesada.
+    <div className={`rounded-2xl border border-slate-200/80 bg-white p-5 shadow-[var(--shadow-sm)] ${className}`} onClick={onClick}>
       {children}
     </div>
   );
@@ -253,7 +259,8 @@ const badgeLabels: Record<string, string> = {
 
 export function Badge({ status }: { status: string }) {
   return (
-    <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${badgeColors[status] ?? 'bg-slate-100 text-slate-700'}`}>
+    // ring interno em vez de fundo chapado: o selo fica nítido em qualquer superfície.
+    <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ring-current/15 ${badgeColors[status] ?? 'bg-slate-100 text-slate-700'}`}>
       {badgeLabels[status] ?? status}
     </span>
   );
@@ -290,17 +297,26 @@ export function Modal({
   }, []);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+    // Fundo mais escuro + desfoque: separa o modal do conteúdo atrás e tira o ruído
+    // visual de uma tela densa, dando foco ao que está sendo editado.
+    <div
+      className="ui-animate-fade fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-[2px]"
+      onClick={onClose}
+    >
       <div
         ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className={`max-h-[90vh] w-full ${maxW} overflow-y-auto rounded-xl bg-white p-6 shadow-xl outline-none`}
+        className={`ui-animate-pop max-h-[90vh] w-full ${maxW} overflow-y-auto rounded-2xl bg-white p-6 shadow-[var(--shadow-lg)] outline-none`}
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 id={titleId} className="mb-4 text-lg font-semibold text-slate-800">{title}</h2>
+        {/* Título fixo no topo ao rolar formulário longo (ficha técnica, tributação):
+            o contexto do que se está editando não some da tela. */}
+        <div className="sticky -top-6 z-10 -mx-6 -mt-6 mb-5 border-b border-slate-100 bg-white/95 px-6 pb-3 pt-6 backdrop-blur">
+          <h2 id={titleId} className="text-lg font-semibold tracking-tight text-slate-900">{title}</h2>
+        </div>
         {children}
       </div>
     </div>
@@ -356,16 +372,27 @@ export function ViewModal({
 
 export function Spinner() {
   return (
-    <div className="flex justify-center p-8">
-      <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-emerald-600" />
+    <div className="flex justify-center p-8" role="status" aria-label="Carregando">
+      <div className="h-8 w-8 animate-spin rounded-full border-[3px] border-slate-200 border-t-emerald-600" />
     </div>
   );
 }
 
 export function ErrorBox({ message }: { message: string }) {
-  return <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{message}</div>;
+  return (
+    // role=alert: o leitor de tela anuncia o erro assim que ele aparece, sem o
+    // usuário precisar procurá-lo na tela.
+    <div role="alert" className="flex items-start gap-2.5 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
+      <AlertCircle size={16} className="mt-0.5 shrink-0" />
+      <span className="min-w-0">{message}</span>
+    </div>
+  );
 }
 
 export function EmptyState({ message }: { message: string }) {
-  return <div className="rounded-lg border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">{message}</div>;
+  return (
+    <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/60 px-6 py-12 text-center">
+      <p className="mx-auto max-w-sm text-sm text-slate-500">{message}</p>
+    </div>
+  );
 }

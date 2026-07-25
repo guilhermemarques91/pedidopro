@@ -14,9 +14,20 @@ interface BrandState extends Branding {
   apply: (b: Partial<Branding>) => void;
 }
 
+/**
+ * `#000000` é o valor PADRÃO do <input type="color"> do navegador: quem abre a tela de
+ * Personalização só para trocar o logo e salva acaba gravando preto sem querer. Preto
+ * como cor de marca apaga toda a paleta da interface (botões, links, item de menu ativo
+ * viram pretos) e ainda deixa a pintura inconsistente. Tratamos como "não personalizado"
+ * e caímos no padrão do index.css.
+ * Para uma marca realmente escura, use um quase-preto (ex.: #0A0A0A) — esse é respeitado.
+ */
+const UNSET_COLOR = '#000000';
+
 /** Aplica a cor primária via CSS vars (index.css mapeia as classes emerald p/ elas). */
-function applyColor(color: string | null) {
+function applyColor(raw: string | null) {
   const root = document.documentElement;
+  const color = raw && raw.trim().toLowerCase() === UNSET_COLOR ? null : raw;
   if (color) {
     root.style.setProperty('--brand', color);
     root.style.setProperty('--brand-dark', `color-mix(in srgb, ${color} 80%, black)`);

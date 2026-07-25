@@ -151,9 +151,14 @@ export function Layout() {
     return !!item.children?.some((c) => location.pathname === c.to || (!c.end && location.pathname.startsWith(c.to)));
   }
 
+  // Item ativo ganha uma barra vertical à esquerda além do fundo: a posição no menu
+  // fica legível de relance, sem depender só da diferença de cor (que some para quem
+  // tem baixa visão ou daltonismo).
   const navItemClass = (isActive: boolean, extra = '') =>
-    `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition ${
-      isActive ? 'bg-emerald-50 text-emerald-700' : 'text-slate-600 hover:bg-slate-100'
+    `group relative flex min-h-[var(--control-h)] items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 ${
+      isActive
+        ? 'bg-emerald-50 text-emerald-700 before:absolute before:left-0 before:top-1/2 before:h-5 before:w-1 before:-translate-y-1/2 before:rounded-r-full before:bg-emerald-600'
+        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
     } ${extra}`;
 
   // Renderiza um item folha (NavLink). `depth` controla o recuo dos filhos.
@@ -225,15 +230,19 @@ export function Layout() {
           {/* Toggle do trilho — só desktop */}
           <button
             onClick={toggleCollapsed}
-            className="hidden text-slate-400 hover:text-slate-700 md:block"
+            className="hidden items-center justify-center rounded-lg p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 md:inline-flex"
             aria-label={collapsed ? 'Expandir menu' : 'Recolher menu'}
             title={collapsed ? 'Expandir menu' : 'Recolher menu'}
           >
-            {collapsed ? <PanelLeft size={20} /> : <PanelLeftClose size={20} />}
+            {collapsed ? <PanelLeft size={18} /> : <PanelLeftClose size={18} />}
           </button>
-          {/* Fechar drawer — só mobile */}
-          <button onClick={() => setMenuOpen(false)} className="text-slate-400 hover:text-slate-700 md:hidden" aria-label="Fechar menu">
-            <X size={22} />
+          {/* Fechar drawer — só mobile (alvo de 44px: é tocado com o polegar) */}
+          <button
+            onClick={() => setMenuOpen(false)}
+            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 md:hidden"
+            aria-label="Fechar menu"
+          >
+            <X size={20} />
           </button>
         </div>
 
@@ -273,7 +282,7 @@ export function Layout() {
           <button
             onClick={handleLogout}
             title={rail ? 'Sair' : undefined}
-            className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100 ${
+            className={`flex min-h-[var(--control-h)] w-full items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-red-50 hover:text-red-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400 ${
               rail ? 'justify-center px-2' : ''
             }`}
           >

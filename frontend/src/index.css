@@ -1,5 +1,87 @@
 @import "tailwindcss";
 
+/* ==========================================================================
+   FUNDAÇÕES VISUAIS
+   Sistema pensado para uso operacional: telas densas de dados, lidas o dia
+   inteiro, muitas vezes em tela de toque (caixa/cozinha). A elegância aqui vem
+   de neutros calmos, elevação suave e ritmo de espaçamento — não de cor forte,
+   que cansa e rouba o significado de vermelho=erro / verde=ok.
+   ========================================================================== */
+:root {
+  /* Elevação em camadas: sombra curta (contato) + longa (ambiente). Bem mais
+     suave que um shadow chapado — é o que dá o ar "caro" sem pesar. */
+  --shadow-xs: 0 1px 2px rgb(15 23 42 / 0.04);
+  --shadow-sm: 0 1px 2px rgb(15 23 42 / 0.04), 0 1px 3px rgb(15 23 42 / 0.06);
+  --shadow-md: 0 2px 4px rgb(15 23 42 / 0.04), 0 4px 12px rgb(15 23 42 / 0.08);
+  --shadow-lg: 0 4px 8px rgb(15 23 42 / 0.04), 0 12px 32px rgb(15 23 42 / 0.12);
+
+  /* Altura mínima dos controles. Em tela de toque sobe para 44px (alvo do dedo);
+     no desktop com mouse fica compacto para caber mais linha na tela. */
+  --control-h: 38px;
+}
+@media (pointer: coarse) {
+  :root { --control-h: 44px; }
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  /* Evita o "pulo" horizontal quando uma tela tem scrollbar e outra não. */
+  scrollbar-gutter: stable;
+}
+
+body {
+  /* Stack do sistema: nada de webfont externa — o ERP roda em rede local e uma
+     fonte via CDN significaria texto invisível/trocando de forma quando a
+     internet cai. O stack nativo já é elegante e carrega instantâneo. */
+  font-family: system-ui, -apple-system, 'Segoe UI Variable Text', 'Segoe UI',
+    Roboto, 'Helvetica Neue', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* Kerning e ligaduras: refina o texto sem custo. */
+  text-rendering: optimizeLegibility;
+  font-feature-settings: 'kern' 1;
+}
+
+/* Números tabulares em dados: preços e quantidades alinham na coluna em vez de
+   dançar conforme o dígito. É o detalhe que mais separa um ERP amador de um
+   profissional — e sai de graça. */
+table, .tabular-data, input[inputmode='decimal'], input[inputmode='numeric'], input[type='number'] {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1, 'kern' 1;
+}
+
+/* Barra de rolagem discreta (Firefox + WebKit): a barra cinza padrão do Windows
+   é larga e visualmente ruidosa em painéis densos. */
+* { scrollbar-width: thin; scrollbar-color: rgb(203 213 225) transparent; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background-color: rgb(203 213 225);
+  border-radius: 9999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover { background-color: rgb(148 163 184); }
+
+/* Animação de entrada dos modais/menus (tier "sutil": 150-200ms). */
+@keyframes ui-fade-in { from { opacity: 0 } to { opacity: 1 } }
+@keyframes ui-pop-in {
+  from { opacity: 0; transform: translateY(4px) scale(0.98) }
+  to   { opacity: 1; transform: translateY(0) scale(1) }
+}
+.ui-animate-fade { animation: ui-fade-in 150ms ease-out }
+.ui-animate-pop  { animation: ui-pop-in 180ms cubic-bezier(0.16, 1, 0.3, 1) }
+
+/* Quem pediu menos movimento no SO não recebe animação nenhuma. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 /* Tabelas roláveis horizontalmente em telas estreitas (celular): evita que o
    conteúdo estoure o quadro e gere rolagem horizontal na página inteira.
    Só afeta < 640px e NÃO reexibe tabelas já ocultas no mobile — a classe
