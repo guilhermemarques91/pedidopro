@@ -10,6 +10,7 @@ use App\Core\Request;
 use App\Services\Integrations\IngestService;
 use App\Services\Integrations\IfoodClient;
 use App\Services\Integrations\NineNineClient;
+use App\Services\DeliveryStock;
 
 /**
  * Painel unificado de pedidos de delivery (iFood + 99Food): listar, detalhar,
@@ -96,6 +97,20 @@ final class DeliveryController
         // Atualiza estado local + carimbo de tempo da transição.
         $tsCol = ['confirmed' => 'confirmed_at', 'ready' => 'ready_at', 'dispatched' => 'dispatched_at', 'cancelled' => 'cancelled_at'][$newStatus];
         Db::execute("UPDATE delivery_orders SET status = ?, {$tsCol} = COALESCE({$tsCol}, NOW()) WHERE id = ?", [$newStatus, $id]);
+
+        // Baixa de estoque pela ficha técnica: confirmar consome os insumos; cancelar estorna.
+        // Idempotente e opt-in (só mexe nos itens mapeados a um produto — ver DeliveryStock).
+        // Nunca deixa a transição de status falhar por causa do estoque: loga e segue.
+        try {
+            if ($newStatus === 'confirmed') {
+                DeliveryStock::consumeOnce($req->orgId(), $id, $req->userId());
+            } elseif ($newStatus === 'cancelled') {
+                DeliveryStock::revertOnce($req->orgId(), $id, $req->userId());
+            }
+        } catch (\Throwable $e) {
+            error_log("[delivery stock] {$newStatus} #{$id} falhou: " . $e->getMessage());
+        }
+
         Http::json(self::detailed($id));
     }
 
