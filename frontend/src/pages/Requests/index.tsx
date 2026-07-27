@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { KeyboardEvent, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2, ListChecks, Pencil } from 'lucide-react';
@@ -7,7 +7,7 @@ import { apiError } from '../../services/api';
 import { useAuth } from '../../store/auth.store';
 import { date } from '../../utils/format';
 import { PageHeader } from '../../components/PageHeader';
-import { Button, Card, Field, Input, Combobox, Modal, Badge, Spinner, ErrorBox, EmptyState, ComboOption } from '../../components/ui';
+import { Button, Card, Field, Input, Combobox, Modal, Badge, IconBtn, Spinner, ErrorBox, EmptyState, ComboOption } from '../../components/ui';
 
 // Linha em edição na nova lista.
 interface Draft { key: number; productId: string; sourceItemId: string; freeText: string; quantity: string; unit: string }
@@ -97,6 +97,7 @@ function RequestForm({ onClose, editId }: { onClose: () => void; editId?: number
   const [title, setTitle] = useState('');
   const [lines, setLines] = useState<Draft[]>([]);
   const [error, setError] = useState('');
+  const searchRef = useRef<HTMLDivElement>(null);
   const [loaded, setLoaded] = useState(false);
 
   // Pré-carrega título e linhas ao editar uma lista existente.
@@ -175,6 +176,14 @@ function RequestForm({ onClose, editId }: { onClose: () => void; editId?: number
       quantity, unit,
     }]);
     setCatalogSel(''); setQuantity('1'); setUnit('un');
+    // Devolve o foco ao campo de busca: lançar 20 itens não pode exigir voltar o mouse
+    // ao campo a cada um. O Combobox é um <button>, então miramos ele dentro do wrapper.
+    requestAnimationFrame(() => searchRef.current?.querySelector('button')?.focus());
+  }
+
+  /** Enter em Qtd/Unidade lança a linha (sem submeter o formulário). */
+  function onEnterAdd(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Enter') { e.preventDefault(); addLine(); }
   }
 
   function nameOf(l: Draft): string {
@@ -183,14 +192,46 @@ function RequestForm({ onClose, editId }: { onClose: () => void; editId?: number
   }
 
   return (
-    <Modal title={editId ? 'Editar lista de compras' : 'Nova lista de compras'} onClose={onClose} size="xl">
+    <Modal title={editId ? 'Editar lista de compras' : 'Nova lista de compras'} onClose={onClose} size="wide">
       <div className="space-y-4">
         {error && <ErrorBox message={error} />}
         <Field label="Título (opcional)"><Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ex.: Compras da semana" /></Field>
 
-        {/* Linhas adicionadas */}
-        {lines.length > 0 && (
+        {/* Adicionar item vem ANTES da lista: com 20 itens lançados, um painel embaixo
+            sairia da tela e obrigaria a rolar a cada item. */}
+        <Card className="space-y-3 border-emerald-100 bg-emerald-50/40">
+          <div className="grid gap-2 sm:grid-cols-[1fr_6rem_7rem_auto]">
+            <div ref={searchRef}>
+              <Combobox
+                options={catalogWithCreated}
+                value={catalogSel}
+                onChange={(v) => { setCatalogSel(v); setUnit(unitByValue.get(v) || 'un'); }}
+                onCreate={(name) => {
+                  const v = `new:${name}`;
+                  setCreated((c) => (c.some((o) => o.value === v) ? c : [...c, { value: v, label: name, hint: 'novo item' }]));
+                  setCatalogSel(v); setUnit('un');
+                }}
+                placeholder="Buscar item ou criar novo…"
+              />
+            </div>
+            {/* Enter lança a linha: dá para cadastrar a lista inteira sem soltar o teclado. */}
+            <Input value={quantity} onChange={(e) => setQuantity(e.target.value)} onKeyDown={onEnterAdd} placeholder="Qtd" inputMode="decimal" aria-label="Quantidade" />
+            <Input value={unit} onChange={(e) => setUnit(e.target.value)} onKeyDown={onEnterAdd} placeholder="un/kg/cx" aria-label="Unidade" />
+            <Button type="button" onClick={addLine}><Plus size={15} /> Adicionar</Button>
+          </div>
+          <p className="text-xs text-slate-500">Escolha o item, ajuste a quantidade e tecle <kbd className="rounded border border-slate-300 bg-white px-1">Enter</kbd> para lançar.</p>
+        </Card>
+
+        {/* Linhas adicionadas — quantidade e unidade editáveis aqui mesmo: antes era
+            preciso excluir e relançar o item só para corrigir um número. */}
+        {lines.length === 0 ? (
+          <EmptyState message="Nenhum item na lista ainda. Use o campo acima para lançar." />
+        ) : (
           <Card className="p-0">
+            <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2.5">
+              <span className="text-sm font-semibold text-slate-700">Itens da lista</span>
+              <span className="text-xs font-medium text-slate-500">{lines.length} {lines.length === 1 ? 'item' : 'itens'}</span>
+            </div>
             <table className="w-full text-sm">
               <tbody>
                 {lines.map((l) => (
@@ -199,9 +240,26 @@ function RequestForm({ onClose, editId }: { onClose: () => void; editId?: number
                       {nameOf(l)}
                       {!l.productId && <span className="ml-2 text-xs text-amber-600">(fora do catálogo)</span>}
                     </td>
-                    <td className="px-4 py-2 text-right text-slate-500">{l.quantity} {l.unit}</td>
-                    <td className="w-10 px-4 py-2 text-right">
-                      <button onClick={() => setLines((ls) => ls.filter((x) => x.key !== l.key))} className="text-slate-300 hover:text-red-600"><Trash2 size={15} /></button>
+                    <td className="w-24 px-2 py-2">
+                      <Input
+                        value={l.quantity}
+                        onChange={(e) => setLines((ls) => ls.map((x) => x.key === l.key ? { ...x, quantity: e.target.value } : x))}
+                        className="text-right"
+                        inputMode="decimal"
+                        aria-label={`Quantidade de ${nameOf(l)}`}
+                      />
+                    </td>
+                    <td className="w-24 px-2 py-2">
+                      <Input
+                        value={l.unit}
+                        onChange={(e) => setLines((ls) => ls.map((x) => x.key === l.key ? { ...x, unit: e.target.value } : x))}
+                        aria-label={`Unidade de ${nameOf(l)}`}
+                      />
+                    </td>
+                    <td className="w-12 px-3 py-2 text-right">
+                      <IconBtn title={`Remover ${nameOf(l)}`} hover="red" onClick={() => setLines((ls) => ls.filter((x) => x.key !== l.key))}>
+                        <Trash2 size={15} />
+                      </IconBtn>
                     </td>
                   </tr>
                 ))}
@@ -209,26 +267,6 @@ function RequestForm({ onClose, editId }: { onClose: () => void; editId?: number
             </table>
           </Card>
         )}
-
-        {/* Adicionar item — campo único: busca no catálogo ou cria item novo. */}
-        <Card className="space-y-3 bg-slate-50">
-          <Combobox
-            options={catalogWithCreated}
-            value={catalogSel}
-            onChange={(v) => { setCatalogSel(v); setUnit(unitByValue.get(v) || 'un'); }}
-            onCreate={(name) => {
-              const v = `new:${name}`;
-              setCreated((c) => (c.some((o) => o.value === v) ? c : [...c, { value: v, label: name, hint: 'novo item' }]));
-              setCatalogSel(v); setUnit('un');
-            }}
-            placeholder="Buscar item ou criar novo…"
-          />
-          <div className="flex gap-2">
-            <Input value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="Qtd" className="w-24" />
-            <Input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="un/kg/cx" className="w-28" />
-            <Button type="button" variant="secondary" onClick={addLine}><Plus size={15} /> Adicionar</Button>
-          </div>
-        </Card>
 
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button>

@@ -268,8 +268,13 @@ export function Badge({ status }: { status: string }) {
 
 export function Modal({
   title, onClose, children, size = 'lg',
-}: { title: string; onClose: () => void; children: ReactNode; size?: 'lg' | 'xl' | 'full' }) {
-  const maxW = size === 'full' ? 'max-w-5xl' : size === 'xl' ? 'max-w-2xl' : 'max-w-lg';
+}: { title: string; onClose: () => void; children: ReactNode; size?: 'lg' | 'xl' | 'full' | 'wide' }) {
+  // `wide`: telas de lançamento (muitos itens em linha) — acompanha a janela em vez de
+  // ficar presa num tamanho fixo, com teto para não esticar demais em monitor grande.
+  const maxW = size === 'wide' ? 'max-w-[min(80rem,95vw)]'
+    : size === 'full' ? 'max-w-5xl'
+    : size === 'xl' ? 'max-w-2xl'
+    : 'max-w-lg';
   const titleId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
   // onClose quase sempre chega como arrow inline (`onClose={() => setX(null)}`), cuja

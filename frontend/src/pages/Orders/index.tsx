@@ -1,4 +1,4 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, KeyboardEvent, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2 } from 'lucide-react';
@@ -156,6 +156,16 @@ function OrderForm({ onClose }: { onClose: () => void }) {
     onError: (e) => setError(apiError(e)),
   });
 
+  const total = lines.reduce((sum, l) =>
+    sum + (Number(String(l.quantity).replace(',', '.')) || 0) * (Number(String(l.unit_price).replace(',', '.')) || 0), 0);
+
+  const addLine = () => setLines((ls) => [...ls, { sel: '', quantity: '1', unit_price: '' }]);
+
+  /** Enter abre a próxima linha em vez de submeter — lançamento em sequência. */
+  function onEnterNewLine(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Enter') { e.preventDefault(); addLine(); }
+  }
+
   function setLine(i: number, patch: Partial<Line>) {
     setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
   }
@@ -178,7 +188,7 @@ function OrderForm({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <Modal title="Novo pedido" onClose={onClose} size="xl">
+    <Modal title="Novo pedido" onClose={onClose} size="wide">
       <form onSubmit={submit} className="space-y-4">
         {error && <ErrorBox message={error} />}
         <Field label="Fornecedor">
@@ -190,32 +200,59 @@ function OrderForm({ onClose }: { onClose: () => void }) {
 
         <div>
           <span className="mb-1 block text-sm font-medium text-slate-700">Itens</span>
-          <div className="grid grid-cols-12 gap-2 px-1 text-xs text-slate-400">
-            <span className="col-span-6">Item</span>
-            <span className="col-span-2">Qtd</span>
-            <span className="col-span-3">Preço un.</span>
+          {!supplierId && (
+            <p className="mb-2 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
+              Escolha o fornecedor primeiro — o catálogo de itens e os preços são dele.
+            </p>
+          )}
+          <div className="hidden grid-cols-12 gap-2 px-1 text-xs font-medium text-slate-400 sm:grid">
+            <span className="col-span-5">Item</span>
+            <span className="col-span-2 text-right">Qtd</span>
+            <span className="col-span-2 text-right">Preço un.</span>
+            <span className="col-span-2 text-right">Subtotal</span>
             <span className="col-span-1" />
           </div>
           <div className="mt-1 space-y-2">
-            {lines.map((l, i) => (
-              <div key={i} className="grid grid-cols-12 items-center gap-2">
-                <div className="col-span-6">
-                  <Combobox
-                    options={itemOptions}
-                    value={l.sel}
-                    onChange={(v) => pickItem(i, v)}
-                    onCreate={(name) => createItem(i, name)}
-                    disabled={!supplierId}
-                    placeholder="Buscar item ou criar…"
-                  />
+            {lines.map((l, i) => {
+              const sub = (Number(String(l.quantity).replace(',', '.')) || 0) * (Number(String(l.unit_price).replace(',', '.')) || 0);
+              return (
+                <div key={i} className="grid grid-cols-12 items-center gap-2">
+                  <div className="col-span-12 sm:col-span-5">
+                    <Combobox
+                      options={itemOptions}
+                      value={l.sel}
+                      onChange={(v) => pickItem(i, v)}
+                      onCreate={(name) => createItem(i, name)}
+                      disabled={!supplierId}
+                      placeholder="Buscar item ou criar…"
+                    />
+                  </div>
+                  <Input value={l.quantity} onChange={(e) => setLine(i, { quantity: e.target.value })} onKeyDown={onEnterNewLine} placeholder="Qtd" inputMode="decimal" aria-label="Quantidade" className="col-span-4 text-right sm:col-span-2" />
+                  <Input value={l.unit_price} onChange={(e) => setLine(i, { unit_price: e.target.value })} onKeyDown={onEnterNewLine} placeholder="Preço" inputMode="decimal" aria-label="Preço unitário" className="col-span-4 text-right sm:col-span-2" />
+                  {/* Subtotal por linha: confere o cálculo item a item sem calculadora. */}
+                  <span className="col-span-3 text-right text-sm font-medium text-slate-700 sm:col-span-2">
+                    {sub > 0 ? brl(sub) : <span className="text-slate-300">—</span>}
+                  </span>
+                  <div className="col-span-1 flex justify-end">
+                    <IconBtn
+                      title="Remover item"
+                      hover="red"
+                      onClick={() => setLines((ls) => (ls.length > 1 ? ls.filter((_, idx) => idx !== i) : ls))}
+                    >
+                      <Trash2 size={16} />
+                    </IconBtn>
+                  </div>
                 </div>
-                <Input value={l.quantity} onChange={(e) => setLine(i, { quantity: e.target.value })} placeholder="Qtd" className="col-span-2" />
-                <Input value={l.unit_price} onChange={(e) => setLine(i, { unit_price: e.target.value })} placeholder="Preço" className="col-span-3" />
-                <button type="button" onClick={() => setLines((ls) => ls.filter((_, idx) => idx !== i))} className="col-span-1 flex justify-center text-slate-400 hover:text-red-600"><Trash2 size={16} /></button>
-              </div>
-            ))}
+              );
+            })}
           </div>
-          <button type="button" onClick={() => setLines((ls) => [...ls, { sel: '', quantity: '1', unit_price: '' }])} className="mt-2 text-sm text-emerald-600 hover:underline">+ adicionar linha</button>
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-3">
+            <Button type="button" variant="secondary" onClick={addLine}><Plus size={15} /> Adicionar item</Button>
+            {/* Total do pedido: você está montando uma compra — precisa ver quanto dá. */}
+            <p className="text-sm text-slate-500">
+              Total do pedido <strong className="ml-2 text-lg font-bold text-slate-900">{brl(total)}</strong>
+            </p>
+          </div>
         </div>
 
         <Field label="Observações (opcional)"><Input value={notes} onChange={(e) => setNotes(e.target.value)} /></Field>

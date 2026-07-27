@@ -328,7 +328,10 @@ export function Layout() {
         </header>
 
         <main className="flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-6xl p-4 sm:p-6 md:p-8">
+          {/* Largura fluida: o limite de 6xl (1152px) sobrava ~260px de margem morta de
+              cada lado num monitor de 1920. O teto de 120rem só entra em tela gigante,
+              para a linha de texto não ficar absurda em 4K. */}
+          <div className="mx-auto w-full max-w-[120rem] p-4 sm:p-6 lg:p-8">
             <Outlet />
           </div>
         </main>
