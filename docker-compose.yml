@@ -64,6 +64,14 @@ services:
       # não-assinado, o QZ pede "Permitir" no PC do painel).
       QZ_CERT_B64: ${QZ_CERT_B64:-}
       QZ_PRIVATE_KEY_B64: ${QZ_PRIVATE_KEY_B64:-}
+      # WhatsApp (Evolution API). A Evolution roda em OUTRO compose, em outra rede
+      # Docker, então não dá para usar o nome do serviço — e `127.0.0.1` aqui dentro
+      # seria o próprio container do ERP, não o host. `host.docker.internal` é o
+      # caminho que funciona (testado: HTTP 200 de dentro deste container).
+      # Sem estas variáveis o envio falha e o pedido só acumula na whatsapp_outbox.
+      EVOLUTION_API_URL: ${EVOLUTION_API_URL:-http://host.docker.internal:8080}
+      EVOLUTION_INSTANCE: ${EVOLUTION_INSTANCE:-pedidopro}
+      EVOLUTION_API_KEY: ${EVOLUTION_API_KEY:-}
     ports:
       # 8090 por padrão: a 8080 costuma estar ocupada pela Evolution API (WhatsApp) neste PC.
       - "${APP_PORT:-8090}:80"
