@@ -7,6 +7,7 @@ import {
 import { suppliersApi, itemsApi, quotationsApi, ordersApi } from '../../services/resources';
 import { brl, date } from '../../utils/format';
 import { PageHeader } from '../../components/PageHeader';
+import { StatCard } from '../../components/StatCard';
 import { Card, Spinner, Badge } from '../../components/ui';
 
 const STATUS_LABELS: Record<string, string> = {
@@ -44,15 +45,29 @@ export function Dashboard() {
       <PageHeader title="Dashboard" subtitle="Visão geral das compras" />
 
       <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <Kpi icon={Truck} label="Fornecedores" value={suppliers.data?.length ?? 0} to="/suppliers" color="text-blue-600" />
-        <Kpi icon={Package} label="Itens" value={items.data?.length ?? 0} to="/items" color="text-violet-600" />
-        <Kpi icon={ClipboardList} label="Cotações abertas" value={openQuotations} to="/quotations" color="text-amber-600" />
-        <Kpi icon={ShoppingCart} label="Pedidos p/ aprovar" value={pending} to="/orders" color="text-emerald-600" />
+        <StatCard icon={Truck} label="Fornecedores" value={suppliers.data?.length ?? 0} tone="info" to="/suppliers" />
+        <StatCard icon={Package} label="Itens cadastrados" value={items.data?.length ?? 0} to="/items" />
+        {/* Tom por SIGNIFICADO: cotação aberta e pedido parado esperam uma ação — ficam
+            em âmbar para saltarem na varredura da linha. Zerados voltam ao neutro. */}
+        <StatCard
+          icon={ClipboardList}
+          label="Cotações abertas"
+          value={openQuotations}
+          tone={openQuotations > 0 ? 'warn' : 'default'}
+          to="/quotations"
+        />
+        <StatCard
+          icon={ShoppingCart}
+          label="Pedidos p/ aprovar"
+          value={pending}
+          tone={pending > 0 ? 'danger' : 'success'}
+          to="/orders"
+        />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
-          <h3 className="mb-4 text-lg font-semibold text-slate-800">Pedidos por status</h3>
+          <h3 className="mb-4 text-base font-semibold tracking-tight text-slate-900">Pedidos por status</h3>
           {byStatus.length === 0 ? (
             <p className="py-8 text-center text-sm text-slate-400">Sem pedidos ainda.</p>
           ) : (
@@ -70,19 +85,28 @@ export function Dashboard() {
         </Card>
 
         <Card className="p-0">
-          <h3 className="px-5 pt-5 text-lg font-semibold text-slate-800">Pedidos recentes</h3>
+          {/* Cabeçalho com atalho à direita — padrão "título + ação" dos painéis. */}
+          <div className="flex items-center justify-between px-5 pt-5">
+            <h3 className="text-base font-semibold tracking-tight text-slate-900">Pedidos recentes</h3>
+            <Link
+              to="/orders"
+              className="rounded-lg px-2 py-1 text-sm font-medium text-emerald-700 hover:bg-emerald-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+            >
+              Ver todos
+            </Link>
+          </div>
           {recent.length === 0 ? (
             <p className="py-8 text-center text-sm text-slate-400">Sem pedidos ainda.</p>
           ) : (
-            <table className="mt-3 w-full text-sm">
+            <table className="mt-2 w-full text-sm">
               <tbody>
                 {recent.map((o) => (
-                  <tr key={o.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
-                    <td className="px-5 py-3"><Link to={`/orders/${o.id}`} className="font-medium text-emerald-700 hover:underline">#{o.id}</Link></td>
-                    <td className="px-5 py-3 text-slate-600">{o.supplier_name}</td>
-                    <td className="px-5 py-3"><Badge status={o.status} /></td>
-                    <td className="px-5 py-3 text-right text-slate-600">{brl(o.total_amount)}</td>
-                    <td className="px-5 py-3 text-right text-xs text-slate-400">{date(o.created_at)}</td>
+                  <tr key={o.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/70">
+                    <td className="px-5 py-3.5"><Link to={`/orders/${o.id}`} className="font-semibold text-emerald-700 hover:underline">#{o.id}</Link></td>
+                    <td className="px-5 py-3.5 text-slate-700">{o.supplier_name}</td>
+                    <td className="px-5 py-3.5"><Badge status={o.status} /></td>
+                    <td className="px-5 py-3.5 text-right font-medium text-slate-800">{brl(o.total_amount)}</td>
+                    <td className="px-5 py-3.5 text-right text-xs text-slate-400">{date(o.created_at)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -94,20 +118,3 @@ export function Dashboard() {
   );
 }
 
-function Kpi({ icon: Icon, label, value, to, color }: {
-  icon: typeof Truck; label: string; value: number; to: string; color: string;
-}) {
-  return (
-    <Link to={to}>
-      <Card className="transition hover:shadow-md">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-3xl font-bold text-slate-800">{value}</p>
-            <p className="text-sm text-slate-500">{label}</p>
-          </div>
-          <Icon className={color} size={32} />
-        </div>
-      </Card>
-    </Link>
-  );
-}

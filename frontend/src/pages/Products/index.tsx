@@ -129,7 +129,8 @@ export function Products() {
       ) : (
       <>
       {/* Abas por Tipo (eixo fixo, estilo PDV) */}
-      <div className="mb-4 flex gap-1 overflow-x-auto rounded-lg bg-slate-800 p-1">
+      {/* Segmentado claro: a barra escura pesava ao lado dos cartões brancos. */}
+      <div className="mb-4 flex gap-1 overflow-x-auto rounded-2xl border border-slate-200/70 bg-white p-1.5 shadow-[var(--shadow-xs)]">
         <TipoTab active={tipo === ''} onClick={() => setTipo('')} Icon={LayoutGrid} label="TODOS" />
         {TIPOS.map((t) => (
           <TipoTab key={t.value} active={tipo === t.value} onClick={() => setTipo(t.value)} Icon={t.Icon} label={t.label} />
@@ -440,9 +441,11 @@ function TipoTab({ active, onClick, Icon, label }: { active: boolean; onClick: (
   return (
     <button
       onClick={onClick}
-      className={`flex shrink-0 items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition ${active ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-300 hover:bg-slate-700 hover:text-white'}`}
+      className={`flex min-h-[var(--control-h)] shrink-0 items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 ${
+        active ? 'bg-emerald-50 text-emerald-700' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'
+      }`}
     >
-      <Icon size={16} className={active ? 'text-emerald-600' : ''} /> {label}
+      <Icon size={16} className={active ? 'text-emerald-600' : 'text-slate-400'} /> {label}
     </button>
   );
 }

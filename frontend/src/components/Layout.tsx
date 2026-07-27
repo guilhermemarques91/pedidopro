@@ -154,11 +154,14 @@ export function Layout() {
   // Item ativo ganha uma barra vertical à esquerda além do fundo: a posição no menu
   // fica legível de relance, sem depender só da diferença de cor (que some para quem
   // tem baixa visão ou daltonismo).
+  // Trilho escuro: o item ativo vira uma pílula com tinta da marca e texto branco; os
+  // inativos ficam em cinza claro e acendem no hover. A barra vertical à esquerda
+  // continua, para a posição não depender só de cor.
   const navItemClass = (isActive: boolean, extra = '') =>
-    `group relative flex min-h-[var(--control-h)] items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 ${
+    `group relative flex min-h-[var(--control-h)] items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 ${
       isActive
-        ? 'bg-emerald-50 text-emerald-700 before:absolute before:left-0 before:top-1/2 before:h-5 before:w-1 before:-translate-y-1/2 before:rounded-r-full before:bg-emerald-600'
-        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+        ? 'bg-emerald-500/15 text-white before:absolute before:left-0 before:top-1/2 before:h-5 before:w-1 before:-translate-y-1/2 before:rounded-r-full before:bg-emerald-400'
+        : 'text-slate-400 hover:bg-white/5 hover:text-white'
     } ${extra}`;
 
   // Renderiza um item folha (NavLink). `depth` controla o recuo dos filhos.
@@ -173,11 +176,17 @@ export function Layout() {
         title={rail ? label : undefined}
         className={({ isActive }) => navItemClass(isActive, rail ? 'justify-center px-2' : depth ? 'pl-9' : '')}
       >
-        <Icon size={18} className="shrink-0" />
-        {!rail && <span className="flex-1">{label}</span>}
-        {!rail && to === '/inbox' && inboxCount ? (
-          <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-xs font-semibold text-white">{inboxCount}</span>
-        ) : null}
+        {/* Função como filho para o ÍCONE também reagir ao estado ativo (acende em
+            emerald), não só o fundo da pílula. */}
+        {({ isActive }) => (
+          <>
+            <Icon size={18} className={`shrink-0 ${isActive ? 'text-emerald-400' : ''}`} />
+            {!rail && <span className="flex-1">{label}</span>}
+            {!rail && to === '/inbox' && inboxCount ? (
+              <span className="rounded-full bg-emerald-500 px-2 py-0.5 text-xs font-semibold text-slate-900">{inboxCount}</span>
+            ) : null}
+          </>
+        )}
       </NavLink>
     );
   }
@@ -205,7 +214,10 @@ export function Layout() {
   }
 
   return (
-    <div className="flex h-screen bg-slate-50">
+    // Casca escura: o trilho lateral é escuro e o conteúdo vira um painel claro com o
+    // canto arredondado por cima dele — a moldura das referências. O fundo da raiz
+    // precisa ser escuro para aparecer atrás desse canto arredondado.
+    <div className="flex h-screen bg-slate-900">
       {/* Recarrega a aba quando sai versão nova (evita bundle velho imprimindo duplicado). */}
       <VersionWatcher />
       {/* Impressão automática de comandas: roda em qualquer página (não só no painel). */}
@@ -216,21 +228,24 @@ export function Layout() {
       )}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex flex-col border-r border-slate-200 bg-white transition-all duration-200 md:static md:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-40 flex flex-col bg-slate-900 text-slate-300 transition-[width,transform] duration-200 md:static md:translate-x-0 ${
           rail ? 'w-16' : 'w-60'
         } ${menuOpen ? 'translate-x-0' : '-translate-x-full'}`}
       >
         <div className={`flex items-center py-5 ${rail ? 'justify-center px-2' : 'justify-between px-4'}`}>
           {!rail && (
-            <div className="flex min-w-0 items-center gap-2">
-              <Logo size={26} />
-              <span className="truncate text-xl font-bold text-slate-800"><AppName /></span>
+            <div className="flex min-w-0 items-center gap-2.5">
+              {/* Logo numa placa clara: a marca costuma ser escura e sumiria no trilho. */}
+              <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white/95">
+                <Logo size={24} />
+              </span>
+              <span className="truncate text-lg font-bold tracking-tight text-white"><AppName /></span>
             </div>
           )}
           {/* Toggle do trilho — só desktop */}
           <button
             onClick={toggleCollapsed}
-            className="hidden items-center justify-center rounded-lg p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 md:inline-flex"
+            className="hidden items-center justify-center rounded-lg p-2 text-slate-400 transition-colors hover:bg-white/10 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 md:inline-flex"
             aria-label={collapsed ? 'Expandir menu' : 'Recolher menu'}
             title={collapsed ? 'Expandir menu' : 'Recolher menu'}
           >
@@ -239,7 +254,7 @@ export function Layout() {
           {/* Fechar drawer — só mobile (alvo de 44px: é tocado com o polegar) */}
           <button
             onClick={() => setMenuOpen(false)}
-            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 md:hidden"
+            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-white/10 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 md:hidden"
             aria-label="Fechar menu"
           >
             <X size={20} />
@@ -255,12 +270,12 @@ export function Layout() {
             return (
               <div key={group.title} className="space-y-1">
                 {rail ? (
-                  <div className="my-1 border-t border-slate-100" />
+                  <div className="my-1 border-t border-white/10" />
                 ) : (
                   <button
                     type="button"
                     onClick={() => toggleGroup(group.title!, group.items)}
-                    className="flex w-full items-center justify-between rounded-lg px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-slate-400 hover:text-slate-600"
+                    className="flex w-full items-center justify-between rounded-lg px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-slate-500 transition-colors hover:text-slate-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
                   >
                     <span>{group.title}</span>
                     {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
@@ -272,17 +287,23 @@ export function Layout() {
           })}
         </nav>
 
-        <div className={`border-t border-slate-200 p-3 ${rail ? 'px-2' : ''}`}>
+        <div className={`border-t border-white/10 p-3 ${rail ? 'px-2' : ''}`}>
           {!rail && (
-            <div className="px-3 py-2">
-              <p className="truncate text-sm font-medium text-slate-800">{user?.name}</p>
-              <p className="text-xs capitalize text-slate-500">{user?.role}</p>
+            <div className="flex items-center gap-2.5 px-2 py-2">
+              {/* Inicial do usuário num círculo — âncora visual do rodapé, como nas refs. */}
+              <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-500/20 text-sm font-semibold text-emerald-300">
+                {(user?.name ?? '?').trim().charAt(0).toUpperCase()}
+              </span>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-white">{user?.name}</p>
+                <p className="truncate text-xs capitalize text-slate-400">{user?.role}</p>
+              </div>
             </div>
           )}
           <button
             onClick={handleLogout}
             title={rail ? 'Sair' : undefined}
-            className={`flex min-h-[var(--control-h)] w-full items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-red-50 hover:text-red-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400 ${
+            className={`flex min-h-[var(--control-h)] w-full items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium text-slate-400 transition-colors hover:bg-red-500/15 hover:text-red-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400 ${
               rail ? 'justify-center px-2' : ''
             }`}
           >
@@ -292,7 +313,9 @@ export function Layout() {
         </div>
       </aside>
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      {/* Painel de conteúdo: claro, com o canto arredondado recortando o trilho escuro.
+          `overflow-hidden` garante que o conteúdo respeite o arredondado ao rolar. */}
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-[#F4F5FA] md:rounded-l-[1.75rem]">
         {/* Barra superior — só no mobile */}
         <header className="flex items-center gap-3 border-b border-slate-200 bg-white px-4 py-3 md:hidden">
           <button onClick={() => setMenuOpen(true)} className="text-slate-600 hover:text-slate-900" aria-label="Abrir menu">
