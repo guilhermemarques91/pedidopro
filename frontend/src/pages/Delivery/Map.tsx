@@ -6,10 +6,10 @@ import 'leaflet/dist/leaflet.css';
 import { RefreshCw } from 'lucide-react';
 import { mapApi } from '../../services/resources';
 import { apiError } from '../../services/api';
-import type { DeliveryMapOrder, DeliveryPlatform } from '../../types';
+import type { DeliveryMapOrder, DeliveryMode, DeliveryPlatform } from '../../types';
 import { PageHeader } from '../../components/PageHeader';
 import { Button, Card, Select, Spinner, ErrorBox, EmptyState } from '../../components/ui';
-import { formatAddress } from '../../utils/format';
+import { brl, formatAddress } from '../../utils/format';
 
 const PLATFORM_LABEL: Record<string, string> = { ifood: 'iFood', '99food': '99Food' };
 // Centro aproximado do Brasil — usado só enquanto a loja/pedidos ainda não têm coordenada.
@@ -38,6 +38,17 @@ function km(m: number | null): string {
   return m === null ? '—' : `${(m / 1000).toFixed(2)} km`;
 }
 
+/**
+ * Faixas de distância para o filtro rápido — os mesmos cortes usados pelo resumo
+ * do backend (MapController::BANDS), para o clique na faixa bater com o número dela.
+ */
+const BANDS: { key: string; label: string; min?: number; max?: number }[] = [
+  { key: '0-2', label: 'Até 2 km', max: 2 },
+  { key: '2-5', label: '2 a 5 km', min: 2, max: 5 },
+  { key: '5-10', label: '5 a 10 km', min: 5, max: 10 },
+  { key: '10+', label: 'Acima de 10 km', min: 10 },
+];
+
 /** Ponte entre o MapContainer (só acessível via useMap dentro dele) e o componente pai. */
 function MapRefBridge({ onReady }: { onReady: (map: LeafletMap) => void }) {
   const map = useMap();
@@ -52,12 +63,27 @@ export function DeliveryMap() {
   const [from, setFrom] = useState(monthAgo);
   const [to, setTo] = useState(today);
   const [platform, setPlatform] = useState<DeliveryPlatform | ''>('');
+  const [mode, setMode] = useState<DeliveryMode | ''>('');
+  const [band, setBand] = useState<string>(''); // faixa clicada no resumo
+  const [minKm, setMinKm] = useState<string>('');
+  const [maxKm, setMaxKm] = useState<string>('');
   const [selected, setSelected] = useState<number | null>(null);
   const mapRef = useRef<LeafletMap | null>(null);
 
+  // A faixa é um atalho para min/max: quando uma está ativa, a outra é ignorada.
+  const active = band ? BANDS.find((b) => b.key === band) : null;
+  const minParam = active ? active.min : (minKm !== '' ? Number(minKm) : undefined);
+  const maxParam = active ? active.max : (maxKm !== '' ? Number(maxKm) : undefined);
+
   const { data, isLoading, error } = useQuery({
-    queryKey: ['delivery-map', from, to, platform],
-    queryFn: () => mapApi.list({ from, to, platform: platform || undefined }),
+    queryKey: ['delivery-map', from, to, platform, mode, minParam, maxParam],
+    queryFn: () => mapApi.list({
+      from, to,
+      platform: platform || undefined,
+      delivery_mode: mode || undefined,
+      min_km: minParam,
+      max_km: maxParam,
+    }),
   });
 
   const backfill = useMutation({
@@ -129,7 +155,7 @@ export function DeliveryMap() {
           <input type="date" value={to} min={from} max={today} onChange={(e) => setTo(e.target.value)}
                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm" />
         </label>
-        <label className="w-44 text-sm">
+        <label className="w-40 text-sm">
           <span className="mb-1 block font-medium text-slate-600">Plataforma</span>
           <Select value={platform} onChange={(e) => setPlatform(e.target.value as DeliveryPlatform | '')}>
             <option value="">Todas</option>
@@ -137,14 +163,92 @@ export function DeliveryMap() {
             <option value="99food">99Food</option>
           </Select>
         </label>
+        <label className="w-48 text-sm">
+          <span className="mb-1 block font-medium text-slate-600">Tipo de entrega</span>
+          <Select value={mode} onChange={(e) => setMode(e.target.value as DeliveryMode | '')}>
+            <option value="">Todas</option>
+            <option value="own">Entrega própria</option>
+            <option value="partner">Entrega da plataforma</option>
+          </Select>
+        </label>
+        <label className="w-28 text-sm">
+          <span className="mb-1 block font-medium text-slate-600">Mín. (km)</span>
+          <input
+            type="number" min={0} step={0.5} value={minKm} placeholder="0"
+            onChange={(e) => { setMinKm(e.target.value); setBand(''); }}
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-50 disabled:text-slate-400"
+            disabled={band !== ''}
+          />
+        </label>
+        <label className="w-28 text-sm">
+          <span className="mb-1 block font-medium text-slate-600">Máx. (km)</span>
+          <input
+            type="number" min={0} step={0.5} value={maxKm} placeholder="∞"
+            onChange={(e) => { setMaxKm(e.target.value); setBand(''); }}
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-50 disabled:text-slate-400"
+            disabled={band !== ''}
+          />
+        </label>
+        {(band || minKm || maxKm) && (
+          <button
+            onClick={() => { setBand(''); setMinKm(''); setMaxKm(''); }}
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
+          >
+            Limpar distância
+          </button>
+        )}
       </div>
+
+      {/* Resumo de distância: sempre do período inteiro, para o número da faixa não
+          mudar quando o próprio filtro de faixa é aplicado. */}
+      {data?.stats && data.stats.measured > 0 && (
+        <Card className="mb-4">
+          <div className="mb-3 flex flex-wrap items-baseline gap-x-6 gap-y-1 text-sm">
+            <span className="font-semibold text-slate-700">Distâncias do período</span>
+            <span className="text-slate-500">Média: <strong className="text-slate-700">{km(data.stats.avg_m)}</strong></span>
+            <span className="text-slate-500">Mais distante: <strong className="text-slate-700">{km(data.stats.max_m)}</strong></span>
+            <span className="text-slate-500">{data.stats.measured} de {data.stats.total} com coordenada</span>
+            {data.stats.without_coords > 0 && (
+              <span className="text-amber-600">{data.stats.without_coords} sem coordenada (fora do cálculo)</span>
+            )}
+          </div>
+          <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+            {data.stats.bands.map((b) => {
+              const on = band === b.key;
+              return (
+                <button
+                  key={b.key}
+                  onClick={() => { setBand(on ? '' : b.key); setMinKm(''); setMaxKm(''); }}
+                  className={`rounded-lg border px-3 py-2 text-left transition ${
+                    on ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
+                  }`}
+                >
+                  <p className={`text-xs ${on ? 'text-emerald-700' : 'text-slate-500'}`}>{b.label}</p>
+                  <p className={`text-lg font-semibold ${on ? 'text-emerald-700' : 'text-slate-800'}`}>{b.orders}</p>
+                  <p className="text-xs text-slate-400">{brl(b.revenue)}</p>
+                </button>
+              );
+            })}
+          </div>
+        </Card>
+      )}
+
+      {data?.stats && data.stats.hidden_by_distance > 0 && (
+        <div className="mb-4 rounded-lg bg-slate-100 px-4 py-2 text-sm text-slate-600">
+          {data.stats.hidden_by_distance} pedido(s) fora da faixa de distância selecionada estão ocultos.
+        </div>
+      )}
 
       {isLoading && <Spinner />}
       {error && <ErrorBox message={apiError(error)} />}
 
       {data && (
         orders.length === 0 ? (
-          <EmptyState message="Nenhum pedido com endereço no período selecionado." />
+          <EmptyState message={
+            (data.stats?.hidden_by_distance ?? 0) > 0
+              ? 'Nenhum pedido nesta faixa de distância. Limpe o filtro para ver os demais.'
+              : 'Nenhum pedido com endereço no período selecionado.'
+          } />
         ) : (
           <div className="space-y-4">
             <Card className="overflow-hidden p-0">
@@ -184,8 +288,10 @@ export function DeliveryMap() {
                   <tr>
                     <th className="px-4 py-3 font-medium">Pedido</th>
                     <th className="px-4 py-3 font-medium">Plataforma</th>
+                    <th className="px-4 py-3 font-medium">Entrega</th>
                     <th className="px-4 py-3 font-medium">Bairro registrado</th>
                     <th className="px-4 py-3 font-medium">Bairro sugerido</th>
+                    <th className="px-4 py-3 text-right font-medium">Valor</th>
                     <th className="px-4 py-3 text-right font-medium">Distância</th>
                   </tr>
                 </thead>
@@ -198,9 +304,15 @@ export function DeliveryMap() {
                     >
                       <td className="px-4 py-3 text-slate-700">{o.display_id ?? `#${o.id}`} <span className="text-xs text-slate-400">— {o.customer_name ?? 'Cliente'}</span></td>
                       <td className="px-4 py-3 text-slate-600">{PLATFORM_LABEL[o.platform] ?? o.platform}</td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {o.delivery_mode === 'own' ? 'Própria' : o.delivery_mode === 'partner' ? 'Plataforma' : '—'}
+                      </td>
                       <td className="px-4 py-3 text-slate-600">{o.address?.neighborhood ?? '—'}</td>
                       <td className={`px-4 py-3 ${o.address?.neighborhood_mismatch ? 'font-medium text-amber-700' : 'text-slate-500'}`}>
                         {o.address?.suggested_neighborhood ?? (o.needs_geocode ? 'sem coordenada' : '—')}
+                      </td>
+                      <td className="px-4 py-3 text-right text-slate-600">
+                        {o.customer_paid !== null ? brl(o.customer_paid) : '—'}
                       </td>
                       <td className="px-4 py-3 text-right text-slate-600">{km(o.distance_m)}</td>
                     </tr>

@@ -341,7 +341,8 @@ export interface RequestDetail extends PurchaseRequest {
 export type DeliveryPlatform = 'ifood' | '99food';
 export type DeliveryStatus =
   | 'placed' | 'confirmed' | 'preparing' | 'ready' | 'dispatched' | 'concluded' | 'cancelled';
-export type DeliveryMode = 'own' | 'partner';
+/** Quem entrega — e portanto quem fica com a taxa. `unknown` = pedido sem o campo gravado. */
+export type DeliveryMode = 'own' | 'partner' | 'unknown';
 
 export interface DeliveryAddress {
   street: string | null;
@@ -437,6 +438,9 @@ export interface DeliveryMapOrder {
   display_id: string | null;
   platform: DeliveryPlatform;
   customer_name: string | null;
+  delivery_mode: string | null;
+  customer_paid: number | null;
+  delivery_fee: number | null;
   address: DeliveryAddress | null;
   distance_m: number | null;
   needs_geocode: boolean;
@@ -445,6 +449,7 @@ export interface DeliveryMapOrder {
 export interface DeliveryMapResponse {
   store: StoreSettings;
   orders: DeliveryMapOrder[];
+  stats: DeliveryMapStats;
 }
 
 export interface GeocodeBackfillResult {
@@ -586,14 +591,94 @@ export interface ReportPlatformRow {
   margin_est: number;
   avg_ticket: number;
 }
+export interface ReportModeRow {
+  mode: DeliveryMode;
+  orders: number;
+  customer_paid: number;
+  items_amount: number;
+  /** Só é receita nossa quando `is_own_fee` (entrega própria). */
+  delivery_fee: number;
+  is_own_fee: boolean;
+  orders_with_fee: number;
+  avg_fee: number;
+  avg_ticket: number;
+}
 export interface ReportSummary {
   from: string;
   to: string;
   platform: string | null;
-  totals: Omit<ReportPlatformRow, 'platform' | 'avg_ticket'>;
+  delivery_mode: string | null;
+  totals: Omit<ReportPlatformRow, 'platform'>;
   by_platform: ReportPlatformRow[];
-  customers: { new: number; recurring: number };
-  top_regions: { region: string; orders: number }[];
+  by_delivery_mode: ReportModeRow[];
+  cancellations: { orders: number; lost_amount: number; rate: number };
+  customers: {
+    new: number;
+    /** Alias histórico de `returning`. */
+    recurring: number;
+    /** Já comprava antes do período (retenção da base antiga). */
+    returning: number;
+    /** Clientes distintos que pediram no período. */
+    active: number;
+    /** Tem mais de um pedido no histórico (fidelização). */
+    repeat: number;
+    one_time: number;
+    repeat_rate: number;
+  };
+  top_regions: { region: string; orders: number; customer_paid: number }[];
+}
+
+export interface ReportCustomer {
+  id: number;
+  name: string | null;
+  phone: string | null;
+  platform: DeliveryPlatform;
+  /** Pedidos dentro do período filtrado. */
+  orders: number;
+  /** Pedidos no histórico completo — é o que define a recorrência. */
+  orders_total: number;
+  spent: number;
+  avg_ticket: number;
+  first_order_at: string | null;
+  last_order_at: string | null;
+  days_since_last: number | null;
+  is_recurring: boolean;
+}
+
+export interface ReportItem {
+  name: string;
+  qty: number;
+  orders: number;
+  revenue: number;
+  avg_price: number;
+}
+
+export interface ReportPerformance {
+  from: string;
+  to: string;
+  daily: { day: string; orders: number; revenue: number }[];
+  hourly: { hour: number; orders: number; revenue: number }[];
+  /** dow: 0 = domingo … 6 = sábado. */
+  weekday: { dow: number; orders: number; revenue: number }[];
+  timings: {
+    to_confirm_min: number | null;
+    to_ready_min: number | null;
+    to_dispatch_min: number | null;
+    to_conclude_min: number | null;
+    total_min: number | null;
+    concluded: number;
+  };
+}
+
+/** Resumo de distância do mapa — descreve o período inteiro, não o filtro de faixa. */
+export interface DeliveryMapStats {
+  total: number;
+  measured: number;
+  without_coords: number;
+  hidden_by_distance: number;
+  avg_m: number | null;
+  max_m: number | null;
+  bands: { key: string; label: string; orders: number; revenue: number }[];
 }
 
 // ---- Marmitex (catering B2B) ----

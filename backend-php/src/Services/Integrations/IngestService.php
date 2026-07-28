@@ -538,10 +538,26 @@ final class IngestService
                     ]);
                 }
             }
+
+            // Recontagem do histórico do cliente (base de "novos vs recorrentes").
+            // RECONTA em vez de incrementar: este upsert roda a CADA evento do pedido
+            // (transições de status, re-poll, callback reenviado), então um "+1" contaria
+            // o mesmo pedido várias vezes. Derivar de delivery_orders é idempotente.
+            // Precisa vir DEPOIS do insert do pedido, senão não conta o pedido atual.
+            if ($customerId !== null && $orderRowId > 0) {
+                $pdo->prepare(
+                    'UPDATE delivery_customers dc
+                        SET dc.orders_count = (
+                              SELECT COUNT(*) FROM delivery_orders o
+                               WHERE o.customer_id = dc.id AND o.status <> \'cancelled\'
+                            )
+                      WHERE dc.id = ?'
+                )->execute([$customerId]);
+            }
         });
     }
 
-    /** Upsert do cliente; incrementa orders_count na primeira vez que o pedido aparece. */
+    /** Upsert do cliente (o contador orders_count é recalculado no fim do upsert do pedido). */
     private static function upsertCustomer(PDO $pdo, string $platform, array $c): ?int
     {
         $pid = $c['platform_customer_id'] ?? null;

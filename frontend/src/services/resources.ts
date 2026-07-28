@@ -3,6 +3,7 @@ import type {
   Category, Supplier, Item, Product, Quotation, QuotationDetail, ComparisonRow,
   Order, OrderDetail, User, UserRole, Role, PermissionCatalog, AuditEntry, ProductType, Subclass, ProductionPrinter, RecipeLine, StockMove, PurchaseRequest, RequestDetail,
   DeliveryOrder, DeliveryOrderDetail, DeliveryStatus, DeliveryPlatform, Channel, DeliveryAlert, ReportSummary,
+  DeliveryMode, ReportCustomer, ReportItem, ReportPerformance,
   Interruption, OpeningShift, StoreSettings, DeliveryMapResponse, GeocodeBackfillResult,
   MarmitexCompany, MarmitexCatalog, CatalogType, MarmitexOrder, MarmitexOrderDetail, ProductionSummary,
   MarmitexReport, MarmitexInvoice, MarmitexLabelData,
@@ -337,14 +338,33 @@ export interface ChannelInput {
   commission_rate?: number;
 }
 
-export interface ReportFilters { from?: string; to?: string; platform?: DeliveryPlatform }
+export interface ReportFilters {
+  from?: string;
+  to?: string;
+  platform?: DeliveryPlatform;
+  delivery_mode?: DeliveryMode;
+}
 export const reportsApi = {
   summary: (f: ReportFilters = {}) =>
     api.get<ReportSummary>('/delivery/reports/summary', { params: f }).then((r) => r.data),
+  customers: (f: ReportFilters & { limit?: number; recurring?: '1'; sort?: 'spent' | 'orders' } = {}) =>
+    api.get<{ customers: ReportCustomer[] }>('/delivery/reports/customers', { params: f }).then((r) => r.data.customers),
+  items: (f: ReportFilters & { limit?: number } = {}) =>
+    api.get<{ items: ReportItem[] }>('/delivery/reports/items', { params: f }).then((r) => r.data.items),
+  performance: (f: ReportFilters = {}) =>
+    api.get<ReportPerformance>('/delivery/reports/performance', { params: f }).then((r) => r.data),
 };
 
 // ---- Mapa de pedidos Delivery + relatório de distância ----
-export interface MapFilters { from?: string; to?: string; platform?: DeliveryPlatform }
+export interface MapFilters {
+  from?: string;
+  to?: string;
+  platform?: DeliveryPlatform;
+  delivery_mode?: DeliveryMode;
+  /** Faixa de distância até a loja, em km (linha reta). */
+  min_km?: number;
+  max_km?: number;
+}
 export const storeSettingsApi = {
   get: () => api.get<StoreSettings>('/delivery/settings/store').then((r) => r.data),
   update: (body: Partial<StoreSettings>) => api.put<StoreSettings>('/delivery/settings/store', body).then((r) => r.data),

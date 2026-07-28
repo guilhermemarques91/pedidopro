@@ -247,6 +247,9 @@ final class Routes
         $r->post('/delivery/print/sign', [PrintController::class, 'sign'], self::DELIVERY);   // assina requisição QZ Tray
         // Relatórios operacionais
         $r->get('/delivery/reports/summary', [ReportsController::class, 'summary'], self::DELIVERY);
+        $r->get('/delivery/reports/customers', [ReportsController::class, 'customers'], self::DELIVERY);     // ranking + recorrência
+        $r->get('/delivery/reports/items', [ReportsController::class, 'items'], self::DELIVERY);             // mais vendidos
+        $r->get('/delivery/reports/performance', [ReportsController::class, 'performance'], self::DELIVERY); // dia/hora + tempos
         // Mapa de pedidos + distância (endereço da loja, listagem geocodificada, backfill sob demanda)
         $r->get('/delivery/settings/store', [MapController::class, 'getSettings'], self::DELIVERY);
         $r->put('/delivery/settings/store', [MapController::class, 'updateSettings'], self::DELIVERY_ADMIN);
