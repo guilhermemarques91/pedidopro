@@ -347,9 +347,14 @@ export interface ReportFilters {
 export const reportsApi = {
   summary: (f: ReportFilters = {}) =>
     api.get<ReportSummary>('/delivery/reports/summary', { params: f }).then((r) => r.data),
-  customers: (f: ReportFilters & { limit?: number; recurring?: '1'; sort?: 'spent' | 'orders' } = {}) =>
+  customers: (
+    f: ReportFilters & {
+      limit?: number; recurring?: '1'; q?: string;
+      sort?: 'spent' | 'orders' | 'name' | 'recent';
+    } = {},
+  ) =>
     api.get<{ customers: ReportCustomer[] }>('/delivery/reports/customers', { params: f }).then((r) => r.data.customers),
-  items: (f: ReportFilters & { limit?: number } = {}) =>
+  items: (f: ReportFilters & { limit?: number; q?: string; sort?: 'qty' | 'revenue' | 'name' } = {}) =>
     api.get<{ items: ReportItem[] }>('/delivery/reports/items', { params: f }).then((r) => r.data.items),
   performance: (f: ReportFilters = {}) =>
     api.get<ReportPerformance>('/delivery/reports/performance', { params: f }).then((r) => r.data),
@@ -364,6 +369,22 @@ export interface MapFilters {
   /** Faixa de distância até a loja, em km (linha reta). */
   min_km?: number;
   max_km?: number;
+  /** '1' = só os pedidos sem coordenada (os que precisam de correção manual). */
+  without_coords?: '1';
+  /** Busca livre: nome do cliente, nº do pedido ou endereço. */
+  q?: string;
+}
+
+/** Correção manual do endereço; `lat`/`lng` fixam o ponto quando o mapa não acha. */
+export interface AddressPatch {
+  street?: string;
+  number?: string;
+  complement?: string;
+  neighborhood?: string;
+  city?: string;
+  state?: string;
+  lat?: number;
+  lng?: number;
 }
 export const storeSettingsApi = {
   get: () => api.get<StoreSettings>('/delivery/settings/store').then((r) => r.data),
@@ -377,6 +398,13 @@ export const mapApi = {
     api.post<GeocodeBackfillResult>('/delivery/map/backfill', { limit }, { timeout: 120000 }).then((r) => r.data),
   correctNeighborhood: (orderId: number, neighborhood: string) =>
     api.patch<DeliveryOrderDetail>(`/delivery/orders/${orderId}/address`, { neighborhood }).then((r) => r.data),
+  updateAddress: (orderId: number, body: AddressPatch) =>
+    api.patch<DeliveryOrderDetail>(`/delivery/orders/${orderId}/address`, body).then((r) => r.data),
+  /** Tenta localizar UM pedido agora (após corrigir o endereço à mão). */
+  geocodeOne: (orderId: number) =>
+    api.post<{ ok: boolean; reason: string | null; lat: number | null; lng: number | null }>(
+      `/delivery/orders/${orderId}/geocode`, {}, { timeout: 30000 },
+    ).then((r) => r.data),
 };
 
 // ---- Loja (módulo Merchant iFood) ----

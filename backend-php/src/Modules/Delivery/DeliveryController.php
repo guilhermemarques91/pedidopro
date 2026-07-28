@@ -11,6 +11,7 @@ use App\Services\Integrations\IngestService;
 use App\Services\Integrations\IfoodClient;
 use App\Services\Integrations\NineNineClient;
 use App\Services\DeliveryStock;
+use App\Services\GeoService;
 
 /**
  * Painel unificado de pedidos de delivery (iFood + 99Food): listar, detalhar,
@@ -172,30 +173,106 @@ final class DeliveryController
      * PATCH /delivery/orders/:id/address — corrige o bairro do pedido depois de ver
      * a localização real no mapa. Preserva o valor original (1ª correção) para auditoria.
      */
+    /**
+     * PATCH /delivery/orders/:id/address — corrige o endereço de entrega.
+     *
+     * Aceita o bairro (uso original), os demais campos do endereço e ainda `lat`/`lng`
+     * para o operador FIXAR o ponto à mão. O pin manual é a saída para os endereços que
+     * o OpenStreetMap simplesmente não conhece: sem ele o pedido ficava sem coordenada
+     * para sempre, e sem coordenada não havia marcador — logo, não havia como editar.
+     */
     public static function updateAddress(Request $req): void
     {
         $id = $req->intParam('id');
         $order = self::row($id);
-        $neighborhood = $req->input()->requireString('neighborhood', 1, 120);
+        $in = $req->input();
 
         $addr = json_decode((string) ($order['delivery_address'] ?? 'null'), true);
         if (!is_array($addr)) {
-            throw HttpError::badRequest('Pedido sem endereço cadastrado');
+            // Endereço ausente deixa de ser beco sem saída: começa um do zero.
+            $addr = [];
         }
-        if (!isset($addr['neighborhood_original']) && ($addr['neighborhood'] ?? null) !== null) {
-            $addr['neighborhood_original'] = $addr['neighborhood'];
+
+        if ($in->has('neighborhood')) {
+            $neighborhood = $in->requireString('neighborhood', 1, 120);
+            if (!isset($addr['neighborhood_original']) && ($addr['neighborhood'] ?? null) !== null) {
+                $addr['neighborhood_original'] = $addr['neighborhood'];
+            }
+            $addr['neighborhood'] = $neighborhood;
+            $addr['neighborhood_corrected_at'] = date('c');
+            if (isset($addr['suggested_neighborhood']) && is_string($addr['suggested_neighborhood'])
+                && mb_strtolower(trim($neighborhood)) === mb_strtolower(trim($addr['suggested_neighborhood']))) {
+                $addr['neighborhood_mismatch'] = false;
+            }
         }
-        $addr['neighborhood'] = $neighborhood;
-        $addr['neighborhood_corrected_at'] = date('c');
-        if (isset($addr['suggested_neighborhood']) && is_string($addr['suggested_neighborhood'])
-            && mb_strtolower(trim($neighborhood)) === mb_strtolower(trim($addr['suggested_neighborhood']))) {
-            $addr['neighborhood_mismatch'] = false;
+
+        // Grava na MESMA grafia que já existe no pedido, para não acabar com `street` e
+        // `streetName` convivendo no mesmo JSON e a leitura pegar o valor velho.
+        $addressChanged = false;
+        foreach ([
+            'street' => ['street', 'streetName', 'street_name'],
+            'number' => ['number', 'streetNumber', 'street_number'],
+            'complement' => ['complement'],
+            'city' => ['city'],
+            'state' => ['state'],
+        ] as $field => $keys) {
+            if (!$in->has($field)) {
+                continue;
+            }
+            $value = trim((string) $in->string($field));
+            $target = $keys[0];
+            foreach ($keys as $k) {
+                if (array_key_exists($k, $addr)) {
+                    $target = $k;
+                    break;
+                }
+            }
+            if ((string) ($addr[$target] ?? '') !== $value) {
+                $addressChanged = true;
+            }
+            $addr[$target] = $value !== '' ? $value : null;
+        }
+
+        // Pin manual: coordenada dada pelo operador vence qualquer geocodificação e não
+        // pode ser sobrescrita pelo backfill (por isso `geocode_source = manual`).
+        $pinned = false;
+        if ($in->has('lat') && $in->has('lng')) {
+            $lat = (float) $in->number('lat');
+            $lng = (float) $in->number('lng');
+            if ($lat < -90 || $lat > 90 || $lng < -180 || $lng > 180) {
+                throw HttpError::badRequest('Coordenada inválida');
+            }
+            $addr['lat'] = $lat;
+            $addr['lng'] = $lng;
+            $addr['geocode_source'] = 'manual';
+            $addr['geocode_precision'] = 'manual';
+            $addr['geocoded_at'] = date('c');
+            unset($addr['geocode_failed']);
+            $pinned = true;
+        } elseif ($addressChanged) {
+            // Endereço novo merece nova tentativa: sem limpar o carimbo, o backfill
+            // continuaria pulando este pedido para sempre.
+            unset($addr['geocode_failed']);
         }
 
         Db::execute('UPDATE delivery_orders SET delivery_address = ? WHERE id = ?', [
             json_encode($addr, JSON_UNESCAPED_UNICODE), $id,
         ]);
+
+        // Com o ponto fixado à mão, o bairro sugerido vem da coordenada real.
+        if ($pinned && !$in->has('neighborhood')) {
+            GeoService::suggestNeighborhood($id, $addr, (float) $addr['lat'], (float) $addr['lng']);
+        }
+
         Http::json(self::detailed($id));
+    }
+
+    /** POST /delivery/orders/:id/geocode — tenta localizar UM pedido agora. */
+    public static function geocodeOrder(Request $req): void
+    {
+        $id = $req->intParam('id');
+        self::row($id); // valida existência/organização
+        Http::json(GeoService::geocodeOrder($id, $req->orgId()));
     }
 
     /** GET /delivery/orders/:id/tracking — posição/ETA do entregador. */

@@ -356,7 +356,9 @@ export interface DeliveryAddress {
   formatted: string | null;
   lat: number | null;
   lng: number | null;
-  geocode_source?: 'platform' | 'nominatim' | null;
+  /** `manual` = ponto fixado pelo operador; nunca é sobrescrito pelo backfill. */
+  geocode_source?: 'platform' | 'nominatim' | 'manual' | null;
+  geocode_failed?: string | null;
   geocoded_at?: string | null;
   suggested_neighborhood?: string | null;
   neighborhood_mismatch?: boolean | null;
@@ -438,12 +440,16 @@ export interface DeliveryMapOrder {
   display_id: string | null;
   platform: DeliveryPlatform;
   customer_name: string | null;
+  customer_phone: string | null;
   delivery_mode: string | null;
   customer_paid: number | null;
   delivery_fee: number | null;
+  created_at: string | null;
   address: DeliveryAddress | null;
   distance_m: number | null;
   needs_geocode: boolean;
+  /** Por que ficou sem pin: 'not_found' (o mapa não conhece) ou 'far_from_store'. */
+  geocode_failed: string | null;
 }
 
 export interface DeliveryMapResponse {
@@ -679,6 +685,8 @@ export interface DeliveryMapStats {
   avg_m: number | null;
   max_m: number | null;
   bands: { key: string; label: string; orders: number; revenue: number }[];
+  /** Contagem CUMULATIVA dentro de cada raio (o anel desenhado no mapa). */
+  radii: { radius_m: number; orders: number; revenue: number; share: number }[];
 }
 
 // ---- Marmitex (catering B2B) ----

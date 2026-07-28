@@ -50,6 +50,13 @@ final class MapController
         ['key' => '10+', 'label' => 'Acima de 10 km', 'min' => 10000, 'max' => null],
     ];
 
+    /**
+     * Anéis de raio desenhados no mapa. A contagem aqui é CUMULATIVA ("dentro do raio"),
+     * ao contrário de BANDS, que conta o intervalo entre dois valores — são leituras
+     * diferentes e ambas úteis: o raio responde "quanto eu atendo até X km".
+     */
+    private const RADII_M = [1000, 2000, 3000, 5000, 10000];
+
     public static function list(Request $req): void
     {
         $to = $req->query('to') ?? date('Y-m-d');
@@ -68,14 +75,32 @@ final class MapController
             $params[] = $mode;
         }
 
+        // Busca livre: nome do cliente, nº do pedido ou qualquer parte do endereço
+        // (o endereço é JSON, então LIKE no texto cru é o que cobre rua e bairro juntos).
+        $q = trim((string) ($req->query('q') ?? ''));
+        if ($q !== '') {
+            $cond .= ' AND (o.customer_name LIKE ? OR o.display_id LIKE ? OR o.delivery_address LIKE ?)';
+            $like = '%' . $q . '%';
+            array_push($params, $like, $like, $like);
+        }
+
         // Filtro de distância (km, do usuário) → metros. Aplicado em PHP e não em SQL
         // porque a distância não está persistida: delivery_distance_m nunca é preenchido
         // e a coordenada mora no JSON do endereço, então ela é calculada aqui a cada leitura.
         $minM = self::km($req->query('min_km'));
         $maxM = self::km($req->query('max_km'));
+        // Modo "pendências": só os pedidos sem coordenada, que são os que precisam de
+        // correção manual. Convive com o filtro de distância desligando-o (um pedido sem
+        // coordenada não tem distância, então nunca passaria numa faixa).
+        $onlyMissing = $req->query('without_coords') === '1';
+        if ($onlyMissing) {
+            $minM = null;
+            $maxM = null;
+        }
 
         $rows = Db::query(
-            "SELECT id, display_id, platform, customer_name, delivery_mode, customer_paid, delivery_fee, delivery_address
+            "SELECT id, display_id, platform, customer_name, customer_phone, delivery_mode,
+                    customer_paid, delivery_fee, delivery_address, created_at
                FROM delivery_orders o
               WHERE {$cond}
               ORDER BY created_at DESC",
@@ -95,6 +120,10 @@ final class MapController
         $measured = 0;
         $max = null;
         $hiddenByDistance = 0;
+        $radii = [];
+        foreach (self::RADII_M as $r) {
+            $radii[$r] = ['radius_m' => $r, 'orders' => 0, 'revenue' => 0.0];
+        }
 
         foreach ($rows as $row) {
             $addr = json_decode((string) $row['delivery_address'], true);
@@ -118,9 +147,21 @@ final class MapController
                         break;
                     }
                 }
+                // Cumulativo: o pedido conta em TODO raio que o contém (sem break).
+                foreach (self::RADII_M as $r) {
+                    if ($distance <= $r) {
+                        $radii[$r]['orders']++;
+                        $radii[$r]['revenue'] += (float) ($row['customer_paid'] ?? 0);
+                    }
+                }
             }
 
-            if ($minM !== null || $maxM !== null) {
+            $needsGeocode = $lat === null || $lng === null;
+
+            if ($onlyMissing && !$needsGeocode) {
+                continue;
+            }
+            if (!$onlyMissing && ($minM !== null || $maxM !== null)) {
                 // Sem coordenada não dá para afirmar que está na faixa — fica de fora.
                 if ($distance === null
                     || ($minM !== null && $distance < $minM)
@@ -135,12 +176,16 @@ final class MapController
                 'display_id' => $row['display_id'],
                 'platform' => $row['platform'],
                 'customer_name' => $row['customer_name'],
+                'customer_phone' => $row['customer_phone'],
                 'delivery_mode' => $row['delivery_mode'],
                 'customer_paid' => $row['customer_paid'] !== null ? (float) $row['customer_paid'] : null,
                 'delivery_fee' => $row['delivery_fee'] !== null ? (float) $row['delivery_fee'] : null,
+                'created_at' => $row['created_at'],
                 'address' => $addr,
                 'distance_m' => $distance,
-                'needs_geocode' => $lat === null || $lng === null,
+                'needs_geocode' => $needsGeocode,
+                // Por que ficou sem pin: 'not_found' (OSM não conhece) ou 'far_from_store'.
+                'geocode_failed' => is_array($addr) ? ($addr['geocode_failed'] ?? null) : null,
             ];
         }
 
@@ -157,6 +202,16 @@ final class MapController
                 'bands' => array_map(
                     static fn(array $b): array => $b + ['revenue' => round($b['revenue'], 2)],
                     array_values($bands)
+                ),
+                'radii' => array_map(
+                    static fn(array $r): array => [
+                        'radius_m' => $r['radius_m'],
+                        'orders' => $r['orders'],
+                        'revenue' => round($r['revenue'], 2),
+                        // Fatia sobre os pedidos COM coordenada (os sem não têm distância).
+                        'share' => $measured > 0 ? round($r['orders'] * 100 / $measured, 1) : 0.0,
+                    ],
+                    array_values($radii)
                 ),
             ],
         ]);

@@ -240,7 +240,8 @@ final class Routes
         $r->post('/delivery/orders/:id/dispatch', [DeliveryController::class, 'dispatch'], self::DELIVERY);
         $r->post('/delivery/orders/:id/conclude', [DeliveryController::class, 'conclude'], self::DELIVERY); // fecha no painel (local; iFood próprio não emite CONCLUDED confiável)
         $r->post('/delivery/orders/:id/cancel', [DeliveryController::class, 'cancel'], self::DELIVERY);
-        $r->patch('/delivery/orders/:id/address', [DeliveryController::class, 'updateAddress'], self::DELIVERY); // corrige bairro após ver no mapa
+        $r->patch('/delivery/orders/:id/address', [DeliveryController::class, 'updateAddress'], self::DELIVERY); // corrige endereço/bairro ou fixa o ponto à mão
+        $r->post('/delivery/orders/:id/geocode', [DeliveryController::class, 'geocodeOrder'], self::DELIVERY);  // tenta localizar 1 pedido agora
         $r->post('/delivery/orders/:id/printed', [DeliveryController::class, 'markPrinted'], self::DELIVERY); // reivindica impressão da comanda (idempotente)
         $r->post('/delivery/orders/:id/print-reset', [DeliveryController::class, 'resetPrinted'], self::DELIVERY); // libera a reivindicação se a impressão falhou
         $r->get('/delivery/print/cert', [PrintController::class, 'cert'], self::DELIVERY);   // certificado público QZ Tray

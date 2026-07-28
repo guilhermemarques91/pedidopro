@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid,
 } from 'recharts';
-import { Bike, Store, Users, XCircle } from 'lucide-react';
+import { Bike, Search, Store, Users, X, XCircle } from 'lucide-react';
 import { reportsApi } from '../../services/resources';
 import { apiError } from '../../services/api';
 import type { DeliveryMode, DeliveryPlatform } from '../../types';
@@ -285,16 +285,18 @@ function ModeCard({ icon, title, orders, total, revenue, fee, avgFee, feeIsReven
 
 function Customers({ filters }: { filters: Filters }) {
   const [onlyRecurring, setOnlyRecurring] = useState(false);
-  const [sort, setSort] = useState<'spent' | 'orders'>('spent');
+  const [sort, setSort] = useState<'spent' | 'orders' | 'name' | 'recent'>('spent');
+  const q = useDebounced('');
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ['delivery-report-customers', filters, onlyRecurring, sort],
+    queryKey: ['delivery-report-customers', filters, onlyRecurring, sort, q.value],
     queryFn: () => reportsApi.customers({
-      ...filters, limit: 100, sort, ...(onlyRecurring ? { recurring: '1' as const } : {}),
+      ...filters, limit: 100, sort,
+      ...(q.value ? { q: q.value } : {}),
+      ...(onlyRecurring ? { recurring: '1' as const } : {}),
     }),
   });
 
-  if (isLoading) return <Spinner />;
   if (error) return <ErrorBox message={apiError(error)} />;
 
   const rows = data ?? [];
@@ -302,22 +304,27 @@ function Customers({ filters }: { filters: Filters }) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
+        <SearchBox value={q.text} onChange={q.set} placeholder="Buscar cliente ou telefone" />
+        <label className="w-56 text-sm">
+          <Select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)}>
+            <option value="spent">Ordenar por valor gasto</option>
+            <option value="orders">Ordenar por nº de pedidos</option>
+            <option value="name">Ordem alfabética (A–Z)</option>
+            <option value="recent">Pedido mais recente</option>
+          </Select>
+        </label>
         <label className="flex items-center gap-2 text-sm text-slate-600">
           <input type="checkbox" checked={onlyRecurring} onChange={(e) => setOnlyRecurring(e.target.checked)}
                  className="rounded border-slate-300" />
           Só recorrentes (2+ pedidos)
         </label>
-        <label className="w-52 text-sm">
-          <Select value={sort} onChange={(e) => setSort(e.target.value as 'spent' | 'orders')}>
-            <option value="spent">Ordenar por valor gasto</option>
-            <option value="orders">Ordenar por nº de pedidos</option>
-          </Select>
-        </label>
-        <span className="text-sm text-slate-400">{rows.length} cliente(s)</span>
+        <span className="text-sm text-slate-400">{isLoading ? 'carregando…' : `${rows.length} cliente(s)`}</span>
       </div>
 
-      {rows.length === 0 ? (
-        <EmptyState message="Nenhum cliente no período selecionado." />
+      {isLoading ? (
+        <Spinner />
+      ) : rows.length === 0 ? (
+        <EmptyState message={q.value ? `Nenhum cliente encontrado para "${q.value}".` : 'Nenhum cliente no período selecionado.'} />
       ) : (
         <Card className="overflow-x-auto p-0">
           <table className="w-full min-w-[52rem] text-sm">
@@ -372,21 +379,42 @@ function Customers({ filters }: { filters: Filters }) {
 // ------------------------------------------------------------------------ itens
 
 function Items({ filters }: { filters: Filters }) {
+  const [sort, setSort] = useState<'qty' | 'revenue' | 'name'>('qty');
+  const q = useDebounced('');
+
   const { data, isLoading, error } = useQuery({
-    queryKey: ['delivery-report-items', filters],
-    queryFn: () => reportsApi.items({ ...filters, limit: 100 }),
+    queryKey: ['delivery-report-items', filters, sort, q.value],
+    queryFn: () => reportsApi.items({ ...filters, limit: 100, sort, ...(q.value ? { q: q.value } : {}) }),
   });
 
-  if (isLoading) return <Spinner />;
   if (error) return <ErrorBox message={apiError(error)} />;
 
   const rows = data ?? [];
-  if (rows.length === 0) return <EmptyState message="Nenhum item vendido no período selecionado." />;
-
-  const chart = rows.slice(0, 12).map((i) => ({ name: i.name, qty: i.qty }));
+  // O gráfico mostra sempre os mais vendidos, mesmo quando a tabela está em A–Z:
+  // uma barra por ordem alfabética não comunica nada.
+  const chart = [...rows].sort((a, b) => b.qty - a.qty).slice(0, 12).map((i) => ({ name: i.name, qty: i.qty }));
 
   return (
     <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <SearchBox value={q.text} onChange={q.set} placeholder="Buscar item" />
+        <label className="w-56 text-sm">
+          <Select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)}>
+            <option value="qty">Ordenar por quantidade</option>
+            <option value="revenue">Ordenar por receita</option>
+            <option value="name">Ordem alfabética (A–Z)</option>
+          </Select>
+        </label>
+        <span className="text-sm text-slate-400">{isLoading ? 'carregando…' : `${rows.length} item(ns)`}</span>
+      </div>
+
+      {isLoading && <Spinner />}
+      {!isLoading && rows.length === 0 && (
+        <EmptyState message={q.value ? `Nenhum item encontrado para "${q.value}".` : 'Nenhum item vendido no período selecionado.'} />
+      )}
+
+      {rows.length > 0 && (
+      <>
       <Card>
         <h3 className="mb-3 text-sm font-semibold text-slate-700">12 itens mais vendidos (quantidade)</h3>
         <ResponsiveContainer width="100%" height={Math.max(220, chart.length * 28)}>
@@ -423,6 +451,8 @@ function Items({ filters }: { filters: Filters }) {
           </tbody>
         </table>
       </Card>
+      </>
+      )}
     </div>
   );
 }
@@ -531,6 +561,39 @@ function min(v: number | null): string {
 }
 
 // ---------------------------------------------------------------------- comuns
+
+/** Busca com atraso: o texto aparece na hora, a requisição só sai depois da pausa. */
+function useDebounced(initial: string, delay = 350) {
+  const [text, set] = useState(initial);
+  const [value, setValue] = useState(initial);
+  useEffect(() => {
+    const t = setTimeout(() => setValue(text.trim()), delay);
+    return () => clearTimeout(t);
+  }, [text, delay]);
+  return { text, set, value };
+}
+
+function SearchBox({ value, onChange, placeholder }: {
+  value: string; onChange: (v: string) => void; placeholder: string;
+}) {
+  return (
+    <div className="relative">
+      <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-64 rounded-lg border border-slate-300 py-2 pl-8 pr-8 text-sm"
+      />
+      {value && (
+        <button onClick={() => onChange('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+          <X size={14} />
+        </button>
+      )}
+    </div>
+  );
+}
 
 function Kpi({ label, value, hint, accent }: { label: string; value: string; hint?: string; accent?: boolean }) {
   return (

@@ -176,6 +176,71 @@ final class GeoService
         return ['geocoded' => $geocoded, 'reverse_geocoded' => $reverseGeocoded, 'rejected' => $rejected, 'not_found' => $notFound, 'remaining' => $remaining];
     }
 
+    /**
+     * Tenta geocodificar UM pedido sob demanda (botão "Tentar localizar" na tela).
+     * Diferente do backfill, ignora o carimbo `geocode_failed`: é um pedido explícito
+     * do operador, normalmente logo depois de ele corrigir a rua/bairro à mão.
+     *
+     * @return array{ok:bool,reason:?string,lat:?float,lng:?float}
+     */
+    public static function geocodeOrder(int $orderId, int $orgId): array
+    {
+        $row = Db::queryOne(
+            'SELECT delivery_address FROM delivery_orders WHERE id = ? AND org_id = ?',
+            [$orderId, $orgId]
+        );
+        $addr = $row !== null ? json_decode((string) $row['delivery_address'], true) : null;
+        if (!is_array($addr)) {
+            return ['ok' => false, 'reason' => 'no_address', 'lat' => null, 'lng' => null];
+        }
+
+        $store = self::storeSettings($orgId);
+        $g = self::geocodeWithFallback($addr, $store);
+        if ($g === null || $g['lat'] === null || $g['lng'] === null) {
+            $addr['geocode_failed'] = 'not_found';
+            self::persist($orderId, $addr);
+            return ['ok' => false, 'reason' => 'not_found', 'lat' => null, 'lng' => null];
+        }
+
+        $sLat = $store['lat'];
+        $sLng = $store['lng'];
+        if ($sLat !== null && $sLng !== null
+            && self::haversineMeters($sLat, $sLng, $g['lat'], $g['lng']) > self::MAX_GEOCODE_DISTANCE_M) {
+            $addr['geocode_failed'] = 'far_from_store';
+            self::persist($orderId, $addr);
+            return ['ok' => false, 'reason' => 'far_from_store', 'lat' => null, 'lng' => null];
+        }
+
+        $addr['lat'] = $g['lat'];
+        $addr['lng'] = $g['lng'];
+        $addr['geocode_source'] = 'nominatim';
+        $addr['geocode_precision'] = $g['precision'] ?? null;
+        $addr['geocoded_at'] = date('c');
+        unset($addr['geocode_failed']);
+        self::persist($orderId, $addr);
+
+        return ['ok' => true, 'reason' => null, 'lat' => $g['lat'], 'lng' => $g['lng']];
+    }
+
+    /** Sugere o bairro real a partir de uma coordenada (usado após o pin manual). */
+    public static function suggestNeighborhood(int $orderId, array $addr, float $lat, float $lng): array
+    {
+        $g = NominatimClient::reverseGeocode($lat, $lng);
+        if ($g !== null) {
+            $addr['suggested_neighborhood'] = $g['neighborhood'];
+            $addr['neighborhood_mismatch'] = self::mismatch($addr['neighborhood'] ?? null, $g['neighborhood']);
+            self::persist($orderId, $addr);
+        }
+        return $addr;
+    }
+
+    private static function persist(int $orderId, array $addr): void
+    {
+        Db::execute('UPDATE delivery_orders SET delivery_address = ? WHERE id = ?', [
+            json_encode($addr, JSON_UNESCAPED_UNICODE), $orderId,
+        ]);
+    }
+
     private static function addressChanged(array $current, array $fields): bool
     {
         foreach (self::ADDRESS_FIELDS as $k) {
@@ -196,15 +261,31 @@ final class GeoService
      * já basta para o relatório de distância. Cidade/UF ausentes caem para as da LOJA
      * (sem cidade o Nominatim acha rua homônima em outra cidade).
      */
+    /**
+     * Lê um pedaço do endereço aceitando as várias grafias que as plataformas usam.
+     * O payload NÃO é padronizado: a maioria dos pedidos vem com `street`/`number`, mas
+     * parte vem com `streetName`/`streetNumber` — ler só a primeira grafia fazia esses
+     * caírem direto no fallback de bairro, sem nunca tentar geocodificar a rua.
+     */
+    private static function addrPart(array $addr, string ...$keys): ?string
+    {
+        foreach ($keys as $k) {
+            if (isset($addr[$k]) && trim((string) $addr[$k]) !== '') {
+                return trim((string) $addr[$k]);
+            }
+        }
+        return null;
+    }
+
     private static function geocodeWithFallback(array $addr, array $store): ?array
     {
-        $city = trim((string) ($addr['city'] ?? '')) !== '' ? trim((string) $addr['city']) : trim((string) ($store['city'] ?? ''));
-        $state = trim((string) ($addr['state'] ?? '')) !== '' ? trim((string) $addr['state']) : trim((string) ($store['state'] ?? ''));
+        $city = self::addrPart($addr, 'city') ?? trim((string) ($store['city'] ?? ''));
+        $state = self::addrPart($addr, 'state') ?? trim((string) ($store['state'] ?? ''));
         $suffix = implode(', ', array_filter([$city ?: null, $state ?: null, 'Brasil']));
 
-        $street = self::normalizePart($addr['street'] ?? null);
-        $number = trim((string) ($addr['number'] ?? ''));
-        $neighborhood = self::normalizePart($addr['neighborhood'] ?? null);
+        $street = self::normalizePart(self::addrPart($addr, 'street', 'streetName', 'street_name'));
+        $number = (string) (self::addrPart($addr, 'number', 'streetNumber', 'street_number') ?? '');
+        $neighborhood = self::normalizePart(self::addrPart($addr, 'neighborhood', 'district'));
 
         // [query, termo que o resultado PRECISA citar, precisão]. Sem tentativa por CEP:
         // o Nominatim não resolve CEP brasileiro — devolve o centroide da cidade (ou um

@@ -218,11 +218,27 @@ final class ReportsController
     {
         $f = self::filters($req);
         $limit = max(1, min((int) ($req->query('limit') ?? 50), 200));
-        $sort = $req->query('sort') === 'orders' ? 'orders' : 'spent';
+        // Ordenação no BANCO (e não na tela) para que "A–Z" percorra todos os clientes,
+        // não apenas os que sobraram depois do corte por valor.
+        $sort = match ($req->query('sort')) {
+            'orders' => 'orders DESC',
+            'name' => 'name ASC',
+            'recent' => 'last_order_at DESC',
+            default => 'spent DESC',
+        };
 
         // Recorrente = mais de um pedido no histórico (não "voltou dentro da janela"):
         // um cliente que pediu 5x na semana passada e 1x nesta é recorrente de qualquer forma.
         $having = $req->query('recurring') === '1' ? 'HAVING orders_total > 1' : '';
+
+        $where = $f['where'] . ' AND o.customer_id IS NOT NULL';
+        $params = $f['params'];
+        $q = trim((string) ($req->query('q') ?? ''));
+        if ($q !== '') {
+            $where .= ' AND (dc.name LIKE ? OR dc.phone LIKE ? OR o.customer_name LIKE ?)';
+            $like = '%' . $q . '%';
+            array_push($params, $like, $like, $like);
+        }
 
         $rows = Db::query(
             // GROUP BY só por dc.id: é a PK, então as demais colunas de dc são
@@ -241,12 +257,12 @@ final class ReportsController
                     DATEDIFF(CURDATE(), DATE(dc.last_order_at)) AS days_since_last
                FROM delivery_orders o
                JOIN delivery_customers dc ON dc.id = o.customer_id
-              WHERE {$f['where']} AND o.customer_id IS NOT NULL
+              WHERE {$where}
               GROUP BY dc.id
               {$having}
-              ORDER BY {$sort} DESC
+              ORDER BY {$sort}
               LIMIT {$limit}",
-            $f['params']
+            $params
         );
 
         $out = [];
@@ -279,6 +295,19 @@ final class ReportsController
     {
         $f = self::filters($req);
         $limit = max(1, min((int) ($req->query('limit') ?? 50), 200));
+        $sort = match ($req->query('sort')) {
+            'revenue' => 'revenue DESC',
+            'name' => 'name ASC',
+            default => 'qty DESC',
+        };
+
+        $where = $f['where'];
+        $params = $f['params'];
+        $q = trim((string) ($req->query('q') ?? ''));
+        if ($q !== '') {
+            $where .= ' AND i.name LIKE ?';
+            $params[] = '%' . $q . '%';
+        }
 
         $rows = Db::query(
             "SELECT i.name,
@@ -287,11 +316,11 @@ final class ReportsController
                     COUNT(DISTINCT o.id) AS orders
                FROM delivery_order_items i
                JOIN delivery_orders o ON o.id = i.order_id
-              WHERE {$f['where']}
+              WHERE {$where}
               GROUP BY i.name
-              ORDER BY qty DESC
+              ORDER BY {$sort}
               LIMIT {$limit}",
-            $f['params']
+            $params
         );
 
         $out = array_map(static function (array $r): array {
