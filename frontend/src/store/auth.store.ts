@@ -7,6 +7,8 @@ interface AuthState {
   user: User | null;
   permissions: string[];
   login: (username: string, password: string) => Promise<void>;
+  /** Recarrega usuário e permissões do servidor (ver nota em `refresh`). */
+  refresh: () => Promise<void>;
   logout: () => void;
   hasRole: (...roles: User['role'][]) => boolean;
   /** O usuário logado tem esta permissão? (admin já vem com todas do backend) */
@@ -40,6 +42,28 @@ export const useAuth = create<AuthState>((set, get) => ({
     localStorage.setItem('pedidopro_user', JSON.stringify(data.user));
     localStorage.setItem('pedidopro_permissions', JSON.stringify(data.permissions ?? []));
     set({ token: data.token, user: data.user, permissions: data.permissions ?? [] });
+  },
+
+  /**
+   * Ressincroniza a sessão com o servidor.
+   *
+   * As permissões eram gravadas SÓ no login: quem já estava logado ficava com a
+   * lista congelada e não enxergava tela nova (nem mudança de papel feita pelo
+   * admin) até deslogar. Chamado no boot do app, com token presente.
+   * Falha de rede é ignorada de propósito — o app segue com o que está em cache;
+   * 401 já é tratado pelo interceptor do axios.
+   */
+  async refresh() {
+    if (!get().token) return;
+    try {
+      const { data } = await api.get<User & { permissions?: string[] }>('/auth/me');
+      const { permissions = [], ...user } = data;
+      localStorage.setItem('pedidopro_user', JSON.stringify(user));
+      localStorage.setItem('pedidopro_permissions', JSON.stringify(permissions));
+      set({ user: user as User, permissions });
+    } catch {
+      /* offline ou servidor fora: mantém o cache local */
+    }
   },
 
   logout() {

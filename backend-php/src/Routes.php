@@ -20,6 +20,8 @@ use App\Modules\Roles\RolesController;
 use App\Modules\Audit\AuditController;
 use App\Modules\Settings\SettingsController;
 use App\Modules\Stock\StockController;
+use App\Modules\Stock\CountsController;
+use App\Modules\Stock\ParamsController;
 use App\Modules\Nfe\NfeController;
 use App\Modules\Inbox\InboxController;
 use App\Modules\Import\ImportController;
@@ -57,6 +59,7 @@ final class Routes
     // Estoque
     private const ESTOQUE_READ = ['estoque:read'];
     private const ESTOQUE_MOVE = ['estoque:mover'];
+    private const ESTOQUE_COUNT = ['estoque:contagem'];
     // Delivery
     private const DELIVERY = ['delivery:operate'];
     private const DELIVERY_ADMIN = ['delivery:admin'];
@@ -140,6 +143,18 @@ final class Routes
         // Estoque (movimentações; saldo vive em products)
         $r->get('/stock/moves', [StockController::class, 'moves'], self::ESTOQUE_READ);
         $r->post('/stock/moves', [StockController::class, 'create'], self::ESTOQUE_MOVE);
+        // Contagem (inventário) → compra sugerida. Concluir a contagem corrige o saldo,
+        // por isso apply exige a mesma permissão de contagem (e não só leitura).
+        $r->get('/stock/counts', [CountsController::class, 'list'], self::ESTOQUE_READ);
+        $r->post('/stock/counts', [CountsController::class, 'create'], self::ESTOQUE_COUNT);
+        $r->get('/stock/counts/:id', [CountsController::class, 'getById'], self::ESTOQUE_READ);
+        $r->put('/stock/counts/:id', [CountsController::class, 'update'], self::ESTOQUE_COUNT);
+        $r->delete('/stock/counts/:id', [CountsController::class, 'remove'], self::ESTOQUE_COUNT);
+        $r->post('/stock/counts/:id/apply', [CountsController::class, 'apply'], self::ESTOQUE_COUNT);
+        $r->post('/stock/counts/:id/generate-request', [CountsController::class, 'generateRequest'], self::REQUESTS);
+        // Parâmetros de reposição (mín/máx/embalagem) em lote — é cadastro de produto.
+        $r->get('/stock/replenishment', [ParamsController::class, 'list'], self::ESTOQUE_READ);
+        $r->put('/stock/replenishment', [ParamsController::class, 'save'], self::WRITE);
         // Entrada por NF-e (XML)
         $r->post('/nfe/preview', [NfeController::class, 'preview'], self::ESTOQUE_MOVE);
         $r->post('/nfe/import', [NfeController::class, 'import'], self::ESTOQUE_MOVE);

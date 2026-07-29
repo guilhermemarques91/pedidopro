@@ -1,7 +1,7 @@
 import { api } from './api';
 import type {
   Category, Supplier, Item, Product, Quotation, QuotationDetail, ComparisonRow,
-  Order, OrderDetail, User, UserRole, Role, PermissionCatalog, AuditEntry, ProductType, Subclass, ProductionPrinter, RecipeLine, StockMove, PurchaseRequest, RequestDetail,
+  Order, OrderDetail, User, UserRole, Role, PermissionCatalog, AuditEntry, ProductType, Subclass, ProductionPrinter, RecipeLine, StockMove, StockCount, StockCountDetail, ReplenishRow, PurchaseRequest, RequestDetail,
   DeliveryOrder, DeliveryOrderDetail, DeliveryStatus, DeliveryPlatform, Channel, DeliveryAlert, ReportSummary,
   DeliveryMode, ReportCustomer, ReportItem, ReportPerformance,
   Interruption, OpeningShift, StoreSettings, DeliveryMapResponse, GeocodeBackfillResult,
@@ -70,6 +70,10 @@ export interface ProductInput {
   purchase_unit?: string | null;
   cost_price?: number | null;
   sale_price?: number | null;
+  // Reposição (alimenta a sugestão de compra da contagem de estoque)
+  min_stock?: number | null;
+  max_stock?: number | null;
+  pack_size?: number | null;
   // Fiscais
   ncm?: string | null;
   cest?: string | null;
@@ -118,6 +122,41 @@ export const stockApi = {
     api.get<StockMove[]>('/stock/moves', { params: { product_id: productId, limit } }).then((r) => r.data),
   move: (body: { product_id: number; type: 'in' | 'out' | 'adjust'; quantity: number; unit_cost?: number | null; notes?: string | null }) =>
     api.post('/stock/moves', body).then((r) => r.data),
+};
+
+// ---- Estoque: contagem (inventário) → compra sugerida ----
+export interface CountLineInput { product_id: number; counted_qty?: number | null; order_qty?: number | null }
+
+export const stockCountsApi = {
+  list: () => api.get<StockCount[]>('/stock/counts').then((r) => r.data),
+  get: (id: number) => api.get<StockCountDetail>(`/stock/counts/${id}`).then((r) => r.data),
+  create: (body: { title?: string; coverage_days?: number; tipo?: string; category_id?: number; type_id?: number }) =>
+    api.post<StockCountDetail>('/stock/counts', body).then((r) => r.data),
+  update: (id: number, body: { title?: string; notes?: string | null; coverage_days?: number; items?: CountLineInput[] }) =>
+    api.put<StockCountDetail>(`/stock/counts/${id}`, body).then((r) => r.data),
+  apply: (id: number) =>
+    api.post<{ adjusted: number; count: StockCountDetail }>(`/stock/counts/${id}/apply`).then((r) => r.data),
+  generateRequest: (id: number) =>
+    api.post<{ request_id: number; items: number }>(`/stock/counts/${id}/generate-request`).then((r) => r.data),
+  remove: (id: number) => api.delete(`/stock/counts/${id}`).then((r) => r.data),
+};
+
+// ---- Estoque: parâmetros de reposição (mín/máx/embalagem) em lote ----
+export interface ReplenishParamInput {
+  product_id: number;
+  min_stock?: number | null;
+  max_stock?: number | null;
+  pack_size?: number | null;
+}
+export interface ReplenishFilters {
+  q?: string; tipo?: string; category_id?: number; type_id?: number; only_missing?: 1;
+}
+
+export const replenishmentApi = {
+  list: (filters?: ReplenishFilters) =>
+    api.get<ReplenishRow[]>('/stock/replenishment', { params: filters }).then((r) => r.data),
+  save: (items: ReplenishParamInput[]) =>
+    api.put<{ saved: number }>('/stock/replenishment', { items }).then((r) => r.data),
 };
 
 export interface MarmitexContractData {

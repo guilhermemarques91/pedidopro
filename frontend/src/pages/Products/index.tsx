@@ -523,6 +523,10 @@ function ProductForm({ product, defaultTipo, types, subclasses, printers, catego
   const [purchaseUnit, setPurchaseUnit] = useState(product?.purchase_unit ?? '');
   const [cost, setCost] = useState(product?.cost_price ?? '');
   const [sale, setSale] = useState(product?.sale_price ?? '');
+  // Reposição: alimentam a sugestão de compra da contagem de estoque.
+  const [minStock, setMinStock] = useState(product?.min_stock ?? '');
+  const [maxStock, setMaxStock] = useState(product?.max_stock ?? '');
+  const [packSize, setPackSize] = useState(product?.pack_size ?? '');
   const [imageData, setImageData] = useState<string | null>(product?.image_data ?? null);
   // Ficha técnica (campos livres)
   const [yieldQty, setYieldQty] = useState(product?.yield_qty ?? '');
@@ -656,6 +660,10 @@ function ProductForm({ product, defaultTipo, types, subclasses, printers, catego
         // Produto: custo = total da ficha técnica; Mercadoria: preço de compra digitado.
         cost_price: usesRecipe ? (recipeCost > 0 ? recipeCost : null) : numOrNull(String(cost)),
         sale_price: numOrNull(String(sale)),
+        // Reposição (só para o que se compra; produto de ficha técnica não se repõe por compra).
+        min_stock: usesRecipe ? null : numOrNull(String(minStock)),
+        max_stock: usesRecipe ? null : numOrNull(String(maxStock)),
+        pack_size: usesRecipe ? null : numOrNull(String(packSize)),
         yield_qty: numOrNull(String(yieldQty)),
         yield_unit: yieldUnit.trim() || null,
         prep_time_min: prepTime.trim() ? Number(prepTime) : null,
@@ -796,6 +804,29 @@ function ProductForm({ product, defaultTipo, types, subclasses, printers, catego
               )}
               <Field label="Preço de venda (R$)"><Input type="number" step="0.01" value={sale} onChange={(e) => setSale(e.target.value)} placeholder="0,00" /></Field>
             </div>
+
+            {/* Reposição: sem isso a contagem cai no consumo médio dos últimos 30 dias,
+                que erra em item novo ou sazonal. Com mín/máx a sugestão fica exata. */}
+            {!usesRecipe && (
+              <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50/60 p-3">
+                <p className="mb-2 text-sm font-semibold text-slate-700">Reposição (contagem de estoque)</p>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <Field label="Estoque mínimo">
+                    <Input type="number" step="0.001" value={minStock} onChange={(e) => setMinStock(e.target.value)} placeholder="ponto de pedido" />
+                  </Field>
+                  <Field label="Estoque máximo (alvo)">
+                    <Input type="number" step="0.001" value={maxStock} onChange={(e) => setMaxStock(e.target.value)} placeholder="repor até aqui" />
+                  </Field>
+                  <Field label="Múltiplo de compra">
+                    <Input type="number" step="0.001" value={packSize} onChange={(e) => setPackSize(e.target.value)} placeholder="ex.: caixa com 12" />
+                  </Field>
+                </div>
+                <p className="mt-2 text-xs text-slate-500">
+                  Na contagem, o item abaixo do mínimo vira <strong>crítico</strong> e a sugestão repõe até o máximo,
+                  arredondada para cima no múltiplo de compra. Em branco, o alvo é calculado pelo consumo médio.
+                </p>
+              </div>
+            )}
           </div>
         )}
 

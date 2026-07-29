@@ -106,6 +106,10 @@ export interface Product {
   image_data?: string | null;  // foto (data URL base64, thumbnail leve)
   stock_qty?: string;          // saldo atual (etapa 2 do estoque)
   avg_cost?: string | null;    // custo médio ponderado
+  // Reposição: parâmetros usados pela contagem para sugerir a compra
+  min_stock?: string | null;   // ponto de pedido (abaixo disso = crítico)
+  max_stock?: string | null;   // alvo de reposição (a compra repõe até aqui)
+  pack_size?: string | null;   // múltiplo de compra (caixa/fardo)
   item_count?: string;
   default_unit?: string | null;
   active: boolean;
@@ -137,6 +141,74 @@ export interface StockMove {
   notes: string | null;
   user_name?: string | null;
   created_at: string;
+}
+
+/** Situação de reposição de uma linha da contagem (ver App\Services\Replenishment). */
+export type ReplenishStatus = 'critico' | 'repor' | 'ok' | 'sem_parametro';
+
+/** Linha da folha de contagem: saldo, o que foi contado e a compra sugerida. */
+export interface StockCountItem {
+  id: number;
+  count_id: number;
+  product_id: number;
+  product_name: string;
+  category_name: string | null;
+  supplier_name: string | null;
+  unit: string | null;
+  system_qty: string;        // saldo do sistema quando a folha foi aberta
+  current_qty: string;       // saldo vivo do produto agora
+  counted_qty: string | null;
+  order_qty: string | null;  // quantidade de compra digitada (null = usa a sugerida)
+  on_hand: number;           // base do cálculo: o contado, ou o do sistema enquanto não contar
+  // Cálculo da sugestão
+  min_stock: string | null;
+  max_stock: string | null;
+  pack_size: string | null;
+  target: number | null;
+  reorder_point: number | null;
+  daily_usage: number | null;
+  days_left: number | null;
+  suggested: number | null;
+  status: ReplenishStatus;
+  basis: 'minmax' | 'consumo' | 'sem_parametro';
+  unit_cost: string | null;
+}
+
+export interface StockCount {
+  id: number;
+  title: string;
+  status: 'draft' | 'applied' | 'cancelled';
+  coverage_days: number;
+  notes: string | null;
+  request_id: number | null;
+  created_by_name: string;
+  applied_by_name?: string | null;
+  created_at: string;
+  applied_at: string | null;
+  item_count?: string;
+  counted_count?: string;
+}
+
+export interface StockCountDetail extends StockCount {
+  items: StockCountItem[];
+  summary: { total: number; counted: number; to_buy: number; critical: number };
+}
+
+/** Linha da grade de parâmetros de reposição (mín/máx/embalagem em lote). */
+export interface ReplenishRow {
+  id: number;
+  name: string;
+  tipo: string | null;
+  unit: string | null;
+  purchase_unit: string | null;
+  category_name: string | null;
+  type_name: string | null;
+  stock_qty: string;
+  min_stock: string | null;
+  max_stock: string | null;
+  pack_size: string | null;
+  daily_usage: number | null;   // consumo médio diário (saídas dos últimos 30 dias)
+  unit_cost: string | null;
 }
 
 export interface ProductType {

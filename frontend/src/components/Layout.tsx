@@ -6,6 +6,7 @@ import {
   ClipboardList, ShoppingCart, LogOut, Inbox, ListChecks, Users, Menu, X,
   Bike, Plug, Building2, BookOpen, FileText, Receipt, BarChart3, UtensilsCrossed, Store as StoreIcon, MapPin,
   ChevronDown, ChevronRight, PanelLeftClose, PanelLeft, ScrollText, Palette, ShoppingBag, Armchair,
+  ClipboardCheck, SlidersHorizontal,
 } from 'lucide-react';
 import { useAuth } from '../store/auth.store';
 import { inboxApi } from '../services/resources';
@@ -41,6 +42,9 @@ const navGroups: NavGroup[] = [
     { to: '/integrations', label: 'Integrações', icon: Plug, perm: 'delivery:admin' },
   ] },
   { title: 'Compras', items: [
+    // A contagem abre o fluxo: conta a prateleira → sistema sugere → vira lista de compras.
+    { to: '/estoque/contagem', label: 'Contagem de estoque', icon: ClipboardCheck, perm: 'estoque:read' },
+    { to: '/estoque/parametros', label: 'Parâmetros de reposição', icon: SlidersHorizontal, perm: 'estoque:read' },
     { to: '/inbox', label: 'Caixa de entrada', icon: Inbox, perm: 'compras:write' },
     { to: '/quotations', label: 'Cotações', icon: ClipboardList, perm: 'compras:write' },
     { to: '/requests', label: 'Lista de compras', icon: ListChecks, perm: 'compras:requests' },

@@ -33,6 +33,7 @@ final class Permissions
             'items' => [
                 'estoque:read' => 'Ver saldo e movimentações',
                 'estoque:mover' => 'Lançar entrada / saída / ajuste',
+                'estoque:contagem' => 'Fazer contagem de estoque (corrige o saldo)',
             ],
         ],
         'delivery' => [

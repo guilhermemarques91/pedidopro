@@ -14,6 +14,9 @@ import { QuotationDetailPage } from './pages/QuotationDetail';
 import { Orders } from './pages/Orders';
 import { OrderDetailPage } from './pages/OrderDetail';
 import { Requests } from './pages/Requests';
+import { Contagens } from './pages/Estoque/Contagens';
+import { ContagemDetail } from './pages/Estoque/ContagemDetail';
+import { Parametros } from './pages/Estoque/Parametros';
 import { RequestDetailPage } from './pages/RequestDetail';
 import { UsersPage } from './pages/Users';
 import { ChangePassword } from './pages/ChangePassword';
@@ -55,7 +58,11 @@ function RoleHome() {
 
 export default function App() {
   const loadBrand = useBrand((s) => s.load);
+  const refreshAuth = useAuth((s) => s.refresh);
   useEffect(() => { loadBrand(); }, [loadBrand]);
+  // Ressincroniza permissões no boot: sem isso, tela nova (ou papel alterado pelo
+  // admin) só aparecia depois de deslogar e logar de novo.
+  useEffect(() => { refreshAuth(); }, [refreshAuth]);
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
@@ -100,6 +107,9 @@ export default function App() {
         <Route path="cardapio" element={<MenuPage />} />
         <Route path="loja" element={<Store />} />
         <Route path="integrations" element={<Integrations />} />
+        <Route path="estoque/parametros" element={<Parametros />} />
+        <Route path="estoque/contagem" element={<Contagens />} />
+        <Route path="estoque/contagem/:id" element={<ContagemDetail />} />
         <Route path="requests" element={<Requests />} />
         <Route path="requests/:id" element={<RequestDetailPage />} />
         <Route path="users" element={<UsersPage />} />

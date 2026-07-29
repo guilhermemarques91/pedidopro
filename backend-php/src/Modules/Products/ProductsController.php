@@ -155,6 +155,8 @@ final class ProductsController
         'production_printer_id' => 'int',
         'supplier_id' => 'int', 'unit' => 'str', 'purchase_unit' => 'str',
         'cost_price' => 'num', 'sale_price' => 'num',
+        // Parâmetros de reposição (contagem de estoque → compra sugerida).
+        'min_stock' => 'num', 'max_stock' => 'num', 'pack_size' => 'num',
         'ncm' => 'str', 'cest' => 'str', 'cfop' => 'str', 'cfop_saida_fora' => 'str', 'cfop_entrada' => 'str',
         'origem' => 'str', 'cst_csosn' => 'str', 'gtin' => 'str', 'regime_tributario' => 'str',
         'yield_qty' => 'num', 'yield_unit' => 'str', 'prep_time_min' => 'int',

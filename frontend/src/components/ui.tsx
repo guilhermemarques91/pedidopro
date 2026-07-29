@@ -241,6 +241,7 @@ const badgeColors: Record<string, string> = {
   submitted: 'bg-amber-100 text-amber-700',
   allocated: 'bg-blue-100 text-blue-700',
   ordered: 'bg-green-100 text-green-700',
+  applied: 'bg-emerald-100 text-emerald-700',
 };
 
 const badgeLabels: Record<string, string> = {
@@ -255,6 +256,7 @@ const badgeLabels: Record<string, string> = {
   submitted: 'Enviada p/ aprovação',
   allocated: 'Alocada',
   ordered: 'Pedidos gerados',
+  applied: 'Concluída',
 };
 
 export function Badge({ status }: { status: string }) {
