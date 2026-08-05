@@ -166,6 +166,38 @@ export function WhatsappModal({ company, onClose }: { company: MarmitexCompany; 
           </Field>
 
           <div>
+            <h4 className="text-sm font-semibold text-slate-700">Itens sem dono</h4>
+            <p className="mb-2 text-xs text-slate-500">
+              O que a empresa pede para o grupo, e não para uma pessoa — refrigerante, sobremesa
+              compartilhada. Toda marmita precisa de nome, mas estes não: a etiqueta sai no nome da
+              empresa em vez de segurar o pedido do dia na revisão.
+            </p>
+            <div className="flex flex-wrap gap-2 rounded-lg border border-slate-200 p-3">
+              {options('sizes').map((s) => {
+                const on = (cfg.ownerless_size_ids ?? []).includes(s.id);
+                return (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => set(
+                      'ownerless_size_ids',
+                      on
+                        ? (cfg.ownerless_size_ids ?? []).filter((id) => id !== s.id)
+                        : [...(cfg.ownerless_size_ids ?? []), s.id],
+                    )}
+                    className={`rounded-full border px-3 py-1 text-sm transition ${
+                      on ? 'border-emerald-600 bg-emerald-50 text-emerald-700' : 'border-slate-300 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    {s.name}
+                  </button>
+                );
+              })}
+              {options('sizes').length === 0 && <p className="text-xs text-slate-400">Cardápio desta empresa sem itens.</p>}
+            </div>
+          </div>
+
+          <div>
             <h4 className="text-sm font-semibold text-slate-700">Como esta empresa escreve</h4>
             <p className="mb-2 text-xs text-slate-500">
               Traduza as abreviações do grupo para os itens do cardápio. É o que faz “João - G frango” ser entendido sem IA.

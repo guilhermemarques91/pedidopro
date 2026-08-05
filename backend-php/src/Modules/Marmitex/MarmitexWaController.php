@@ -57,6 +57,18 @@ final class MarmitexWaController
             throw HttpError::badRequest('Tamanho padrão inválido');
         }
 
+        // Itens compartilhados (refrigerante da mesa): dispensam dono na etiqueta.
+        $ownerless = [];
+        foreach ($in->intArray('ownerless_size_ids') as $sid) {
+            if ($sid > 0 && !Db::queryOne('SELECT id FROM marmitex_sizes WHERE id = ?', [$sid])) {
+                throw HttpError::badRequest('Item compartilhado inválido');
+            }
+            if ($sid > 0) {
+                $ownerless[] = $sid;
+            }
+        }
+        $ownerless = array_values(array_unique($ownerless));
+
         $aliases = self::parseAliases($req->body['aliases'] ?? null);
         $existing = Db::queryOne('SELECT enabled, enabled_at FROM marmitex_wa_configs WHERE company_id = ?', [$companyId]);
         // `enabled_at` marca a partir de quando o grupo conta: sem isso, ligar a
@@ -68,13 +80,14 @@ final class MarmitexWaController
         Db::execute(
             'INSERT INTO marmitex_wa_configs
                 (company_id, enabled, group_jid, mode, list_replaces, auto_apply, auto_apply_after_cutoff,
-                 confirm_reply, default_size_id, aliases_json, ai_instructions, enabled_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 confirm_reply, default_size_id, ownerless_size_ids, aliases_json, ai_instructions, enabled_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON DUPLICATE KEY UPDATE
                 enabled = VALUES(enabled), group_jid = VALUES(group_jid), mode = VALUES(mode),
                 list_replaces = VALUES(list_replaces), auto_apply = VALUES(auto_apply),
                 auto_apply_after_cutoff = VALUES(auto_apply_after_cutoff), confirm_reply = VALUES(confirm_reply),
-                default_size_id = VALUES(default_size_id), aliases_json = VALUES(aliases_json),
+                default_size_id = VALUES(default_size_id), ownerless_size_ids = VALUES(ownerless_size_ids),
+                aliases_json = VALUES(aliases_json),
                 ai_instructions = VALUES(ai_instructions), enabled_at = VALUES(enabled_at)',
             [
                 $companyId, $enabled, $jid, $mode,
@@ -83,6 +96,7 @@ final class MarmitexWaController
                 $in->boolean('auto_apply_after_cutoff', false) ? 1 : 0,
                 $in->boolean('confirm_reply', false) ? 1 : 0,
                 $defaultSize ?: null,
+                json_encode($ownerless),
                 $aliases ? json_encode($aliases, JSON_UNESCAPED_UNICODE) : null,
                 $in->string('ai_instructions'),
                 $enabledAt,
@@ -379,6 +393,7 @@ final class MarmitexWaController
     private static function shapeConfig(array $cfg): array
     {
         $cfg['aliases'] = self::asObjects(MarmitexWaIngest::aliases($cfg));
+        $cfg['ownerless_size_ids'] = MarmitexWaIngest::ownerlessSizeIds($cfg);
         unset($cfg['aliases_json']);
         return $cfg;
     }
@@ -404,6 +419,7 @@ final class MarmitexWaController
             'auto_apply_after_cutoff' => 0,
             'confirm_reply' => 0,
             'default_size_id' => null,
+            'ownerless_size_ids' => [],
             'ai_instructions' => null,
             'enabled_at' => null,
             'last_sweep_at' => null,

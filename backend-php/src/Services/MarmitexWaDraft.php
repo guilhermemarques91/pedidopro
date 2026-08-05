@@ -105,7 +105,9 @@ final class MarmitexWaDraft
         $messageId = (int) $msg['id'];
         $late = self::isLate($cfg, $msg);
 
-        return Db::transaction(function (PDO $pdo) use ($companyId, $serviceDate, $messageId, $lines, $resolved, $cfg, $late) {
+        $ownerless = MarmitexWaIngest::ownerlessSizeIds($cfg);
+
+        return Db::transaction(function (PDO $pdo) use ($companyId, $serviceDate, $messageId, $lines, $resolved, $cfg, $late, $ownerless) {
             $pdo->prepare(
                 'INSERT INTO marmitex_wa_drafts (company_id, service_date) VALUES (?, ?)
                  ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)'
@@ -145,6 +147,11 @@ final class MarmitexWaDraft
                 }
 
                 $issues = $r['issues'];
+                if ($r['person_name'] === null && $r['size_id'] !== null && in_array((int) $r['size_id'], $ownerless, true)) {
+                    // Item declarado como compartilhado (o refrigerante da mesa): a
+                    // etiqueta sai no nome da empresa em vez de segurar o dia inteiro.
+                    $r['person_name'] = mb_substr((string) $cfg['company_name'], 0, 150);
+                }
                 if ($r['person_name'] === null) {
                     // Decisão do negócio: toda marmita tem dono (é o que vai na etiqueta).
                     $issues[] = 'sem nome da pessoa';

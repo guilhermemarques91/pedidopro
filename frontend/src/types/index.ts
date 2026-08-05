@@ -943,6 +943,8 @@ export interface MarmitexWaConfig {
   /** Responde no grupo confirmando o pedido registrado. */
   confirm_reply: boolean;
   default_size_id: number | null;
+  /** Itens pedidos para o grupo, não para uma pessoa (refrigerante da mesa). */
+  ownerless_size_ids: number[];
   ai_instructions: string | null;
   enabled_at: string | null;
   last_sweep_at: string | null;

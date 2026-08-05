@@ -226,6 +226,26 @@ final class MarmitexWaIngest
         return $out;
     }
 
+    /**
+     * Itens do cardápio que a empresa pede para o grupo, não para uma pessoa
+     * (refrigerante, sobremesa compartilhada). @return int[] ids de marmitex_sizes
+     */
+    public static function ownerlessSizeIds(array $cfg): array
+    {
+        $raw = $cfg['ownerless_size_ids'] ?? null;
+        $decoded = is_string($raw) ? json_decode($raw, true) : (is_array($raw) ? $raw : null);
+        if (!is_array($decoded)) {
+            return [];
+        }
+        $out = [];
+        foreach ($decoded as $id) {
+            if ((int) $id > 0) {
+                $out[] = (int) $id;
+            }
+        }
+        return array_values(array_unique($out));
+    }
+
     /** Data de atendimento = dia local (o pedido das 8h da manhã é do dia de hoje aqui, não em UTC). */
     public static function localDate(int $ts): string
     {
