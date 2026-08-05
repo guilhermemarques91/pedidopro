@@ -471,6 +471,7 @@ export interface DeliveryOrder {
   concluded_at: string | null;
   cancelled_at: string | null;
   printed_at: string | null;
+  stock_consumed_at: string | null;   // baixa de estoque já feita (null = ainda não / estornada)
   created_at: string;
   items_count?: number;
 }
@@ -590,18 +591,51 @@ export interface MenuOption {
   description: string | null;
   price: number | string;
   image_data: string | null;
+  erp_product_id: number | null;      // de-para c/ o ERP: baixa de estoque do complemento
+  erp_qty: number | string;           // quanto do produto cada unidade consome (1 = ficha técnica)
+  erp_product_name?: string | null;   // só leitura (vem do tree)
+  erp_product_unit?: string | null;   // só leitura (vem do tree)
   sort: number;
   active: number | boolean;
 }
+/**
+ * Classe de complementos ("Escolha sua proteína"): pertence à ORG, não a um item.
+ * Vários itens usam a mesma classe — editar aqui vale em todos eles.
+ */
 export interface MenuOptionGroup {
   id: number;
-  item_id: number;
+  org_id?: number;
   name: string;
   min: number;
   max: number;
-  sort: number;
+  sort: number;              // ordem DENTRO do item (vem do vínculo)
   active: number | boolean;
   options: MenuOption[];
+  used_in?: number;          // em quantos itens a classe está sendo usada
+  items?: { id: number; name: string; active: number | boolean }[];
+}
+export interface MenuOptionGroupInput {
+  name?: string;
+  min?: number;
+  max?: number;
+  active?: boolean;
+  options?: {
+    id?: number;
+    name: string;
+    description?: string | null;
+    price: number;
+    image_data?: string | null;
+    active?: boolean;
+    erp_product_id?: number | null;
+    erp_qty?: number | null;
+  }[];
+  item_ids?: number[];
+}
+export interface MergeDuplicatesResult {
+  dry_run: boolean;
+  classes_unificadas: number;
+  classes_removidas: number;
+  detalhe: { keep: number; name: string; removed: number[] }[];
 }
 export interface MenuItemChannelLink {
   channel_id: number;
@@ -620,6 +654,7 @@ export interface MenuItem {
   image_data: string | null;
   external_code: string | null;
   erp_product_id: number | null;
+  erp_qty: number | string;           // quanto do produto cada unidade vendida consome
   erp_product_name?: string | null;   // nome do produto do ERP vinculado (só leitura, vem do tree)
   sort: number;
   active: number | boolean;
@@ -643,16 +678,11 @@ export interface MenuItemInput {
   image_data?: string | null;
   external_code?: string | null;
   erp_product_id?: number | null;
+  erp_qty?: number | null;
   sort?: number;
   active?: boolean;
-  groups?: {
-    id?: number;
-    name: string;
-    min: number;
-    max: number;
-    active?: boolean;
-    options: { id?: number; name: string; description?: string | null; price: number; image_data?: string | null; active?: boolean }[];
-  }[];
+  /** Classes de complementos que o item usa, na ordem. O conteúdo delas é editado no módulo Complementos. */
+  group_ids?: number[];
 }
 
 // ---- Relatórios de delivery ----
@@ -870,6 +900,106 @@ export interface MarmitexReport {
   rows: MarmitexReportRow[];
   grand_total: number;
   marmita_count: number;
+}
+
+/** Uma marmita do período, sem agregação — para conferir nome/dia com a empresa. */
+export interface MarmitexReportDetailRow {
+  service_date: string;
+  person_name: string | null;
+  size_name: string;
+  protein_name: string | null;
+  sides_json: MarmitaSide[] | string | null;
+  observation: string | null;
+  unit_price: string;
+}
+export interface MarmitexReportDetail {
+  company: { id: number; name: string; cnpj: string | null } | null;
+  period: { start: string | null; end: string | null };
+  rows: MarmitexReportDetailRow[];
+  grand_total: number;
+  marmita_count: number;
+}
+
+// ---- Marmitex: pedidos lidos do grupo de WhatsApp ----
+/** Apelidos da empresa: 'G' → 'Grande'. Editável na tela; é a alavanca de qualidade da leitura. */
+export interface MarmitexWaAliases {
+  sizes: Record<string, string>;
+  proteins: Record<string, string>;
+  sides: Record<string, string>;
+  /** Texto livre para a observação — abreviação que é recado de cozinha, não item cobrado. */
+  notes: Record<string, string>;
+}
+export interface MarmitexWaConfig {
+  company_id: number;
+  enabled: boolean;
+  group_jid: string;
+  /** 'list' = manda a lista inteira de uma vez; 'incremental' = uma pessoa por mensagem. */
+  mode: 'list' | 'incremental';
+  /** No modo lista, reenviar a lista substitui a anterior (em vez de somar). */
+  list_replaces: boolean;
+  /** Grava o pedido sozinho quando entendeu 100% das linhas. */
+  auto_apply: boolean;
+  auto_apply_after_cutoff: boolean;
+  /** Responde no grupo confirmando o pedido registrado. */
+  confirm_reply: boolean;
+  default_size_id: number | null;
+  ai_instructions: string | null;
+  enabled_at: string | null;
+  last_sweep_at: string | null;
+  aliases: MarmitexWaAliases;
+}
+
+export type MarmitexWaDraftStatus = 'pending' | 'applied' | 'blocked' | 'discarded';
+export type MarmitexWaLineStatus = 'ok' | 'doubt' | 'duplicate' | 'cancelled' | 'superseded';
+
+export interface MarmitexWaDraft {
+  id: number;
+  company_id: number;
+  company_name: string;
+  service_date: string;
+  status: MarmitexWaDraftStatus;
+  block_reason: string | null;
+  /** Mensagem chegou depois do horário de corte da empresa. */
+  late: boolean;
+  auto_applied: boolean;
+  applied_order_id: number | null;
+  applied_at: string | null;
+  ok_count?: string;
+  doubt_count?: string;
+  line_count?: string;
+  updated_at: string;
+}
+
+export interface MarmitexWaDraftLine {
+  id: number;
+  message_id: number | null;
+  raw_text: string | null;
+  person_name: string | null;
+  size_id: number | null;
+  protein_id: number | null;
+  side_ids: number[];
+  observation: string | null;
+  status: MarmitexWaLineStatus;
+  /** Por que a linha precisa de gente (tamanho fora do cardápio, sem nome, duplicada…). */
+  issues: string[];
+}
+
+export interface MarmitexWaMessage {
+  id: number;
+  sender_name: string | null;
+  body: string | null;
+  message_ts: string | null;
+  source: 'webhook' | 'sweep' | 'manual';
+  status: 'pending' | 'parsing' | 'parsed' | 'ignored' | 'error' | 'revoked';
+  ignore_reason: string | null;
+  attempts: number;
+  error: string | null;
+}
+
+export interface MarmitexWaDraftDetail extends MarmitexWaDraft {
+  lines: MarmitexWaDraftLine[];
+  messages: MarmitexWaMessage[];
+  counts: { ok: number; doubt: number; total: number };
 }
 
 export interface MarmitexInvoice {

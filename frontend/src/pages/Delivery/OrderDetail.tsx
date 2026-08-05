@@ -177,6 +177,13 @@ export function DeliveryOrderDetailPage() {
               })}
               {order.status === 'cancelled' && <li className="text-sm font-medium text-red-600">Cancelado {order.cancelled_at ? `· ${datetime(order.cancelled_at)}` : ''}</li>}
             </ol>
+            {/* Baixa de estoque: automática a partir da confirmação (itens + complementos
+                que estiverem vinculados a um produto no Cardápio). */}
+            <p className="mt-3 border-t border-slate-100 pt-2 text-xs text-slate-400">
+              {order.stock_consumed_at
+                ? `Estoque baixado · ${datetime(order.stock_consumed_at)}`
+                : 'Estoque ainda não baixado'}
+            </p>
           </Card>
 
           <Card>

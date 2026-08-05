@@ -99,18 +99,11 @@ final class DeliveryController
         $tsCol = ['confirmed' => 'confirmed_at', 'ready' => 'ready_at', 'dispatched' => 'dispatched_at', 'cancelled' => 'cancelled_at'][$newStatus];
         Db::execute("UPDATE delivery_orders SET status = ?, {$tsCol} = COALESCE({$tsCol}, NOW()) WHERE id = ?", [$newStatus, $id]);
 
-        // Baixa de estoque pela ficha técnica: confirmar consome os insumos; cancelar estorna.
-        // Idempotente e opt-in (só mexe nos itens mapeados a um produto — ver DeliveryStock).
-        // Nunca deixa a transição de status falhar por causa do estoque: loga e segue.
-        try {
-            if ($newStatus === 'confirmed') {
-                DeliveryStock::consumeOnce($req->orgId(), $id, $req->userId());
-            } elseif ($newStatus === 'cancelled') {
-                DeliveryStock::revertOnce($req->orgId(), $id, $req->userId());
-            }
-        } catch (\Throwable $e) {
-            error_log("[delivery stock] {$newStatus} #{$id} falhou: " . $e->getMessage());
-        }
+        // Baixa de estoque pela ficha técnica: confirmar consome os insumos (do prato E
+        // dos complementos escolhidos); cancelar estorna. Idempotente, opt-in (só mexe
+        // no que está mapeado a um produto) e best-effort — o sync nunca lança, para a
+        // transição de status não falhar por causa do estoque (ver DeliveryStock).
+        DeliveryStock::sync($req->orgId(), $id, $req->userId());
 
         Http::json(self::detailed($id));
     }

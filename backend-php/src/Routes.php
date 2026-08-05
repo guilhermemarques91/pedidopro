@@ -40,6 +40,7 @@ use App\Modules\Marmitex\MarmitexOrdersController;
 use App\Modules\Marmitex\MarmitexReportController;
 use App\Modules\Marmitex\MarmitexLabelsController;
 use App\Modules\Marmitex\MarmitexSheetController;
+use App\Modules\Marmitex\MarmitexWaController;
 use App\Modules\Vendas\VendasController;
 use App\Modules\Vendas\VendasStationsController;
 
@@ -243,6 +244,8 @@ final class Routes
         // Webhooks de delivery (PÚBLICOS — validados por segredo do canal)
         $r->post('/webhooks/ifood', [WebhooksController::class, 'ifood'], null);
         $r->post('/webhooks/99food', [WebhooksController::class, 'nineFood'], null);
+        // Evolution API → mensagens dos grupos das empresas (PÚBLICO — segredo compartilhado)
+        $r->post('/webhooks/evolution', [WebhooksController::class, 'evolution'], null);
 
         // Delivery — painel de pedidos (iFood + 99Food)
         $r->post('/delivery/poll', [DeliveryController::class, 'poll'], null); // protegido por token interno (cron)
@@ -292,6 +295,14 @@ final class Routes
         $r->post('/delivery/menu/items/:id/availability', [CatalogController::class, 'itemAvailability'], self::DELIVERY);
         $r->post('/delivery/menu/options/:id/availability', [CatalogController::class, 'optionAvailability'], self::DELIVERY);
         $r->post('/delivery/menu/groups/:id/availability', [CatalogController::class, 'groupAvailability'], self::DELIVERY);
+        // Módulo de complementos: classes reutilizáveis (Proteínas, Acompanhamentos...).
+        // Editar a classe vale em todo item que a usa — por isso o CRUD é separado do item.
+        $r->get('/delivery/menu/option-groups', [CatalogController::class, 'listGroups'], self::DELIVERY);
+        $r->post('/delivery/menu/option-groups', [CatalogController::class, 'createGroup'], self::DELIVERY_ADMIN);
+        $r->post('/delivery/menu/option-groups/merge-duplicates', [CatalogController::class, 'mergeDuplicateGroups'], self::DELIVERY_ADMIN);
+        $r->put('/delivery/menu/option-groups/:id', [CatalogController::class, 'updateGroup'], self::DELIVERY_ADMIN);
+        $r->put('/delivery/menu/option-groups/:id/items', [CatalogController::class, 'setGroupUsage'], self::DELIVERY_ADMIN);
+        $r->delete('/delivery/menu/option-groups/:id', [CatalogController::class, 'deleteGroup'], self::DELIVERY_ADMIN);
         $r->post('/delivery/menu/publish/:channelId', [CatalogController::class, 'publish'], self::DELIVERY_ADMIN);
         $r->post('/delivery/menu/import/:channelId', [CatalogController::class, 'import'], self::DELIVERY_ADMIN);
         $r->get('/delivery/alerts', [DeliveryController::class, 'listAlerts'], self::DELIVERY);
@@ -335,8 +346,24 @@ final class Routes
         // Etiquetas (dados planos para impressão).
         $r->get('/marmitex/labels', [MarmitexLabelsController::class, 'labels'], self::MARMITEX);
 
+        // Pedidos lidos do grupo de WhatsApp: configurar é admin, revisar/aplicar é
+        // de quem opera. A interpretação (IA) roda no worker, nunca nestas rotas.
+        $r->get('/marmitex/whatsapp/config/:companyId', [MarmitexWaController::class, 'getConfig'], self::MARMITEX_ADMIN);
+        $r->put('/marmitex/whatsapp/config/:companyId', [MarmitexWaController::class, 'saveConfig'], self::MARMITEX_ADMIN);
+        $r->post('/marmitex/whatsapp/simulate', [MarmitexWaController::class, 'simulate'], self::MARMITEX_ADMIN);
+        $r->get('/marmitex/whatsapp/drafts/count', [MarmitexWaController::class, 'count'], self::MARMITEX);
+        $r->get('/marmitex/whatsapp/drafts', [MarmitexWaController::class, 'drafts'], self::MARMITEX);
+        $r->get('/marmitex/whatsapp/drafts/:id', [MarmitexWaController::class, 'draft'], self::MARMITEX);
+        $r->post('/marmitex/whatsapp/drafts/:id/lines', [MarmitexWaController::class, 'addLine'], self::MARMITEX);
+        $r->put('/marmitex/whatsapp/drafts/:id/lines/:lineId', [MarmitexWaController::class, 'updateLine'], self::MARMITEX);
+        $r->delete('/marmitex/whatsapp/drafts/:id/lines/:lineId', [MarmitexWaController::class, 'removeLine'], self::MARMITEX);
+        $r->post('/marmitex/whatsapp/drafts/:id/apply', [MarmitexWaController::class, 'apply'], self::MARMITEX);
+        $r->post('/marmitex/whatsapp/drafts/:id/discard', [MarmitexWaController::class, 'discard'], self::MARMITEX);
+        $r->post('/marmitex/whatsapp/messages/:id/retry', [MarmitexWaController::class, 'retry'], self::MARMITEX_ADMIN);
+
         // Relatório / faturamento — admin.
         $r->get('/marmitex/report', [MarmitexReportController::class, 'report'], self::MARMITEX_ADMIN);
+        $r->get('/marmitex/report/detail', [MarmitexReportController::class, 'detail'], self::MARMITEX_ADMIN);
         $r->post('/marmitex/report/close', [MarmitexReportController::class, 'close'], self::MARMITEX_ADMIN);
         $r->get('/marmitex/invoices', [MarmitexReportController::class, 'invoices'], self::MARMITEX_ADMIN);
         $r->get('/marmitex/invoices/:id', [MarmitexReportController::class, 'getInvoice'], self::MARMITEX_ADMIN);

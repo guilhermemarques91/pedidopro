@@ -4,6 +4,7 @@ namespace App\Services\Integrations;
 
 use App\Core\Db;
 use App\Core\Env;
+use App\Services\DeliveryStock;
 use PDO;
 
 /**
@@ -109,6 +110,11 @@ final class IngestService
             self::maybeAutoConfirm($platform, $channel, $orderId);
         }
 
+        // Baixa de estoque automática: o evento que confirma o pedido (ou o aceite
+        // automático logo acima) já consome os insumos; o que cancela, estorna.
+        // Decide pelo estado final do pedido — best-effort, nunca lança.
+        DeliveryStock::syncPlatformOrder($platform, $orderId);
+
         Db::execute('UPDATE channel_events SET processed_at = NOW() WHERE platform = ? AND event_id = ?', [$platform, $eventId]);
         return 'ingested';
     }
@@ -145,6 +151,10 @@ final class IngestService
         }
         // Conclusão automática (homologação) — local, gated por env.
         self::autoConcludeSweep();
+        // Rede de segurança da baixa de estoque: pega o pedido cujo status avançou por
+        // um caminho que não passou pelo sync (ou que foi confirmado antes de os itens
+        // chegarem) e o cancelado que ficou sem estorno.
+        DeliveryStock::sweep();
         return $summary;
     }
 
@@ -202,6 +212,8 @@ final class IngestService
                  WHERE platform = ? AND platform_order_id = ? AND status = 'placed'",
                 [$platform, $orderId]
             );
+            // Confirmou = entrou em produção: baixa os insumos (idempotente).
+            DeliveryStock::syncPlatformOrder($platform, $orderId);
             self::log("auto-confirm OK ({$platform} {$orderId})");
         } catch (\Throwable $e) {
             self::log("auto-confirm FALHOU ({$platform} {$orderId}): " . $e->getMessage());
@@ -279,6 +291,8 @@ final class IngestService
             );
             if ($n > 0) {
                 $updated++;
+                // Confirmação/cancelamento descoberto aqui vale tanto quanto o do callback.
+                DeliveryStock::syncPlatformOrder('99food', $oid);
                 self::log("reconcile 99food {$oid} status=" . (string) ($detail['status'] ?? '?') . " {$cur} -> {$new}");
             }
         }

@@ -1,7 +1,8 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2, Pencil, UploadCloud, DownloadCloud, ChevronDown, ChevronRight, Play, Pause, Search, Image as ImageIcon } from 'lucide-react';
-import { channelsApi, menuApi, productsApi } from '../../services/resources';
+import { Link } from 'react-router-dom';
+import { Plus, Trash2, Pencil, UploadCloud, DownloadCloud, ChevronDown, ChevronUp, ChevronRight, Play, Pause, Search, Layers, Image as ImageIcon } from 'lucide-react';
+import { channelsApi, menuApi, optionGroupsApi, productsApi } from '../../services/resources';
 import { apiError } from '../../services/api';
 import type { MenuCategory, MenuItem, MenuItemInput, MenuOption, MenuOptionGroup } from '../../types';
 import { PageHeader } from '../../components/PageHeader';
@@ -37,6 +38,23 @@ export function MenuPage() {
 
   const allCats = tree.data ?? [];
   const isEmpty = allCats.length === 0;
+  // Pendências do de-para com o ERP: sem vínculo não há baixa de estoque. Contar aqui
+  // evita ter que abrir item por item pra descobrir o que ficou de fora.
+  const pending = useMemo(() => {
+    let items = 0;
+    // Complemento conta UMA vez: a classe é compartilhada, então a mesma opção aparece
+    // em vários itens da árvore — mas vincular ao ERP é um trabalho só.
+    const options = new Set<number>();
+    for (const c of allCats) {
+      for (const i of c.items) {
+        if (!i.erp_product_id) items++;
+        for (const g of i.groups ?? []) {
+          for (const o of g.options ?? []) if (!o.erp_product_id) options.add(o.id);
+        }
+      }
+    }
+    return { items, options: options.size };
+  }, [allCats]);
   const term = search.trim().toLowerCase();
   const visibleCats = allCats
     .filter((c) => catFilter === 'all' || String(c.id) === catFilter)
@@ -86,6 +104,19 @@ export function MenuPage() {
 
       {tree.isLoading && <Spinner />}
       {tree.error && <ErrorBox message={apiError(tree.error)} />}
+
+      {tree.data && (pending.items > 0 || pending.options > 0) && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <span className="font-semibold">Baixa de estoque incompleta:</span>{' '}
+          {pending.items > 0 && `${pending.items} ${pending.items === 1 ? 'item' : 'itens'}`}
+          {pending.items > 0 && pending.options > 0 && ' e '}
+          {pending.options > 0 && `${pending.options} ${pending.options === 1 ? 'complemento' : 'complementos'}`}
+          {' '}sem produto do ERP vinculado — o que vier neles não sai do estoque. Nos itens, abra o item e
+          use o campo <em>Produto do ERP</em>; nos complementos, vá em{' '}
+          <Link to="/cardapio/complementos" className="font-semibold underline">Complementos</Link>{' '}
+          (o vínculo é da classe, então vale de uma vez em todos os itens que a usam).
+        </div>
+      )}
 
       {tree.data && (
         <>
@@ -192,6 +223,33 @@ function PauseToggle({ active, onToggle, busy, title }: { active: boolean; onTog
   );
 }
 
+/**
+ * Vínculo com o ERP na linha do cardápio: verde = dá baixa de estoque; âmbar = não dá.
+ * O âmbar é o que faz a pendência aparecer sem precisar abrir cada item.
+ */
+function ErpChip({ name, qty, unit }: { name?: string | null; qty?: number | string | null; unit?: string | null }) {
+  if (!name) {
+    return (
+      <span
+        className="shrink-0 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700"
+        title="Sem produto do ERP vinculado — este item não dá baixa de estoque"
+      >
+        sem estoque
+      </span>
+    );
+  }
+  const q = Number(qty ?? 1);
+  const consumo = Number.isFinite(q) && q !== 1 ? ` · ${numToInput(q)}${unit ? ` ${unit}` : ''}` : '';
+  return (
+    <span
+      className="max-w-[200px] shrink-0 truncate rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700"
+      title={`Baixa de estoque: ${name}${consumo}`}
+    >
+      {name}{consumo}
+    </span>
+  );
+}
+
 function OptionRow({ option, onChanged }: { option: MenuOption; onChanged: () => void }) {
   const active = isActive(option.active);
   const avail = useMutation({ mutationFn: (a: boolean) => menuApi.setOptionAvailability(option.id, a), onSuccess: onChanged });
@@ -199,6 +257,7 @@ function OptionRow({ option, onChanged }: { option: MenuOption; onChanged: () =>
     <div className={`flex items-center gap-3 px-3 py-2 ${active ? '' : 'opacity-55'}`}>
       <Thumb src={option.image_data} size={36} alt={option.name} />
       <span className="min-w-0 flex-1 truncate text-sm text-slate-700">{option.name}</span>
+      <ErpChip name={option.erp_product_name} qty={option.erp_qty} unit={option.erp_product_unit} />
       <span className="w-24 shrink-0 text-right text-sm text-slate-500">{Number(option.price) > 0 ? brl(option.price) : 'Incluso'}</span>
       <PauseToggle active={active} busy={avail.isPending} onToggle={() => avail.mutate(!active)} title="Pausar complemento" />
     </div>
@@ -208,6 +267,7 @@ function OptionRow({ option, onChanged }: { option: MenuOption; onChanged: () =>
 function GroupBlock({ group, onChanged }: { group: MenuOptionGroup; onChanged: () => void }) {
   const active = isActive(group.active);
   const required = group.min >= 1;
+  const usedIn = group.used_in ?? 0;
   const avail = useMutation({ mutationFn: (a: boolean) => menuApi.setGroupAvailability(group.id, a), onSuccess: onChanged });
   return (
     <div className={`overflow-hidden rounded-lg border border-slate-200 ${active ? '' : 'opacity-55'}`}>
@@ -217,7 +277,23 @@ function GroupBlock({ group, onChanged }: { group: MenuOptionGroup; onChanged: (
           {required ? 'Obrigatório' : 'Opcional'}
         </span>
         <span className="text-xs text-slate-400">mín {group.min} · máx {group.max}</span>
-        <div className="ml-auto"><PauseToggle active={active} busy={avail.isPending} onToggle={() => avail.mutate(!active)} title="Pausar grupo" /></div>
+        {usedIn > 1 && (
+          <Link
+            to="/cardapio/complementos"
+            className="flex items-center gap-1 rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700 hover:bg-sky-100"
+            title={`Classe compartilhada: pausar ou editar aqui vale nos ${usedIn} itens que a usam`}
+          >
+            <Layers size={11} /> compartilhada · {usedIn} itens
+          </Link>
+        )}
+        <div className="ml-auto">
+          <PauseToggle
+            active={active}
+            busy={avail.isPending}
+            onToggle={() => avail.mutate(!active)}
+            title={usedIn > 1 ? `Pausar em ${usedIn} itens` : 'Pausar grupo'}
+          />
+        </div>
       </div>
       <div className="divide-y divide-slate-100">
         {(group.options ?? []).length === 0 && <p className="px-3 py-2 text-xs text-slate-400">Sem complementos.</p>}
@@ -274,6 +350,7 @@ function ItemRow({ item, onEdit, onChanged }: { item: MenuItem; onEdit: (item: M
           </button>
           {item.description && <p className="truncate text-xs text-slate-400">{item.description}</p>}
         </div>
+        <ErpChip name={item.erp_product_name} qty={item.erp_qty} />
         {groups.length > 0 && (
           <button
             onClick={() => setOpen((v) => !v)}
@@ -370,21 +447,6 @@ function CategorySection({
   );
 }
 
-interface OptionDraft {
-  id?: number;
-  name: string;
-  price: string;
-  image_data: string | null;
-  active: boolean;
-}
-interface GroupDraft {
-  id?: number;
-  name: string;
-  min: number;
-  max: number;
-  options: OptionDraft[];
-}
-
 function ItemModal({
   item, categoryId, categories, onClose, onSaved,
 }: {
@@ -401,24 +463,17 @@ function ItemModal({
   const [externalCode, setExternalCode] = useState(item?.external_code ?? '');
   const [catId, setCatId] = useState(item?.category_id ?? categoryId);
   const [erpProductId, setErpProductId] = useState<number | ''>(item?.erp_product_id ?? '');
+  const [erpQty, setErpQty] = useState(numToInput(item?.erp_qty ?? 1));
   const [imageData, setImageData] = useState<string | null>(item?.image_data ?? item?.image_url ?? null);
   // Produtos do ERP p/ o de-para (baixa de estoque por ficha técnica + foto herdada).
   const { data: erpProducts } = useQuery({ queryKey: ['products'], queryFn: () => productsApi.list() });
-  const [groups, setGroups] = useState<GroupDraft[]>(
-    (item?.groups ?? []).map((g) => ({
-      id: g.id,
-      name: g.name,
-      min: g.min,
-      max: g.max,
-      options: g.options.map((o) => ({
-        id: o.id,
-        name: o.name,
-        price: numToInput(o.price),
-        image_data: o.image_data ?? null,
-        active: o.active === undefined ? true : Boolean(Number(o.active)),
-      })),
-    })),
-  );
+  // Unidade do produto vinculado — mostra ao lado do consumo (0,15 do quê?).
+  const unitOf = (id: number | '') => (id === '' ? null : (erpProducts ?? []).find((p) => p.id === Number(id))?.unit ?? null);
+  const erpUnit = unitOf(erpProductId);
+  // Classes de complementos que o item usa, na ordem. O item apenas ANEXA — o conteúdo
+  // da classe é editado no módulo Complementos, e vale em todos os itens que a usam.
+  const [groupIds, setGroupIds] = useState<number[]>((item?.groups ?? []).map((g) => g.id));
+  const { data: allGroups } = useQuery({ queryKey: ['option-groups'], queryFn: optionGroupsApi.list });
   const [err, setErr] = useState('');
 
   const remove = useMutation({
@@ -448,22 +503,19 @@ function ItemModal({
       image_data: imageData,
       external_code: externalCode.trim() || null,
       erp_product_id: erpProductId === '' ? null : Number(erpProductId),
-      groups: groups
-        .filter((g) => g.name.trim())
-        .map((g) => ({
-          id: g.id,
-          name: g.name.trim(),
-          min: g.min,
-          max: Math.max(g.max, 1),
-          options: g.options
-            .filter((o) => o.name.trim())
-            .map((o) => ({ id: o.id, name: o.name.trim(), price: parseNum(o.price) ?? 0, image_data: o.image_data, active: o.active })),
-        })),
+      erp_qty: parseNum(erpQty) ?? 1,
+      group_ids: groupIds,
     });
   }
 
-  function setGroup(i: number, patch: Partial<GroupDraft>) {
-    setGroups(groups.map((g, idx) => (idx === i ? { ...g, ...patch } : g)));
+  /** Move a classe na ordem em que aparece para o cliente dentro deste item. */
+  function moveGroup(id: number, delta: number) {
+    const i = groupIds.indexOf(id);
+    const j = i + delta;
+    if (i < 0 || j < 0 || j >= groupIds.length) return;
+    const next = [...groupIds];
+    [next[i], next[j]] = [next[j], next[i]];
+    setGroupIds(next);
   }
 
   return (
@@ -482,101 +534,95 @@ function ItemModal({
         <Field label="Foto do item">
           <PhotoPicker value={imageData} onChange={setImageData} size={72} label="Foto do item" />
         </Field>
-        <Field label="Produto do ERP (baixa de estoque · foto)">
-          <Select value={String(erpProductId)} onChange={(e) => setErpProductId(e.target.value ? Number(e.target.value) : '')}>
-            <option value="">— nenhum (sem baixa de estoque) —</option>
-            {(erpProducts ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </Select>
-          <p className="mt-1 text-xs text-slate-400">
-            Vincula este item a um produto do cadastro: dá baixa de estoque pela ficha técnica quando o
-            pedido entra{!imageData ? ' e usa a foto do produto (o item está sem foto própria)' : ''}.
-          </p>
-        </Field>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+          <div className="md:col-span-3">
+            <Field label="Produto do ERP (baixa de estoque · foto)">
+              <Select value={String(erpProductId)} onChange={(e) => setErpProductId(e.target.value ? Number(e.target.value) : '')}>
+                <option value="">— nenhum (sem baixa de estoque) —</option>
+                {(erpProducts ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </Select>
+            </Field>
+          </div>
+          <Field label={`Consumo por unidade${erpUnit ? ` (${erpUnit})` : ''}`}>
+            <Input value={erpQty} onChange={(e) => setErpQty(e.target.value)} inputMode="decimal" disabled={erpProductId === ''} />
+          </Field>
+        </div>
+        <p className="-mt-1 text-xs text-slate-400">
+          Vincula este item a um produto do cadastro: dá baixa de estoque pela ficha técnica quando o
+          pedido entra{!imageData ? ' e usa a foto do produto (o item está sem foto própria)' : ''}.
+          Deixe o consumo em 1 quando o produto tem ficha técnica (é ela que diz quanto sai de cada insumo).
+        </p>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
           <Field label="Preço (R$)"><Input value={price} onChange={(e) => setPrice(e.target.value)} inputMode="decimal" /></Field>
           <Field label='Preço "de" (riscado, opcional)'><Input value={originalPrice} onChange={(e) => setOriginalPrice(e.target.value)} inputMode="decimal" /></Field>
           <Field label="Código PDV (opcional)"><Input value={externalCode ?? ''} onChange={(e) => setExternalCode(e.target.value)} /></Field>
         </div>
 
-        {/* Grupos de complementos */}
+        {/* Classes de complementos: o item ESCOLHE quais usa. Editar o conteúdo de
+            uma classe é no módulo Complementos — e vale em todos os itens que a usam. */}
         <div>
           <div className="mb-1 flex items-center justify-between">
             <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Complementos</span>
-            <button
-              type="button"
-              onClick={() => setGroups([...groups, { name: '', min: 0, max: 1, options: [{ name: '', price: '', image_data: null, active: true }] }])}
-              className="text-xs text-emerald-600 hover:underline"
-            >
-              + grupo
-            </button>
+            <Link to="/cardapio/complementos" className="text-xs text-emerald-600 hover:underline">gerenciar classes</Link>
           </div>
-          <div className="space-y-3">
-            {groups.map((g, i) => (
-              <div key={i} className="rounded-lg border border-slate-200 p-3">
-                <div className="grid grid-cols-12 items-end gap-2">
-                  <div className="col-span-6">
-                    <Field label="Grupo (ex.: Escolha sua proteína)"><Input value={g.name} onChange={(e) => setGroup(i, { name: e.target.value })} maxLength={50} /></Field>
-                  </div>
-                  <div className="col-span-2">
-                    <Field label="Mín."><Input type="number" min={0} value={g.min} onChange={(e) => setGroup(i, { min: Number(e.target.value) })} /></Field>
-                  </div>
-                  <div className="col-span-2">
-                    <Field label="Máx."><Input type="number" min={1} value={g.max} onChange={(e) => setGroup(i, { max: Number(e.target.value) })} /></Field>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setGroups(groups.filter((_, idx) => idx !== i))}
-                    className="col-span-2 flex justify-end pb-2 text-slate-300 hover:text-red-600"
-                    title="Remover grupo"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-                <p className="mt-1 text-xs text-slate-400">Mín. 0 = opcional; mín. ≥ 1 = obrigatório.</p>
-                <div className="mt-2 space-y-2">
-                  {g.options.map((o, j) => {
-                    const patchOpt = (patch: Partial<OptionDraft>) =>
-                      setGroup(i, { options: g.options.map((x, idx) => (idx === j ? { ...x, ...patch } : x)) });
+          {(allGroups ?? []).length === 0 ? (
+            <p className="rounded-lg border border-dashed border-slate-200 px-3 py-4 text-center text-xs text-slate-400">
+              Nenhuma classe de complementos cadastrada.{' '}
+              <Link to="/cardapio/complementos" className="text-emerald-600 hover:underline">Criar a primeira</Link>
+              {' '}(ex.: "Escolha sua proteína") — depois é só marcar aqui.
+            </p>
+          ) : (
+            <>
+              {/* Selecionadas primeiro, na ordem em que o cliente vê */}
+              {groupIds.length > 0 && (
+                <ul className="mb-2 space-y-1">
+                  {groupIds.map((gid, idx) => {
+                    const g = (allGroups ?? []).find((x) => x.id === gid);
+                    if (!g) return null;
+                    const usedIn = g.used_in ?? 0;
                     return (
-                      <div key={j} className={`rounded-lg border border-slate-100 bg-slate-50/50 p-2 ${o.active ? '' : 'opacity-60'}`}>
-                        <div className="grid grid-cols-12 items-center gap-2">
-                          <div className="col-span-6">
-                            <Input placeholder="Opção (ex.: Frango grelhado)" value={o.name} maxLength={50}
-                              onChange={(e) => patchOpt({ name: e.target.value })} />
-                          </div>
-                          <div className="col-span-3">
-                            <Input placeholder="R$ (0 = incluso)" inputMode="decimal" value={o.price}
-                              onChange={(e) => patchOpt({ price: e.target.value })} />
-                          </div>
-                          <label className="col-span-2 flex cursor-pointer items-center gap-1 text-xs text-slate-500" title="Pausar/ativar complemento">
-                            <input type="checkbox" checked={o.active} onChange={(e) => patchOpt({ active: e.target.checked })} />
-                            ativo
-                          </label>
-                          <button
-                            type="button"
-                            onClick={() => setGroup(i, { options: g.options.filter((_, idx) => idx !== j) })}
-                            className="col-span-1 flex justify-end text-slate-300 hover:text-red-600"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
-                        <div className="mt-2">
-                          <PhotoPicker value={o.image_data} onChange={(v) => patchOpt({ image_data: v })} size={48} label="Foto do complemento" />
-                        </div>
-                      </div>
+                      <li key={gid} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50/60 px-2 py-1.5 text-sm">
+                        <span className="w-5 shrink-0 text-center text-xs text-slate-400">{idx + 1}</span>
+                        <span className="min-w-0 flex-1 truncate text-slate-700">{g.name}</span>
+                        <span className="shrink-0 text-xs text-slate-400">
+                          {g.options.length} compl. · {g.min >= 1 ? 'obrigatório' : 'opcional'}
+                        </span>
+                        {usedIn > 1 && (
+                          <span className="shrink-0 rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700" title={(g.items ?? []).map((i) => i.name).join(', ')}>
+                            compartilhada · {usedIn} itens
+                          </span>
+                        )}
+                        <button type="button" onClick={() => moveGroup(gid, -1)} disabled={idx === 0}
+                          className="shrink-0 text-slate-300 hover:text-slate-600 disabled:opacity-30" title="Subir"><ChevronUp size={15} /></button>
+                        <button type="button" onClick={() => moveGroup(gid, 1)} disabled={idx === groupIds.length - 1}
+                          className="shrink-0 text-slate-300 hover:text-slate-600 disabled:opacity-30" title="Descer"><ChevronDown size={15} /></button>
+                        <button type="button" onClick={() => setGroupIds(groupIds.filter((x) => x !== gid))}
+                          className="shrink-0 text-slate-300 hover:text-red-600" title="Tirar deste item"><Trash2 size={14} /></button>
+                      </li>
                     );
                   })}
+                </ul>
+              )}
+              <div className="max-h-44 overflow-y-auto rounded-lg border border-slate-200 p-2">
+                {(allGroups ?? []).filter((g) => !groupIds.includes(g.id)).length === 0 && (
+                  <p className="text-xs text-slate-400">Todas as classes já estão neste item.</p>
+                )}
+                {(allGroups ?? []).filter((g) => !groupIds.includes(g.id)).map((g) => (
                   <button
+                    key={g.id}
                     type="button"
-                    onClick={() => setGroup(i, { options: [...g.options, { name: '', price: '', image_data: null, active: true }] })}
-                    className="text-xs text-emerald-600 hover:underline"
+                    onClick={() => setGroupIds([...groupIds, g.id])}
+                    className="flex w-full items-center gap-2 rounded px-1 py-1 text-left text-sm text-slate-700 hover:bg-slate-50"
                   >
-                    + opção
+                    <Plus size={13} className="shrink-0 text-emerald-600" />
+                    <span className="min-w-0 flex-1 truncate">{g.name}</span>
+                    <span className="shrink-0 text-xs text-slate-400">{g.options.length} compl.</span>
+                    {!isActive(g.active) && <span className="shrink-0 text-[10px] font-semibold text-amber-600">pausada</span>}
                   </button>
-                </div>
+                ))}
               </div>
-            ))}
-          </div>
+            </>
+          )}
         </div>
 
         <div className="flex items-center justify-between pt-2">

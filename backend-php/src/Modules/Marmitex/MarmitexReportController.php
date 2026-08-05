@@ -19,6 +19,60 @@ final class MarmitexReportController
     /** GET /marmitex/report — agregado de pendentes por empresa + período (preview). */
     public static function report(Request $req): void
     {
+        [$companyId, $start, $end, $clause, $params] = self::filter($req);
+        $rows = self::aggregate(Db::pdo(), $clause, $params);
+        [$grand, $count] = self::totals($rows);
+
+        Http::json([
+            'company' => Db::queryOne('SELECT id, name, cnpj FROM marmitex_companies WHERE id = ?', [$companyId]),
+            'period' => ['start' => $start, 'end' => $end],
+            'rows' => $rows,
+            'grand_total' => $grand,
+            'marmita_count' => $count,
+        ]);
+    }
+
+    /**
+     * GET /marmitex/report/detail — as mesmas marmitas do relatório, uma por linha.
+     *
+     * O agregado serve para lançar a NF-e; este serve para conferir com a empresa
+     * ("quem comeu o quê, em que dia") — que é justamente o que o agregado por
+     * tamanho+proteína não mostra.
+     */
+    public static function detail(Request $req): void
+    {
+        [$companyId, $start, $end, $clause, $params] = self::filter($req);
+        $rows = Db::query(
+            "SELECT m.service_date, m.person_name, m.size_name, m.protein_name,
+                    m.sides_json, m.observation, m.unit_price
+               FROM marmitex_marmitas m
+              WHERE {$clause}
+              ORDER BY m.service_date, m.person_name, m.id",
+            $params
+        );
+        $grand = 0.0;
+        foreach ($rows as &$r) {
+            // MySQL/PDO devolve JSON como string; decodifica para o frontend.
+            $r['sides_json'] = $r['sides_json'] ? json_decode((string) $r['sides_json'], true) : [];
+            $grand += (float) $r['unit_price'];
+        }
+        unset($r);
+
+        Http::json([
+            'company' => Db::queryOne('SELECT id, name, cnpj FROM marmitex_companies WHERE id = ?', [$companyId]),
+            'period' => ['start' => $start, 'end' => $end],
+            'rows' => $rows,
+            'grand_total' => $grand,
+            'marmita_count' => count($rows),
+        ]);
+    }
+
+    /**
+     * Filtro comum do relatório: empresa + período, sempre só as PENDENTES.
+     * @return array{0:int,1:?string,2:?string,3:string,4:array}
+     */
+    private static function filter(Request $req): array
+    {
         $companyId = (int) ($req->query('company_id') ?? 0);
         if ($companyId <= 0) {
             throw HttpError::badRequest('Informe a empresa');
@@ -36,16 +90,7 @@ final class MarmitexReportController
             $where[] = 'm.service_date <= ?';
             $params[] = $end;
         }
-        $rows = self::aggregate(Db::pdo(), implode(' AND ', $where), $params);
-        [$grand, $count] = self::totals($rows);
-
-        Http::json([
-            'company' => Db::queryOne('SELECT id, name, cnpj FROM marmitex_companies WHERE id = ?', [$companyId]),
-            'period' => ['start' => $start, 'end' => $end],
-            'rows' => $rows,
-            'grand_total' => $grand,
-            'marmita_count' => $count,
-        ]);
+        return [$companyId, $start, $end, implode(' AND ', $where), $params];
     }
 
     /** POST /marmitex/report/close — fecha o período: cria fatura + marca faturadas. */

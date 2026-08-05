@@ -1,6 +1,6 @@
 import { FormEvent, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Pencil, UserPlus, Eye, Power, FileSignature } from 'lucide-react';
+import { Plus, Pencil, UserPlus, Eye, Power, FileSignature, MessageCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { marmitexApi } from '../../../services/resources';
 import { apiError } from '../../../services/api';
@@ -8,12 +8,14 @@ import type { MarmitexCompany } from '../../../types';
 import { PageHeader } from '../../../components/PageHeader';
 import { Button, Card, Field, Input, Modal, ViewModal, IconBtn, Spinner, ErrorBox, EmptyState } from '../../../components/ui';
 import { ContractModal } from './ContractModal';
+import { WhatsappModal } from './WhatsappModal';
 
 export function MarmitexCompanies() {
   const qc = useQueryClient();
   const [editing, setEditing] = useState<MarmitexCompany | null>(null);
   const [viewing, setViewing] = useState<MarmitexCompany | null>(null);
   const [contractOf, setContractOf] = useState<MarmitexCompany | null>(null);
+  const [whatsappOf, setWhatsappOf] = useState<MarmitexCompany | null>(null);
   const [open, setOpen] = useState(false);
   const { data, isLoading, error } = useQuery({ queryKey: ['marmitex-companies'], queryFn: marmitexApi.companies.list });
 
@@ -50,6 +52,7 @@ export function MarmitexCompanies() {
                 <div className="flex shrink-0 items-center gap-1">
                   <IconBtn title="Ver detalhes" onClick={() => setViewing(c)}><Eye size={17} /></IconBtn>
                   <IconBtn title="Contrato (preços/cardápio)" hover="emerald" onClick={() => setContractOf(c)}><FileSignature size={16} /></IconBtn>
+                  <IconBtn title="Pedidos por WhatsApp" hover="emerald" onClick={() => setWhatsappOf(c)}><MessageCircle size={16} /></IconBtn>
                   <IconBtn title="Editar" hover="emerald" onClick={() => { setEditing(c); setOpen(true); }}><Pencil size={16} /></IconBtn>
                   <IconBtn title={c.active ? 'Desativar' : 'Ativar'} onClick={() => toggle.mutate(c)}><Power size={16} /></IconBtn>
                 </div>
@@ -83,6 +86,7 @@ export function MarmitexCompanies() {
                     <td className="px-5 py-3 text-slate-500">{c.active ? 'Ativa' : 'Inativa'}</td>
                     <td className="px-5 py-3 text-right whitespace-nowrap">
                       <button onClick={() => setContractOf(c)} className="mr-2 text-slate-400 hover:text-emerald-600" title="Contrato (preços/cardápio)"><FileSignature size={16} /></button>
+                      <button onClick={() => setWhatsappOf(c)} className="mr-2 text-slate-400 hover:text-emerald-600" title="Pedidos por WhatsApp"><MessageCircle size={16} /></button>
                       <button onClick={() => { setEditing(c); setOpen(true); }} className="mr-2 text-slate-400 hover:text-emerald-600" title="Editar"><Pencil size={16} /></button>
                       <button onClick={() => toggle.mutate(c)} className="text-xs font-medium text-slate-400 hover:text-emerald-600">
                         {c.active ? 'Desativar' : 'Ativar'}
@@ -103,6 +107,7 @@ export function MarmitexCompanies() {
 
       {open && <CompanyForm company={editing} onClose={() => setOpen(false)} />}
       {contractOf && <ContractModal company={contractOf} onClose={() => setContractOf(null)} />}
+      {whatsappOf && <WhatsappModal company={whatsappOf} onClose={() => setWhatsappOf(null)} />}
       {viewing && (
         <ViewModal
           title={viewing.name}

@@ -27,18 +27,42 @@ final class MenuSyncService
     {
         $categories = Db::query('SELECT * FROM menu_categories WHERE org_id = ? ORDER BY sort, id', [$orgId]);
         $items = Db::query('SELECT * FROM menu_items WHERE org_id = ? ORDER BY sort, id', [$orgId]);
-        // Grupos/opções cascateiam do item: só são anexados aos itens já filtrados por org.
-        $groups = Db::query('SELECT * FROM menu_option_groups ORDER BY sort, id');
+        // A classe de complementos é da ORG, não do item: a mesma "Proteínas" é anexada a
+        // vários itens (menu_item_option_groups). Cada item recebe uma CÓPIA da classe com
+        // o sort do vínculo — a mesma classe pode ser a 1ª num prato e a 3ª noutro.
+        $groups = Db::query('SELECT * FROM menu_option_groups WHERE org_id = ? ORDER BY name, id', [$orgId]);
         $options = Db::query('SELECT * FROM menu_options ORDER BY sort, id');
+        $links = Db::query(
+            'SELECT l.item_id, l.group_id, l.sort
+               FROM menu_item_option_groups l
+               JOIN menu_option_groups g ON g.id = l.group_id
+              WHERE g.org_id = ? ORDER BY l.sort, l.id',
+            [$orgId]
+        );
 
         $optionsByGroup = [];
         foreach ($options as $o) {
             $optionsByGroup[(int) $o['group_id']][] = $o;
         }
-        $groupsByItem = [];
+        // Quantos itens usam cada classe — a UI avisa antes de editar algo compartilhado.
+        $usedBy = [];
+        foreach ($links as $l) {
+            $usedBy[(int) $l['group_id']] = ($usedBy[(int) $l['group_id']] ?? 0) + 1;
+        }
+        $groupById = [];
         foreach ($groups as $g) {
             $g['options'] = $optionsByGroup[(int) $g['id']] ?? [];
-            $groupsByItem[(int) $g['item_id']][] = $g;
+            $g['used_in'] = $usedBy[(int) $g['id']] ?? 0;
+            $groupById[(int) $g['id']] = $g;
+        }
+        $groupsByItem = [];
+        foreach ($links as $l) {
+            $g = $groupById[(int) $l['group_id']] ?? null;
+            if ($g === null) {
+                continue;
+            }
+            $g['sort'] = (int) $l['sort'];
+            $groupsByItem[(int) $l['item_id']][] = $g;
         }
         $itemsByCategory = [];
         foreach ($items as $i) {
@@ -116,9 +140,13 @@ final class MenuSyncService
                     if (!$activeOpts) {
                         continue;
                     }
+                    // Ids do complemento são prefixados com o ITEM: no 99Food o grupo vai
+                    // aninhado dentro de cada item, e uma classe compartilhada apareceria
+                    // com o mesmo app_content_id em vários itens do mesmo upload.
+                    $ns = 'i' . $item['id'] . '_';
                     $contents[] = [
                         'content' => [
-                            'app_content_id' => 'g' . $g['id'],
+                            'app_content_id' => $ns . 'g' . $g['id'],
                             'content_name' => mb_substr((string) $g['name'], 0, 50),
                             'is_required' => ((int) $g['min']) > 0 ? 1 : 2,
                             'quantity_min_permitted' => (int) $g['min'],
@@ -126,7 +154,7 @@ final class MenuSyncService
                             'buy_mode' => 0,
                         ],
                         'sub_item_list' => array_map(static fn ($o) => [
-                            'app_sub_item_id' => 'o' . $o['id'],
+                            'app_sub_item_id' => $ns . 'o' . $o['id'],
                             'sub_item_name' => mb_substr((string) $o['name'], 0, 50),
                             'price' => (int) round(((float) $o['price']) * 100),
                         ], $activeOpts),
@@ -377,13 +405,41 @@ final class MenuSyncService
         return $summary;
     }
 
+    /**
+     * Categoria de destino dos itens que o 99Food devolve SEM `app_item_id`.
+     * Ver importNineNine: a API não diz a que categoria eles pertencem.
+     */
+    private const NINE_NINE_ORPHAN_CATEGORY = 'Sem categoria (99Food)';
+
+    /**
+     * Importa o cardápio do 99Food.
+     *
+     * ATENÇÃO ao `app_item_id`: ele é o id do PARCEIRO, e vem VAZIO para todo item
+     * criado direto no portal do 99Food (na loja real, 14 dos 32). A versão anterior
+     * indexava os itens por esse campo — todos os sem-id colapsavam na mesma chave `''`,
+     * e como a categoria também os referencia por `''`, cada vaga recebia o ÚLTIMO item
+     * do array. Resultado: 14 itens idênticos no cardápio local, com os nomes reais
+     * perdidos (e a baixa de estoque, que casa pedido↔cardápio por nome, sem chance).
+     *
+     * Agora id vazio nunca vira chave de busca. O item sem id é importado com o nome
+     * certo, mas numa categoria à parte: o payload não tem NENHUM campo que diga a
+     * categoria dele, e adivinhar pela ordem do array não bate (conferido no cardápio
+     * real). Cabe ao operador arrastá-los para a categoria certa — uma vez.
+     */
     private static function importNineNine(array $channel): array
     {
         $menu = NineNineClient::menuList($channel);
         $itemsById = [];
+        $orphans = [];
         foreach ((array) ($menu['items'] ?? []) as $i) {
-            $itemsById[(string) ($i['app_item_id'] ?? '')] = $i;
+            $appItemId = trim((string) ($i['app_item_id'] ?? ''));
+            if ($appItemId === '') {
+                $orphans[] = $i;
+                continue;
+            }
+            $itemsById[$appItemId] = $i;
         }
+
         $nCats = $nItems = 0;
         $sort = 0;
         foreach ((array) ($menu['categories'] ?? []) as $cat) {
@@ -392,63 +448,126 @@ final class MenuSyncService
                 [(int) $channel['org_id'], mb_substr((string) ($cat['category_name'] ?? 'Categoria'), 0, 100), $sort++],
                 'menu_categories'
             );
-            self::saveLink((int) $channel['id'], 'category', $catId, (string) ($cat['app_category_id'] ?? ('c' . $catId)));
+            self::saveLink((int) $channel['id'], 'category', $catId, self::externalId($cat['app_category_id'] ?? null, 'c' . $catId));
             $nCats++;
             $iSort = 0;
             foreach ((array) ($cat['app_item_ids'] ?? []) as $appItemId) {
-                $item = $itemsById[(string) $appItemId] ?? null;
+                $appItemId = trim((string) $appItemId);
+                // Vaga sem id: o item existe, mas a API não diz qual — vai pros órfãos.
+                $item = $appItemId !== '' ? ($itemsById[$appItemId] ?? null) : null;
                 if (!$item) {
                     continue;
                 }
-                $itemId = self::insertId(
-                    'INSERT INTO menu_items (org_id, category_id, name, description, price, image_url, external_code, sort) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                    [
-                        (int) $channel['org_id'],
-                        $catId,
-                        mb_substr((string) ($item['item_name'] ?? 'Item'), 0, 100),
-                        $item['short_desc'] ?? null,
-                        ((int) ($item['price'] ?? 0)) / 100,
-                        $item['head_img'] ?? null,
-                        $item['app_external_id'] ?? null,
-                        $iSort++,
-                    ],
-                    'menu_items'
-                );
-                self::saveLink((int) $channel['id'], 'item', $itemId, (string) $appItemId);
+                self::importNineNineItem($channel, $catId, $item, $iSort++, $appItemId);
                 $nItems++;
-                $gSort = 0;
-                foreach ((array) ($item['content_with_sub_item'] ?? []) as $cws) {
-                    $content = (array) ($cws['content'] ?? []);
-                    $groupId = self::insertId(
-                        'INSERT INTO menu_option_groups (item_id, name, min, max, sort) VALUES (?, ?, ?, ?, ?)',
-                        [
-                            $itemId,
-                            mb_substr((string) ($content['content_name'] ?? 'Complementos'), 0, 100),
-                            ((int) ($content['is_required'] ?? 2)) === 1 ? max((int) ($content['quantity_min_permitted'] ?? 1), 1) : 0,
-                            max((int) ($content['quantity_max_permitted'] ?? 1), 1),
-                            $gSort++,
-                        ],
-                        'menu_option_groups'
-                    );
-                    self::saveLink((int) $channel['id'], 'group', $groupId, (string) ($content['app_content_id'] ?? ('g' . $groupId)));
-                    $oSort = 0;
-                    foreach ((array) ($cws['sub_item_list'] ?? []) as $sub) {
-                        $optId = self::insertId(
-                            'INSERT INTO menu_options (group_id, name, price, sort) VALUES (?, ?, ?, ?)',
-                            [
-                                $groupId,
-                                mb_substr((string) ($sub['sub_item_name'] ?? 'Opção'), 0, 100),
-                                ((int) ($sub['price'] ?? 0)) / 100,
-                                $oSort++,
-                            ],
-                            'menu_options'
-                        );
-                        self::saveLink((int) $channel['id'], 'option', $optId, (string) ($sub['app_sub_item_id'] ?? ('o' . $optId)));
-                    }
-                }
             }
         }
-        return ['platform' => '99food', 'categories' => $nCats, 'items' => $nItems];
+
+        if ($orphans) {
+            $catId = self::insertId(
+                'INSERT INTO menu_categories (org_id, name, sort) VALUES (?, ?, ?)',
+                [(int) $channel['org_id'], self::NINE_NINE_ORPHAN_CATEGORY, $sort++],
+                'menu_categories'
+            );
+            $nCats++;
+            $iSort = 0;
+            foreach ($orphans as $item) {
+                self::importNineNineItem($channel, $catId, $item, $iSort++, '');
+                $nItems++;
+            }
+        }
+
+        return [
+            'platform' => '99food',
+            'categories' => $nCats,
+            'items' => $nItems,
+            // A UI mostra o resumo: deixa explícito quantos precisam ser recategorizados.
+            'sem_categoria' => count($orphans),
+        ];
+    }
+
+    /**
+     * Grava um item do 99Food (com grupos e complementos) numa categoria já criada.
+     * `$appItemId` vazio = item sem id do parceiro: importa igual, mas sem link de sync
+     * (link com external_id vazio não serviria para nada na publicação).
+     */
+    private static function importNineNineItem(array $channel, int $catId, array $item, int $sort, string $appItemId): void
+    {
+        $itemId = self::insertId(
+            'INSERT INTO menu_items (org_id, category_id, name, description, price, image_url, external_code, sort) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [
+                (int) $channel['org_id'],
+                $catId,
+                mb_substr((string) ($item['item_name'] ?? 'Item'), 0, 100),
+                $item['short_desc'] ?? null,
+                ((int) ($item['price'] ?? 0)) / 100,
+                $item['head_img'] ?? null,
+                $item['app_external_id'] ?? null,
+                $sort,
+            ],
+            'menu_items'
+        );
+        if ($appItemId !== '') {
+            self::saveLink((int) $channel['id'], 'item', $itemId, $appItemId);
+        }
+
+        $gSort = 0;
+        foreach ((array) ($item['content_with_sub_item'] ?? []) as $cws) {
+            $content = (array) ($cws['content'] ?? []);
+            $groupId = self::createGroupForItem(
+                (int) $channel['org_id'],
+                $itemId,
+                mb_substr((string) ($content['content_name'] ?? 'Complementos'), 0, 100),
+                ((int) ($content['is_required'] ?? 2)) === 1 ? max((int) ($content['quantity_min_permitted'] ?? 1), 1) : 0,
+                max((int) ($content['quantity_max_permitted'] ?? 1), 1),
+                $gSort++,
+                1
+            );
+            self::saveLink((int) $channel['id'], 'group', $groupId, self::externalId($content['app_content_id'] ?? null, 'g' . $groupId));
+            $oSort = 0;
+            foreach ((array) ($cws['sub_item_list'] ?? []) as $sub) {
+                $optId = self::insertId(
+                    'INSERT INTO menu_options (group_id, name, price, sort) VALUES (?, ?, ?, ?)',
+                    [
+                        $groupId,
+                        mb_substr((string) ($sub['sub_item_name'] ?? 'Opção'), 0, 100),
+                        ((int) ($sub['price'] ?? 0)) / 100,
+                        $oSort++,
+                    ],
+                    'menu_options'
+                );
+                self::saveLink((int) $channel['id'], 'option', $optId, self::externalId($sub['app_sub_item_id'] ?? null, 'o' . $optId));
+            }
+        }
+    }
+
+    /**
+     * Cria uma classe de complementos já vinculada a um item (caminho da importação:
+     * a plataforma manda os grupos aninhados no item, sem noção de reuso). Depois o
+     * operador pode unificar as classes idênticas no módulo de Complementos.
+     */
+    private static function createGroupForItem(int $orgId, int $itemId, string $name, int $min, int $max, int $sort, int $active): int
+    {
+        $groupId = self::insertId(
+            'INSERT INTO menu_option_groups (org_id, name, min, max, sort, active) VALUES (?, ?, ?, ?, ?, ?)',
+            [$orgId, $name, $min, $max, $sort, $active],
+            'menu_option_groups'
+        );
+        Db::execute(
+            'INSERT IGNORE INTO menu_item_option_groups (item_id, group_id, sort) VALUES (?, ?, ?)',
+            [$itemId, $groupId, $sort]
+        );
+        return $groupId;
+    }
+
+    /**
+     * Id externo do canal, com fallback. O `??` sozinho não bastava: o 99Food manda
+     * string VAZIA (não null) nos ids que não existem, e vazio não é identidade.
+     */
+    private static function externalId(mixed $value, string $fallback): string
+    {
+        $v = is_scalar($value) ? trim((string) $value) : '';
+        return $v !== '' ? $v : $fallback;
     }
 
     private static function importIfood(array $channel): array
@@ -494,17 +613,14 @@ final class MenuSyncService
                 self::saveLink((int) $channel['id'], 'item', $itemId, (string) ($item['id'] ?? ''), ['productId' => $item['productId'] ?? null]);
                 $nItems++;
                 foreach ((array) ($item['optionGroups'] ?? []) as $g) {
-                    $groupId = self::insertId(
-                        'INSERT INTO menu_option_groups (item_id, name, min, max, sort, active) VALUES (?, ?, ?, ?, ?, ?)',
-                        [
-                            $itemId,
-                            mb_substr((string) ($g['name'] ?? 'Complementos'), 0, 100),
-                            (int) ($g['min'] ?? 0),
-                            max((int) ($g['max'] ?? 1), 1),
-                            (int) ($g['sequence'] ?? 0),
-                            strtoupper((string) ($g['status'] ?? 'AVAILABLE')) === 'AVAILABLE' ? 1 : 0,
-                        ],
-                        'menu_option_groups'
+                    $groupId = self::createGroupForItem(
+                        (int) $channel['org_id'],
+                        $itemId,
+                        mb_substr((string) ($g['name'] ?? 'Complementos'), 0, 100),
+                        (int) ($g['min'] ?? 0),
+                        max((int) ($g['max'] ?? 1), 1),
+                        (int) ($g['sequence'] ?? 0),
+                        strtoupper((string) ($g['status'] ?? 'AVAILABLE')) === 'AVAILABLE' ? 1 : 0
                     );
                     self::saveLink((int) $channel['id'], 'group', $groupId, (string) ($g['id'] ?? ''));
                     foreach ((array) ($g['options'] ?? []) as $o) {

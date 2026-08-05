@@ -30,10 +30,12 @@ import { Integrations } from './pages/Integrations';
 import { Reports } from './pages/Reports';
 import { Store } from './pages/Store';
 import { MenuPage } from './pages/Menu';
+import { OptionGroupsPage } from './pages/Menu/OptionGroups';
 import { CompanyOrder } from './pages/Marmitex/CompanyOrder';
 import { MarmitexCompanies } from './pages/Marmitex/Companies';
 import { MarmitexCatalogPage } from './pages/Marmitex/Catalog';
 import { MarmitexReportPage } from './pages/Marmitex/Report';
+import { MarmitexWhatsappReview } from './pages/Marmitex/WhatsappReview';
 import { MarmitexInvoices } from './pages/Marmitex/Invoices';
 import { LabelsPrint } from './pages/Marmitex/LabelsPrint';
 import { Vendas } from './pages/Vendas';
@@ -96,6 +98,7 @@ export default function App() {
         <Route path="marmitex" element={<CompanyOrder />} />
         <Route path="marmitex/companies" element={<MarmitexCompanies />} />
         <Route path="marmitex/catalog" element={<MarmitexCatalogPage />} />
+        <Route path="marmitex/whatsapp" element={<MarmitexWhatsappReview />} />
         <Route path="marmitex/report" element={<MarmitexReportPage />} />
         <Route path="marmitex/invoices" element={<MarmitexInvoices />} />
         <Route path="vendas" element={<Vendas />} />
@@ -105,6 +108,7 @@ export default function App() {
         <Route path="delivery/:id" element={<DeliveryOrderDetailPage />} />
         <Route path="relatorios" element={<Reports />} />
         <Route path="cardapio" element={<MenuPage />} />
+        <Route path="cardapio/complementos" element={<OptionGroupsPage />} />
         <Route path="loja" element={<Store />} />
         <Route path="integrations" element={<Integrations />} />
         <Route path="estoque/parametros" element={<Parametros />} />

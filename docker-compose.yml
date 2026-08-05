@@ -72,6 +72,21 @@ services:
       EVOLUTION_API_URL: ${EVOLUTION_API_URL:-http://host.docker.internal:8080}
       EVOLUTION_INSTANCE: ${EVOLUTION_INSTANCE:-pedidopro}
       EVOLUTION_API_KEY: ${EVOLUTION_API_KEY:-}
+      # IA local (Ollama, via tunnel Cloudflare Access). Sem isto o worker do
+      # Marmitex/WhatsApp não interpreta mensagem nenhuma.
+      OLLAMA_URL: ${OLLAMA_URL:-}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
+      OLLAMA_CF_ACCESS_CLIENT_ID: ${OLLAMA_CF_ACCESS_CLIENT_ID:-}
+      OLLAMA_CF_ACCESS_CLIENT_SECRET: ${OLLAMA_CF_ACCESS_CLIENT_SECRET:-}
+      # Pedidos empresariais lidos do grupo de WhatsApp.
+      # O segredo protege a rota pública /webhooks/evolution: vazio = rota fechada.
+      MARMITEX_WA_WEBHOOK_SECRET: ${MARMITEX_WA_WEBHOOK_SECRET:-}
+      MARMITEX_WA_INTERVAL_MS: ${MARMITEX_WA_INTERVAL_MS:-60000}
+      MARMITEX_WA_SWEEP_MS: ${MARMITEX_WA_SWEEP_MS:-300000}
+      MARMITEX_WA_SYNC_HOURS: ${MARMITEX_WA_SYNC_HOURS:-14}
+      MARMITEX_WA_RULES_FIRST: ${MARMITEX_WA_RULES_FIRST:-1}
+      MARMITEX_WA_MAX_AUTO_LINES: ${MARMITEX_WA_MAX_AUTO_LINES:-60}
+      APP_TZ: ${TZ:-America/Sao_Paulo}
     ports:
       # 8090 por padrão: a 8080 costuma estar ocupada pela Evolution API (WhatsApp) neste PC.
       - "${APP_PORT:-8090}:80"
@@ -93,6 +108,22 @@ services:
     # (as migrations ficam a cargo do serviço `app`).
     entrypoint: ["php", "/var/www/html/api/bin/poll.php", "--loop"]
     # O healthcheck da imagem testa o Apache na :80 — não se aplica ao loop de CLI.
+    healthcheck:
+      disable: true
+
+  # Pedidos empresariais recebidos por WhatsApp: interpreta com a IA local as
+  # mensagens que o webhook empilhou e monta o pedido do dia.
+  # UMA réplica só — o modelo local não comporta dois processos concorrendo.
+  marmitex-wa:
+    image: pedidopro-erp-app
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_started
+      db:
+        condition: service_healthy
+    environment: *app-env
+    entrypoint: ["php", "/var/www/html/api/bin/marmitex-wa.php", "--loop"]
     healthcheck:
       disable: true
 

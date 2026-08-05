@@ -6,8 +6,9 @@ import type {
   DeliveryMode, ReportCustomer, ReportItem, ReportPerformance,
   Interruption, OpeningShift, StoreSettings, DeliveryMapResponse, GeocodeBackfillResult,
   MarmitexCompany, MarmitexCatalog, CatalogType, MarmitexOrder, MarmitexOrderDetail, ProductionSummary,
-  MarmitexReport, MarmitexInvoice, MarmitexLabelData,
-  MenuCategory, MenuItem, MenuItemInput,
+  MarmitexReport, MarmitexReportDetail, MarmitexInvoice, MarmitexLabelData,
+  MarmitexWaConfig, MarmitexWaDraft, MarmitexWaDraftDetail,
+  MenuCategory, MenuItem, MenuItemInput, MenuOptionGroup, MenuOptionGroupInput, MergeDuplicatesResult,
   VendasStation, VendasSale, VendasBoardCard, VendasCreateBody, BoardOrigin, PaymentMethod,
   PaymentLine, VendasPrep, VariationGroupInput,
 } from '../types';
@@ -487,6 +488,23 @@ export const menuApi = {
     api.post<Record<string, unknown>>(`/delivery/menu/import/${channelId}`, undefined, { timeout: 120000 }).then((r) => r.data),
 };
 
+/**
+ * Classes de complementos (Proteínas, Acompanhamentos...): entidades da org, usadas
+ * por vários itens. Editar aqui vale em todos os itens que usam a classe.
+ */
+export const optionGroupsApi = {
+  list: () => api.get<MenuOptionGroup[]>('/delivery/menu/option-groups').then((r) => r.data),
+  create: (body: MenuOptionGroupInput) =>
+    api.post<MenuOptionGroup>('/delivery/menu/option-groups', body).then((r) => r.data),
+  update: (id: number, body: Partial<MenuOptionGroupInput>) =>
+    api.put<MenuOptionGroup>(`/delivery/menu/option-groups/${id}`, body).then((r) => r.data),
+  remove: (id: number) => api.delete(`/delivery/menu/option-groups/${id}`).then((r) => r.data),
+  setItems: (id: number, itemIds: number[]) =>
+    api.put<MenuOptionGroup>(`/delivery/menu/option-groups/${id}/items`, { item_ids: itemIds }).then((r) => r.data),
+  mergeDuplicates: (dryRun: boolean) =>
+    api.post<MergeDuplicatesResult>('/delivery/menu/option-groups/merge-duplicates', { dry_run: dryRun }).then((r) => r.data),
+};
+
 export const deliveryApi = {
   list: (f: DeliveryFilters = {}) =>
     api.get<DeliveryOrder[]>('/delivery/orders', { params: f }).then((r) => r.data),
@@ -595,8 +613,38 @@ export const marmitexApi = {
     ).then((r) => r.data);
   },
 
+  /** Pedidos lidos do grupo de WhatsApp: configuração por empresa + fila de revisão. */
+  whatsapp: {
+    config: (companyId: number) =>
+      api.get<MarmitexWaConfig>(`/marmitex/whatsapp/config/${companyId}`).then((r) => r.data),
+    saveConfig: (companyId: number, body: Partial<MarmitexWaConfig>) =>
+      api.put<MarmitexWaConfig>(`/marmitex/whatsapp/config/${companyId}`, body).then((r) => r.data),
+    drafts: (params: { company_id?: number; status?: string; date?: string } = {}) =>
+      api.get<MarmitexWaDraft[]>('/marmitex/whatsapp/drafts', { params }).then((r) => r.data),
+    count: () => api.get<{ count: number }>('/marmitex/whatsapp/drafts/count').then((r) => r.data.count),
+    draft: (id: number) => api.get<MarmitexWaDraftDetail>(`/marmitex/whatsapp/drafts/${id}`).then((r) => r.data),
+    addLine: (id: number, body: MarmitaInput) =>
+      api.post<{ id: number }>(`/marmitex/whatsapp/drafts/${id}/lines`, body).then((r) => r.data),
+    updateLine: (id: number, lineId: number, body: MarmitaInput) =>
+      api.put(`/marmitex/whatsapp/drafts/${id}/lines/${lineId}`, body).then((r) => r.data),
+    removeLine: (id: number, lineId: number) =>
+      api.delete(`/marmitex/whatsapp/drafts/${id}/lines/${lineId}`).then((r) => r.data),
+    /** Substitui o pedido daquele dia pelo conteúdo do rascunho. */
+    apply: (id: number) =>
+      api.post<{ order_id: number }>(`/marmitex/whatsapp/drafts/${id}/apply`).then((r) => r.data),
+    discard: (id: number) => api.post(`/marmitex/whatsapp/drafts/${id}/discard`).then((r) => r.data),
+    retryMessage: (id: number) => api.post(`/marmitex/whatsapp/messages/${id}/retry`).then((r) => r.data),
+    /** Enfileira uma mensagem de teste; a leitura roda no worker (a IA é lenta demais para o HTTP). */
+    simulate: (companyId: number, text: string) =>
+      api.post<{ queued: boolean; message_id: number }>('/marmitex/whatsapp/simulate', {
+        company_id: companyId, text,
+      }).then((r) => r.data),
+  },
+
   report: (params: { company_id: number; start?: string; end?: string }) =>
     api.get<MarmitexReport>('/marmitex/report', { params }).then((r) => r.data),
+  reportDetail: (params: { company_id: number; start?: string; end?: string }) =>
+    api.get<MarmitexReportDetail>('/marmitex/report/detail', { params }).then((r) => r.data),
   closeReport: (body: { company_id: number; start: string; end: string }) =>
     api.post<MarmitexInvoice>('/marmitex/report/close', body).then((r) => r.data),
   invoices: (companyId?: number) =>

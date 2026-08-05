@@ -89,9 +89,11 @@ final class MarmitexSheetController
             throw HttpError::badRequest('Envie a planilha no campo "file"');
         }
 
-        $sizes = self::indexByName(Db::query('SELECT id, name FROM marmitex_sizes WHERE active = 1'));
-        $proteins = self::indexByName(Db::query('SELECT id, name FROM marmitex_proteins WHERE active = 1'));
-        $sides = self::indexByName(Db::query('SELECT id, name FROM marmitex_sides WHERE active = 1'));
+        // Com a empresa no formulário, a planilha passa a respeitar o contrato
+        // (itens ocultos não valem); sem ela, cai no cardápio base como antes.
+        $companyId = $req->isCompany()
+            ? $req->companyId()
+            : (($v = $req->query('company_id') ?? ($req->body['company_id'] ?? null)) ? (int) $v : null);
 
         try {
             $spreadsheet = IOFactory::load($f['tmp_name']);
@@ -107,72 +109,44 @@ final class MarmitexSheetController
         // Mapeia colunas pelo cabeçalho (tolera acento/maiúsculas e ordem trocada).
         $col = [];
         foreach ($rows[0] as $idx => $h) {
-            $col[self::norm((string) $h)] = $idx;
+            $col[MarmitexResolver::norm((string) $h)] = $idx;
         }
         $pick = static fn (array $row, string $key) => isset($col[$key]) ? self::clean($row[$col[$key]] ?? '') : '';
 
-        $marmitas = [];
-        $errors = [];
+        // Coleta as linhas preenchidas guardando o nº da linha na planilha, para o
+        // erro apontar a linha certa depois de descartar as vazias.
+        $input = [];
+        $lineNumbers = [];
         $count = count($rows);
         for ($i = 1; $i < $count; $i++) {
             $row = $rows[$i];
-            $rowNumber = $i + 1;
-            $person = $pick($row, 'nome');
-            $sizeName = $pick($row, 'tamanho');
-            $proteinName = $pick($row, 'proteina');
-            $sidesRaw = $pick($row, 'acompanhamentos');
-            $obs = $pick($row, 'observacao');
+            $cells = [
+                'person_name' => $pick($row, 'nome'),
+                'size' => $pick($row, 'tamanho'),
+                'protein' => $pick($row, 'proteina'),
+                'sides' => $pick($row, 'acompanhamentos'),
+                'observation' => $pick($row, 'observacao'),
+            ];
+            if (implode('', $cells) === '') {
+                continue; // linha totalmente vazia
+            }
+            $input[] = $cells;
+            $lineNumbers[] = $i + 1;
+        }
 
-            // Linha totalmente vazia: ignora.
-            if ($person === '' && $sizeName === '' && $proteinName === '' && $sidesRaw === '' && $obs === '') {
+        $marmitas = [];
+        $errors = [];
+        foreach (MarmitexResolver::resolve($input, $companyId) as $idx => $r) {
+            if ($r['issues']) {
+                $errors[] = ['row' => $lineNumbers[$idx], 'messages' => $r['issues']];
                 continue;
             }
-
-            $rowErrors = [];
-            $size = $sizes[self::norm($sizeName)] ?? null;
-            if ($sizeName === '') {
-                $rowErrors[] = 'tamanho vazio';
-            } elseif (!$size) {
-                $rowErrors[] = "tamanho \"{$sizeName}\" não existe no cardápio";
-            }
-
-            $proteinId = null;
-            if ($proteinName !== '') {
-                $protein = $proteins[self::norm($proteinName)] ?? null;
-                if (!$protein) {
-                    $rowErrors[] = "proteína \"{$proteinName}\" não existe no cardápio";
-                } else {
-                    $proteinId = (int) $protein['id'];
-                }
-            }
-
-            $sideIds = [];
-            if ($sidesRaw !== '') {
-                foreach (preg_split('/[,;]/', $sidesRaw) as $piece) {
-                    $name = trim((string) $piece);
-                    if ($name === '') {
-                        continue;
-                    }
-                    $side = $sides[self::norm($name)] ?? null;
-                    if (!$side) {
-                        $rowErrors[] = "acompanhamento \"{$name}\" não existe no cardápio";
-                    } else {
-                        $sideIds[] = (int) $side['id'];
-                    }
-                }
-            }
-
-            if ($rowErrors) {
-                $errors[] = ['row' => $rowNumber, 'messages' => $rowErrors];
-                continue;
-            }
-
             $marmitas[] = [
-                'person_name' => $person !== '' ? $person : null,
-                'size_id' => (int) $size['id'],
-                'protein_id' => $proteinId,
-                'side_ids' => $sideIds,
-                'observation' => $obs !== '' ? $obs : null,
+                'person_name' => $r['person_name'],
+                'size_id' => $r['size_id'],
+                'protein_id' => $r['protein_id'],
+                'side_ids' => $r['side_ids'],
+                'observation' => $r['observation'],
             ];
         }
 
@@ -194,34 +168,8 @@ final class MarmitexSheetController
         return $dv;
     }
 
-    /** @param array<int,array{id:int,name:string}> $rows */
-    private static function indexByName(array $rows): array
-    {
-        $out = [];
-        foreach ($rows as $r) {
-            $out[self::norm($r['name'])] = $r;
-        }
-        return $out;
-    }
-
     private static function clean(mixed $v): string
     {
         return $v === null ? '' : trim((string) $v);
-    }
-
-    /** Baixa caixa, remove acentos e espaços extras — para casar nomes com tolerância. */
-    private static function norm(string $s): string
-    {
-        $s = trim(mb_strtolower($s));
-        $map = [
-            'á' => 'a', 'à' => 'a', 'â' => 'a', 'ã' => 'a', 'ä' => 'a',
-            'é' => 'e', 'è' => 'e', 'ê' => 'e', 'ë' => 'e',
-            'í' => 'i', 'ì' => 'i', 'î' => 'i', 'ï' => 'i',
-            'ó' => 'o', 'ò' => 'o', 'ô' => 'o', 'õ' => 'o', 'ö' => 'o',
-            'ú' => 'u', 'ù' => 'u', 'û' => 'u', 'ü' => 'u',
-            'ç' => 'c',
-        ];
-        $s = strtr($s, $map);
-        return preg_replace('/\s+/', ' ', $s);
     }
 }

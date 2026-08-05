@@ -1,12 +1,87 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { FileText, Lock } from 'lucide-react';
+import { FileText, Lock, Download } from 'lucide-react';
 import { marmitexApi } from '../../../services/resources';
 import { apiError } from '../../../services/api';
-import type { MarmitexReport } from '../../../types';
+import type { MarmitexReport, MarmitexReportDetail } from '../../../types';
 import { PageHeader } from '../../../components/PageHeader';
 import { Button, Card, Field, Select, Spinner, ErrorBox, EmptyState } from '../../../components/ui';
-import { brl } from '../../../utils/format';
+import { brl, parseSides } from '../../../utils/format';
+
+const dmy = (d: string) => d.split('-').reverse().join('/');
+
+/** Aba detalhada: uma linha por marmita, para conferir com a empresa antes de faturar. */
+function DetailTable({ data }: { data: MarmitexReportDetail }) {
+  function exportCsv() {
+    const head = ['Data', 'Nome', 'Tamanho', 'Proteína', 'Acompanhamentos', 'Observação', 'Valor'];
+    // Ponto e vírgula + BOM: é o que o Excel em pt-BR abre sem pedir importação.
+    const esc = (v: string) => `"${v.replace(/"/g, '""')}"`;
+    const lines = data.rows.map((r) => [
+      dmy(r.service_date),
+      r.person_name ?? '',
+      r.size_name,
+      r.protein_name ?? '',
+      parseSides(r.sides_json).map((s) => s.name).join(', '),
+      r.observation ?? '',
+      String(r.unit_price).replace('.', ','),
+    ].map(esc).join(';'));
+    const csv = '﻿' + [head.map(esc).join(';'), ...lines].join('\r\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `marmitex-${data.company?.name ?? 'empresa'}.csv`;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  let lastDate = '';
+  return (
+    <>
+      <div className="flex justify-end border-b border-slate-200 px-5 py-3">
+        <Button variant="secondary" onClick={exportCsv}><Download size={16} /> Exportar CSV</Button>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[44rem] text-sm">
+          <thead className="border-b border-slate-200 text-left text-slate-500">
+            <tr>
+              <th className="px-5 py-3 font-medium">Data</th>
+              <th className="px-5 py-3 font-medium">Nome</th>
+              <th className="px-5 py-3 font-medium">Tamanho</th>
+              <th className="px-5 py-3 font-medium">Proteína</th>
+              <th className="px-5 py-3 font-medium">Acompanhamentos</th>
+              <th className="px-5 py-3 font-medium text-right">Valor</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.rows.map((r, i) => {
+              const newDay = r.service_date !== lastDate;
+              lastDate = r.service_date;
+              return (
+                <tr key={i} className={`border-b border-slate-100 last:border-0 ${newDay ? 'border-t border-slate-200' : ''}`}>
+                  <td className="px-5 py-2 text-slate-500">{newDay ? dmy(r.service_date) : ''}</td>
+                  <td className="px-5 py-2 font-medium text-slate-800">{r.person_name || '—'}</td>
+                  <td className="px-5 py-2 text-slate-700">{r.size_name}</td>
+                  <td className="px-5 py-2 text-slate-600">{r.protein_name || '—'}</td>
+                  <td className="px-5 py-2 text-slate-500">
+                    {parseSides(r.sides_json).map((s) => s.name).join(', ') || '—'}
+                    {r.observation && <span className="block text-xs italic">{r.observation}</span>}
+                  </td>
+                  <td className="px-5 py-2 text-right text-slate-700">{brl(r.unit_price)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+          <tfoot>
+            <tr className="border-t-2 border-slate-200 bg-slate-50">
+              <td className="px-5 py-3 font-semibold text-slate-800" colSpan={5}>{data.marmita_count} marmita(s)</td>
+              <td className="px-5 py-3 text-right text-lg font-bold text-emerald-700">{brl(data.grand_total)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </>
+  );
+}
 
 export function MarmitexReportPage() {
   const qc = useQueryClient();
@@ -15,6 +90,7 @@ export function MarmitexReportPage() {
   const [end, setEnd] = useState('');
   const [error, setError] = useState('');
   const [closed, setClosed] = useState('');
+  const [tab, setTab] = useState<'resumo' | 'detalhe'>('resumo');
 
   const companies = useQuery({ queryKey: ['marmitex-companies'], queryFn: marmitexApi.companies.list });
 
@@ -24,12 +100,19 @@ export function MarmitexReportPage() {
     enabled: !!companyId,
   });
 
+  const detail = useQuery({
+    queryKey: ['marmitex-report-detail', companyId, start, end],
+    queryFn: () => marmitexApi.reportDetail({ company_id: companyId!, start: start || undefined, end: end || undefined }),
+    enabled: !!companyId && tab === 'detalhe',
+  });
+
   const close = useMutation({
     mutationFn: () => marmitexApi.closeReport({ company_id: companyId!, start, end }),
     onSuccess: (inv) => {
       setClosed(`Período fechado: faturamento #${inv.id} gerado com ${inv.marmita_count} marmita(s), total ${brl(inv.total_amount)}.`);
       setError('');
       qc.invalidateQueries({ queryKey: ['marmitex-report'] });
+      qc.invalidateQueries({ queryKey: ['marmitex-report-detail'] });
       qc.invalidateQueries({ queryKey: ['marmitex-invoices'] });
       qc.invalidateQueries({ queryKey: ['marmitex-companies'] });
     },
@@ -91,6 +174,29 @@ export function MarmitexReportPage() {
               <Lock size={16} /> Gerar relatório / Fechar período
             </Button>
           </div>
+
+          {/* Resumo é o que vai para a NF-e; detalhado é o que se confere com a empresa. */}
+          <div className="flex gap-1 border-b border-slate-200 px-5 pt-3">
+            {([['resumo', 'Resumo'], ['detalhe', 'Detalhado (por pessoa)']] as const).map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setTab(key)}
+                className={`rounded-t-lg px-4 py-2 text-sm font-medium transition ${
+                  tab === key ? 'border-b-2 border-emerald-600 text-emerald-700' : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {tab === 'detalhe' ? (
+            detail.isLoading ? <Spinner />
+              : detail.error ? <ErrorBox message={apiError(detail.error)} />
+              : detail.data ? <DetailTable data={detail.data} />
+              : null
+          ) : (
+          <>
           <div className="overflow-x-auto">
           <table className="w-full min-w-[34rem] text-sm">
             <thead className="border-b border-slate-200 text-left text-slate-500">
@@ -126,6 +232,8 @@ export function MarmitexReportPage() {
           <p className="flex items-center gap-2 px-5 py-3 text-xs text-slate-400">
             <FileText size={14} /> Use estes valores para lançar a nota fiscal no seu ERP.
           </p>
+          </>
+          )}
         </Card>
       )}
     </div>

@@ -6,10 +6,10 @@ import {
   ClipboardList, ShoppingCart, LogOut, Inbox, ListChecks, Users, Menu, X,
   Bike, Plug, Building2, BookOpen, FileText, Receipt, BarChart3, UtensilsCrossed, Store as StoreIcon, MapPin,
   ChevronDown, ChevronRight, PanelLeftClose, PanelLeft, ScrollText, Palette, ShoppingBag, Armchair,
-  ClipboardCheck, SlidersHorizontal,
+  ClipboardCheck, SlidersHorizontal, Layers, MessageCircle,
 } from 'lucide-react';
 import { useAuth } from '../store/auth.store';
-import { inboxApi } from '../services/resources';
+import { inboxApi, marmitexApi } from '../services/resources';
 import { AppName, Logo } from '../config/brand';
 import { AutoPrint } from './AutoPrint';
 import { VersionWatcher } from './VersionWatcher';
@@ -37,7 +37,8 @@ const navGroups: NavGroup[] = [
     { to: '/delivery', label: 'Painel de Pedidos', icon: Bike, perm: 'delivery:operate' },
     { to: '/delivery/mapa', label: 'Mapa & Distâncias', icon: MapPin, perm: 'delivery:operate' },
     { to: '/relatorios', label: 'Relatórios', icon: BarChart3, perm: 'delivery:operate' },
-    { to: '/cardapio', label: 'Cardápio', icon: BookOpen, perm: 'delivery:admin' },
+    { to: '/cardapio', label: 'Cardápio', icon: BookOpen, perm: 'delivery:admin', end: true },
+    { to: '/cardapio/complementos', label: 'Complementos', icon: Layers, perm: 'delivery:admin' },
     { to: '/loja', label: 'Loja (iFood)', icon: StoreIcon, perm: 'delivery:operate' },
     { to: '/integrations', label: 'Integrações', icon: Plug, perm: 'delivery:admin' },
   ] },
@@ -54,6 +55,7 @@ const navGroups: NavGroup[] = [
     { to: '/marmitex/companies', label: 'Empresas/Clientes', icon: Building2, perm: 'marmitex:admin' },
     { to: '/marmitex/catalog', label: 'Cardápio', icon: BookOpen, perm: 'marmitex:admin' },
     { to: '/marmitex', label: 'Pedidos do dia', icon: UtensilsCrossed, perm: 'marmitex:order', end: true },
+    { to: '/marmitex/whatsapp', label: 'WhatsApp (revisão)', icon: MessageCircle, perm: 'marmitex:order' },
     { to: '/marmitex/report', label: 'Relatório / NF-e', icon: FileText, perm: 'marmitex:admin' },
     { to: '/marmitex/invoices', label: 'Faturamentos', icon: Receipt, perm: 'marmitex:admin' },
   ] },
@@ -125,6 +127,17 @@ export function Layout() {
     queryFn: inboxApi.count,
     refetchInterval: 60_000,
   });
+  // Pedidos do WhatsApp esperando revisão (só para quem opera o marmitex).
+  const { data: waCount } = useQuery({
+    queryKey: ['marmitex-wa-count'],
+    queryFn: marmitexApi.whatsapp.count,
+    enabled: can('marmitex:order'),
+    refetchInterval: 60_000,
+  });
+  const badges: Record<string, number | undefined> = {
+    '/inbox': inboxCount,
+    '/marmitex/whatsapp': waCount,
+  };
 
   function handleLogout() {
     logout();
@@ -186,8 +199,8 @@ export function Layout() {
           <>
             <Icon size={18} className={`shrink-0 ${isActive ? 'text-emerald-400' : ''}`} />
             {!rail && <span className="flex-1">{label}</span>}
-            {!rail && to === '/inbox' && inboxCount ? (
-              <span className="rounded-full bg-emerald-500 px-2 py-0.5 text-xs font-semibold text-slate-900">{inboxCount}</span>
+            {!rail && badges[to] ? (
+              <span className="rounded-full bg-emerald-500 px-2 py-0.5 text-xs font-semibold text-slate-900">{badges[to]}</span>
             ) : null}
           </>
         )}

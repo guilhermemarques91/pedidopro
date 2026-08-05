@@ -39,11 +39,19 @@ final class CatalogController
         // De-para com produtos do ERP: nome do produto vinculado (p/ exibir o vínculo)
         // e foto herdada quando o item não tem imagem própria. Decora só a UI — não
         // passa pelo localTree, então a publicação nas plataformas fica intocada.
+        // Vale para o item E para cada complemento (proteína, acompanhamento).
         $erpIds = [];
         foreach ($tree as $cat) {
             foreach ($cat['items'] as $item) {
                 if (!empty($item['erp_product_id'])) {
                     $erpIds[(int) $item['erp_product_id']] = true;
+                }
+                foreach (($item['groups'] ?? []) as $g) {
+                    foreach (($g['options'] ?? []) as $o) {
+                        if (!empty($o['erp_product_id'])) {
+                            $erpIds[(int) $o['erp_product_id']] = true;
+                        }
+                    }
                 }
             }
         }
@@ -51,7 +59,7 @@ final class CatalogController
         if ($erpIds) {
             $ph = implode(',', array_fill(0, count($erpIds), '?'));
             $rows = Db::query(
-                "SELECT id, name, image_data FROM products WHERE org_id = ? AND id IN ($ph)",
+                "SELECT id, name, unit, image_data FROM products WHERE org_id = ? AND id IN ($ph)",
                 array_merge([$req->orgId()], array_keys($erpIds))
             );
             foreach ($rows as $r) {
@@ -66,6 +74,15 @@ final class CatalogController
                 if (empty($item['image_data']) && empty($item['image_url']) && !empty($prod['image_data'])) {
                     $item['image_data'] = $prod['image_data'];
                 }
+                foreach ($item['groups'] as &$g) {
+                    foreach ($g['options'] as &$o) {
+                        $op = !empty($o['erp_product_id']) ? ($erpById[(int) $o['erp_product_id']] ?? null) : null;
+                        $o['erp_product_name'] = $op['name'] ?? null;
+                        $o['erp_product_unit'] = $op['unit'] ?? null;
+                    }
+                    unset($o);
+                }
+                unset($g);
             }
             unset($item);
         }
@@ -197,12 +214,14 @@ final class CatalogController
             // De-para com o produto do ERP: destrava a baixa de estoque por ficha técnica
             // e a herança da foto do produto quando o item não tem imagem própria.
             'erp_product_id' => $in->has('erp_product_id') ? $in->integer('erp_product_id') : null,
+            // Quanto do produto vinculado uma unidade consome (1 = a ficha técnica manda).
+            'erp_qty' => $in->has('erp_qty') ? self::erpQty($in->number('erp_qty')) : null,
             'sort' => $in->has('sort') ? ($in->integer('sort') ?? 0) : null,
         ];
 
         if ($id === null) {
             $id = self::insertId(
-                'INSERT INTO menu_items (org_id, category_id, name, description, price, original_price, image_url, image_data, external_code, erp_product_id, sort, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                'INSERT INTO menu_items (org_id, category_id, name, description, price, original_price, image_url, image_data, external_code, erp_product_id, erp_qty, sort, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                 [
                     $orgId,
                     $categoryId,
@@ -214,6 +233,7 @@ final class CatalogController
                     $cols['image_data'],
                     $cols['external_code'],
                     $cols['erp_product_id'],
+                    $cols['erp_qty'] ?? 1,
                     $cols['sort'] ?? 0,
                     ($in->boolean('active', true) ?? true) ? 1 : 0,
                 ],
@@ -226,7 +246,7 @@ final class CatalogController
                 $fields[] = 'category_id = ?';
                 $values[] = $categoryId;
             }
-            foreach (['name', 'description', 'price', 'original_price', 'image_url', 'image_data', 'external_code', 'erp_product_id', 'sort'] as $k) {
+            foreach (['name', 'description', 'price', 'original_price', 'image_url', 'image_data', 'external_code', 'erp_product_id', 'erp_qty', 'sort'] as $k) {
                 if ($in->has($k)) {
                     $fields[] = "{$k} = ?";
                     $values[] = $cols[$k];
@@ -242,74 +262,50 @@ final class CatalogController
             }
         }
 
-        // Grupos/complementos aninhados: substitui o conjunto quando enviado.
-        if ($in->has('groups')) {
-            self::replaceGroups($id, $in->array('groups'));
+        // Classes de complementos: o item apenas ANEXA classes existentes (na ordem
+        // enviada). O conteúdo da classe é editado no módulo de Complementos — é isso
+        // que faz uma mudança na classe valer em todos os itens que a usam.
+        if ($in->has('group_ids')) {
+            self::setItemGroups($id, $orgId, $in->array('group_ids'));
         }
 
         Http::json(self::itemDetail($id), $req->param('id') === null ? 201 : 200);
     }
 
-    /** Substitui grupos+opções do item preservando ids enviados (mantém links de sync). */
-    private static function replaceGroups(int $itemId, array $groups): void
+    /**
+     * Define exatamente quais classes de complementos o item usa, na ordem recebida.
+     * Não toca no conteúdo das classes: desanexar um item nunca apaga a classe (ela
+     * continua valendo para os outros itens).
+     *
+     * @param int[] $groupIds
+     */
+    private static function setItemGroups(int $itemId, int $orgId, array $groupIds): void
     {
-        $keptGroups = [];
+        $kept = [];
         $sort = 0;
-        foreach ($groups as $g) {
-            if (!is_array($g)) {
+        foreach ($groupIds as $gid) {
+            $gid = (int) $gid;
+            if ($gid <= 0 || isset($kept[$gid])) {
                 continue;
             }
-            $gid = isset($g['id']) ? (int) $g['id'] : null;
-            $name = mb_substr(trim((string) ($g['name'] ?? '')), 0, 100);
-            if ($name === '') {
-                continue;
+            if (!Db::queryOne('SELECT id FROM menu_option_groups WHERE id = ? AND org_id = ?', [$gid, $orgId])) {
+                throw HttpError::badRequest("Classe de complementos #{$gid} não encontrada");
             }
-            $min = max((int) ($g['min'] ?? 0), 0);
-            $max = max((int) ($g['max'] ?? 1), 1);
-            $active = !empty($g['active']) || !isset($g['active']) ? 1 : 0;
-            if ($gid !== null && Db::queryOne('SELECT id FROM menu_option_groups WHERE id = ? AND item_id = ?', [$gid, $itemId])) {
-                Db::execute('UPDATE menu_option_groups SET name = ?, min = ?, max = ?, sort = ?, active = ? WHERE id = ?', [$name, $min, $max, $sort, $active, $gid]);
-            } else {
-                $gid = self::insertId('INSERT INTO menu_option_groups (item_id, name, min, max, sort, active) VALUES (?, ?, ?, ?, ?, ?)', [$itemId, $name, $min, $max, $sort, $active], 'menu_option_groups');
-            }
-            $keptGroups[] = $gid;
-            $sort++;
-
-            $keptOptions = [];
-            $oSort = 0;
-            foreach ((array) ($g['options'] ?? []) as $o) {
-                if (!is_array($o)) {
-                    continue;
-                }
-                $oid = isset($o['id']) ? (int) $o['id'] : null;
-                $oName = mb_substr(trim((string) ($o['name'] ?? '')), 0, 100);
-                if ($oName === '') {
-                    continue;
-                }
-                $price = (float) ($o['price'] ?? 0);
-                $desc = isset($o['description']) ? (string) $o['description'] : null;
-                $oImg = isset($o['image_data']) ? (string) $o['image_data'] : null;
-                $oActive = !empty($o['active']) || !isset($o['active']) ? 1 : 0;
-                if ($oid !== null && Db::queryOne('SELECT id FROM menu_options WHERE id = ? AND group_id = ?', [$oid, $gid])) {
-                    Db::execute('UPDATE menu_options SET name = ?, description = ?, price = ?, image_data = ?, sort = ?, active = ? WHERE id = ?', [$oName, $desc, $price, $oImg, $oSort, $oActive, $oid]);
-                } else {
-                    $oid = self::insertId('INSERT INTO menu_options (group_id, name, description, price, image_data, sort, active) VALUES (?, ?, ?, ?, ?, ?, ?)', [$gid, $oName, $desc, $price, $oImg, $oSort, $oActive], 'menu_options');
-                }
-                $keptOptions[] = $oid;
-                $oSort++;
-            }
-            self::deleteMissing('menu_options', 'group_id', $gid, $keptOptions);
+            Db::execute(
+                'INSERT INTO menu_item_option_groups (item_id, group_id, sort) VALUES (?, ?, ?)
+                 ON DUPLICATE KEY UPDATE sort = VALUES(sort)',
+                [$itemId, $gid, $sort++]
+            );
+            $kept[$gid] = true;
         }
-        self::deleteMissing('menu_option_groups', 'item_id', $itemId, $keptGroups);
-    }
-
-    private static function deleteMissing(string $table, string $fkCol, int $fkVal, array $keptIds): void
-    {
-        if ($keptIds) {
-            $ph = implode(',', array_fill(0, count($keptIds), '?'));
-            Db::execute("DELETE FROM {$table} WHERE {$fkCol} = ? AND id NOT IN ({$ph})", array_merge([$fkVal], $keptIds));
+        if ($kept) {
+            $ph = implode(',', array_fill(0, count($kept), '?'));
+            Db::execute(
+                "DELETE FROM menu_item_option_groups WHERE item_id = ? AND group_id NOT IN ({$ph})",
+                array_merge([$itemId], array_keys($kept))
+            );
         } else {
-            Db::execute("DELETE FROM {$table} WHERE {$fkCol} = ?", [$fkVal]);
+            Db::execute('DELETE FROM menu_item_option_groups WHERE item_id = ?', [$itemId]);
         }
     }
 
@@ -349,7 +345,10 @@ final class CatalogController
         Http::json(['ok' => !$errors, 'active' => $active, 'errors' => $errors]);
     }
 
-    /** POST /delivery/menu/options/:id/availability { active } — pausa/reativa um complemento (local). */
+    /**
+     * POST /delivery/menu/options/:id/availability { active } — pausa/reativa um complemento.
+     * A opção pertence à CLASSE, então isso vale de imediato em todo item que a usa.
+     */
     public static function optionAvailability(Request $req): void
     {
         $id = $req->intParam('id');
@@ -360,18 +359,20 @@ final class CatalogController
         $row = Db::queryOne(
             'SELECT o.id FROM menu_options o
                JOIN menu_option_groups g ON g.id = o.group_id
-               JOIN menu_items i ON i.id = g.item_id
-              WHERE o.id = ? AND i.org_id = ?',
+              WHERE o.id = ? AND g.org_id = ?',
             [$id, $req->orgId()]
         );
         if (!$row) {
             throw HttpError::notFound('Complemento não encontrado');
         }
         Db::execute('UPDATE menu_options SET active = ? WHERE id = ?', [$active ? 1 : 0, $id]);
-        Http::json(['ok' => true, 'active' => $active]);
+        Http::json(['ok' => true, 'active' => $active, 'used_in' => self::usedIn($id, 'option')]);
     }
 
-    /** POST /delivery/menu/groups/:id/availability { active } — pausa/reativa um grupo de complementos (local). */
+    /**
+     * POST /delivery/menu/groups/:id/availability { active } — pausa/reativa a classe
+     * inteira. Vale em todos os itens que a usam (é o ponto do módulo).
+     */
     public static function groupAvailability(Request $req): void
     {
         $id = $req->intParam('id');
@@ -379,17 +380,334 @@ final class CatalogController
         if ($active === null) {
             throw HttpError::badRequest("Informe 'active' (true/false)");
         }
-        $row = Db::queryOne(
-            'SELECT g.id FROM menu_option_groups g
-               JOIN menu_items i ON i.id = g.item_id
-              WHERE g.id = ? AND i.org_id = ?',
-            [$id, $req->orgId()]
-        );
-        if (!$row) {
-            throw HttpError::notFound('Grupo não encontrado');
-        }
+        self::group($id, $req->orgId());
         Db::execute('UPDATE menu_option_groups SET active = ? WHERE id = ?', [$active ? 1 : 0, $id]);
-        Http::json(['ok' => true, 'active' => $active]);
+        Http::json(['ok' => true, 'active' => $active, 'used_in' => self::usedIn($id, 'group')]);
+    }
+
+    // ---- módulo de complementos (classes reutilizáveis) ----
+
+    /** GET /delivery/menu/option-groups — classes com opções e onde cada uma é usada. */
+    public static function listGroups(Request $req): void
+    {
+        $orgId = $req->orgId();
+        $groups = Db::query('SELECT * FROM menu_option_groups WHERE org_id = ? ORDER BY name, id', [$orgId]);
+        if (!$groups) {
+            Http::json([]);
+            return;
+        }
+        $options = Db::query(
+            'SELECT o.* FROM menu_options o JOIN menu_option_groups g ON g.id = o.group_id
+              WHERE g.org_id = ? ORDER BY o.sort, o.id',
+            [$orgId]
+        );
+        $usage = Db::query(
+            'SELECT l.group_id, i.id AS item_id, i.name AS item_name, i.active
+               FROM menu_item_option_groups l JOIN menu_items i ON i.id = l.item_id
+              WHERE i.org_id = ? ORDER BY i.name',
+            [$orgId]
+        );
+        // Nome do produto do ERP vinculado em cada opção (mesma decoração do tree).
+        $erpIds = [];
+        foreach ($options as $o) {
+            if (!empty($o['erp_product_id'])) {
+                $erpIds[(int) $o['erp_product_id']] = true;
+            }
+        }
+        $erpById = [];
+        if ($erpIds) {
+            $ph = implode(',', array_fill(0, count($erpIds), '?'));
+            foreach (Db::query("SELECT id, name, unit FROM products WHERE org_id = ? AND id IN ($ph)", array_merge([$orgId], array_keys($erpIds))) as $p) {
+                $erpById[(int) $p['id']] = $p;
+            }
+        }
+
+        $optsByGroup = [];
+        foreach ($options as $o) {
+            $p = !empty($o['erp_product_id']) ? ($erpById[(int) $o['erp_product_id']] ?? null) : null;
+            $o['erp_product_name'] = $p['name'] ?? null;
+            $o['erp_product_unit'] = $p['unit'] ?? null;
+            $optsByGroup[(int) $o['group_id']][] = $o;
+        }
+        $itemsByGroup = [];
+        foreach ($usage as $u) {
+            $itemsByGroup[(int) $u['group_id']][] = [
+                'id' => (int) $u['item_id'],
+                'name' => $u['item_name'],
+                'active' => (int) $u['active'],
+            ];
+        }
+        foreach ($groups as &$g) {
+            $g['options'] = $optsByGroup[(int) $g['id']] ?? [];
+            $g['items'] = $itemsByGroup[(int) $g['id']] ?? [];
+            $g['used_in'] = count($g['items']);
+        }
+        unset($g);
+        Http::json($groups);
+    }
+
+    public static function createGroup(Request $req): void
+    {
+        self::saveGroup($req, null);
+    }
+
+    public static function updateGroup(Request $req): void
+    {
+        self::saveGroup($req, $req->intParam('id'));
+    }
+
+    /**
+     * Cria/atualiza uma classe de complementos. As opções são substituídas pelo
+     * conjunto enviado (ids preservados p/ não perder os links de sync nem o de-para
+     * de estoque). Qualquer mudança aqui vale na hora em TODOS os itens que usam a classe.
+     */
+    private static function saveGroup(Request $req, ?int $id): void
+    {
+        $orgId = $req->orgId();
+        $in = $req->input();
+        if ($id !== null) {
+            self::group($id, $orgId);
+        }
+        $name = $in->has('name') || $id === null ? $in->requireString('name', 1, 100) : null;
+        $min = $in->has('min') ? max((int) ($in->integer('min') ?? 0), 0) : null;
+        $max = $in->has('max') ? max((int) ($in->integer('max') ?? 1), 1) : null;
+
+        if ($id === null) {
+            $id = self::insertId(
+                'INSERT INTO menu_option_groups (org_id, name, min, max, sort, active) VALUES (?, ?, ?, ?, 0, ?)',
+                [$orgId, $name, $min ?? 0, $max ?? 1, ($in->boolean('active', true) ?? true) ? 1 : 0],
+                'menu_option_groups'
+            );
+        } else {
+            $fields = [];
+            $values = [];
+            foreach (['name' => $name, 'min' => $min, 'max' => $max] as $col => $val) {
+                if ($val !== null) {
+                    $fields[] = "{$col} = ?";
+                    $values[] = $val;
+                }
+            }
+            if ($in->has('active')) {
+                $fields[] = 'active = ?';
+                $values[] = ($in->boolean('active', true) ?? true) ? 1 : 0;
+            }
+            if ($fields) {
+                $values[] = $id;
+                Db::execute('UPDATE menu_option_groups SET ' . implode(', ', $fields) . ' WHERE id = ?', $values);
+            }
+        }
+
+        if ($in->has('options')) {
+            self::replaceOptions($id, $in->array('options'));
+        }
+        // `item_ids` é opcional: permite aplicar a classe a vários itens de uma vez.
+        if ($in->has('item_ids')) {
+            self::setGroupItems($id, $orgId, $in->array('item_ids'));
+        }
+        Http::json(self::groupDetail($id, $orgId), $req->param('id') === null ? 201 : 200);
+    }
+
+    /** Substitui as opções da classe, preservando os ids enviados. */
+    private static function replaceOptions(int $groupId, array $options): void
+    {
+        $kept = [];
+        $sort = 0;
+        foreach ($options as $o) {
+            if (!is_array($o)) {
+                continue;
+            }
+            $name = mb_substr(trim((string) ($o['name'] ?? '')), 0, 100);
+            if ($name === '') {
+                continue;
+            }
+            $oid = isset($o['id']) ? (int) $o['id'] : null;
+            $price = (float) ($o['price'] ?? 0);
+            $desc = isset($o['description']) ? (string) $o['description'] : null;
+            $img = isset($o['image_data']) ? (string) $o['image_data'] : null;
+            $active = !empty($o['active']) || !isset($o['active']) ? 1 : 0;
+            // De-para do COMPLEMENTO com o ERP: é ele que faz a proteína/acompanhamento
+            // escolhido sair do estoque (o item sozinho só cobre a base do prato).
+            $product = !empty($o['erp_product_id']) ? (int) $o['erp_product_id'] : null;
+            $qty = self::erpQty($o['erp_qty'] ?? null);
+            if ($oid !== null && Db::queryOne('SELECT id FROM menu_options WHERE id = ? AND group_id = ?', [$oid, $groupId])) {
+                Db::execute(
+                    'UPDATE menu_options SET name = ?, description = ?, price = ?, image_data = ?, erp_product_id = ?, erp_qty = ?, sort = ?, active = ? WHERE id = ?',
+                    [$name, $desc, $price, $img, $product, $qty, $sort, $active, $oid]
+                );
+            } else {
+                $oid = self::insertId(
+                    'INSERT INTO menu_options (group_id, name, description, price, image_data, erp_product_id, erp_qty, sort, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                    [$groupId, $name, $desc, $price, $img, $product, $qty, $sort, $active],
+                    'menu_options'
+                );
+            }
+            $kept[] = $oid;
+            $sort++;
+        }
+        if ($kept) {
+            $ph = implode(',', array_fill(0, count($kept), '?'));
+            Db::execute("DELETE FROM menu_options WHERE group_id = ? AND id NOT IN ({$ph})", array_merge([$groupId], $kept));
+        } else {
+            Db::execute('DELETE FROM menu_options WHERE group_id = ?', [$groupId]);
+        }
+    }
+
+    /**
+     * PUT /delivery/menu/option-groups/:id/items { item_ids } — define em quais itens a
+     * classe é usada. É o "reutilizar em vários itens" visto do lado da classe.
+     */
+    public static function setGroupUsage(Request $req): void
+    {
+        $id = $req->intParam('id');
+        $orgId = $req->orgId();
+        self::group($id, $orgId);
+        self::setGroupItems($id, $orgId, $req->input()->array('item_ids'));
+        Http::json(self::groupDetail($id, $orgId));
+    }
+
+    /** @param int[] $itemIds */
+    private static function setGroupItems(int $groupId, int $orgId, array $itemIds): void
+    {
+        $kept = [];
+        foreach ($itemIds as $itemId) {
+            $itemId = (int) $itemId;
+            if ($itemId <= 0 || isset($kept[$itemId])) {
+                continue;
+            }
+            if (!Db::queryOne('SELECT id FROM menu_items WHERE id = ? AND org_id = ?', [$itemId, $orgId])) {
+                throw HttpError::badRequest("Item #{$itemId} não encontrado");
+            }
+            // Entra no fim da lista de complementos do item (sem remexer na ordem já feita).
+            $next = Db::queryOne('SELECT COALESCE(MAX(sort), -1) + 1 AS s FROM menu_item_option_groups WHERE item_id = ?', [$itemId]);
+            Db::execute(
+                'INSERT IGNORE INTO menu_item_option_groups (item_id, group_id, sort) VALUES (?, ?, ?)',
+                [$itemId, $groupId, (int) ($next['s'] ?? 0)]
+            );
+            $kept[$itemId] = true;
+        }
+        if ($kept) {
+            $ph = implode(',', array_fill(0, count($kept), '?'));
+            Db::execute(
+                "DELETE FROM menu_item_option_groups WHERE group_id = ? AND item_id NOT IN ({$ph})",
+                array_merge([$groupId], array_keys($kept))
+            );
+        } else {
+            Db::execute('DELETE FROM menu_item_option_groups WHERE group_id = ?', [$groupId]);
+        }
+    }
+
+    /** DELETE /delivery/menu/option-groups/:id — apaga a classe (e a desanexa de todos os itens). */
+    public static function deleteGroup(Request $req): void
+    {
+        $id = $req->intParam('id');
+        self::group($id, $req->orgId());
+        self::dropChannelLinks($id);
+        Db::execute('DELETE FROM menu_option_groups WHERE id = ?', [$id]);
+        Http::noContent();
+    }
+
+    /**
+     * Apaga os links de sync da classe e das opções dela. `menu_channel_links` não tem
+     * FK para essas tabelas (a chave é só channel+tipo+local_id), então sem isto sobram
+     * linhas apontando para ids mortos — e um id reaproveitado herdaria o UUID errado
+     * na publicação.
+     */
+    private static function dropChannelLinks(int $groupId): void
+    {
+        Db::execute(
+            "DELETE FROM menu_channel_links WHERE entity_type = 'option'
+              AND local_id IN (SELECT id FROM menu_options WHERE group_id = ?)",
+            [$groupId]
+        );
+        Db::execute("DELETE FROM menu_channel_links WHERE entity_type = 'group' AND local_id = ?", [$groupId]);
+    }
+
+    /**
+     * POST /delivery/menu/option-groups/merge-duplicates — unifica classes IDÊNTICAS
+     * (mesmo nome e mesma lista de opções: nome + preço, na ordem). O import das
+     * plataformas cria uma classe por item, então "Escolha sua Proteína" nasce
+     * repetida N vezes; isto as funde numa só, mantendo a mais antiga e repontando
+     * os vínculos. `?dry_run=1` só devolve o que seria feito.
+     */
+    public static function mergeDuplicateGroups(Request $req): void
+    {
+        $orgId = $req->orgId();
+        $dryRun = $req->query('dry_run') !== null || ($req->input()->boolean('dry_run', false) ?? false);
+
+        $groups = Db::query('SELECT id, name, min, max FROM menu_option_groups WHERE org_id = ? ORDER BY id', [$orgId]);
+        $byFingerprint = [];
+        foreach ($groups as $g) {
+            $opts = Db::query('SELECT name, price FROM menu_options WHERE group_id = ? ORDER BY sort, id', [(int) $g['id']]);
+            $sig = json_encode([
+                mb_strtolower(trim((string) $g['name'])),
+                (int) $g['min'],
+                (int) $g['max'],
+                array_map(static fn ($o) => [mb_strtolower(trim((string) $o['name'])), (float) $o['price']], $opts),
+            ], JSON_UNESCAPED_UNICODE);
+            $byFingerprint[$sig][] = (int) $g['id'];
+        }
+
+        $merged = [];
+        foreach ($byFingerprint as $ids) {
+            if (count($ids) < 2) {
+                continue;
+            }
+            $keep = array_shift($ids); // a mais antiga vence (menor id)
+            $name = Db::queryOne('SELECT name FROM menu_option_groups WHERE id = ?', [$keep])['name'] ?? '';
+            $merged[] = ['keep' => $keep, 'name' => $name, 'removed' => $ids];
+            if ($dryRun) {
+                continue;
+            }
+            foreach ($ids as $dup) {
+                // Reaponta os itens da duplicada para a que fica (preservando a ordem
+                // que o item já tinha), depois apaga a duplicada (opções em cascata).
+                foreach (Db::query('SELECT item_id, sort FROM menu_item_option_groups WHERE group_id = ?', [$dup]) as $l) {
+                    Db::execute(
+                        'INSERT IGNORE INTO menu_item_option_groups (item_id, group_id, sort) VALUES (?, ?, ?)',
+                        [(int) $l['item_id'], $keep, (int) $l['sort']]
+                    );
+                }
+                self::dropChannelLinks($dup);
+                Db::execute('DELETE FROM menu_option_groups WHERE id = ?', [$dup]);
+            }
+        }
+        Http::json([
+            'dry_run' => $dryRun,
+            'classes_unificadas' => count($merged),
+            'classes_removidas' => array_sum(array_map(static fn ($m) => count($m['removed']), $merged)),
+            'detalhe' => $merged,
+        ]);
+    }
+
+    /** Quantos itens usam a classe (ou a classe da opção) — a UI mostra o alcance da mudança. */
+    private static function usedIn(int $id, string $kind): int
+    {
+        $sql = $kind === 'option'
+            ? 'SELECT COUNT(*) AS n FROM menu_item_option_groups l JOIN menu_options o ON o.group_id = l.group_id WHERE o.id = ?'
+            : 'SELECT COUNT(*) AS n FROM menu_item_option_groups WHERE group_id = ?';
+        return (int) (Db::queryOne($sql, [$id])['n'] ?? 0);
+    }
+
+    private static function group(int $id, int $orgId): array
+    {
+        $g = Db::queryOne('SELECT * FROM menu_option_groups WHERE id = ? AND org_id = ?', [$id, $orgId]);
+        if (!$g) {
+            throw HttpError::notFound('Classe de complementos não encontrada');
+        }
+        return $g;
+    }
+
+    private static function groupDetail(int $id, int $orgId): array
+    {
+        $g = self::group($id, $orgId);
+        $g['options'] = Db::query('SELECT * FROM menu_options WHERE group_id = ? ORDER BY sort, id', [$id]);
+        $g['items'] = Db::query(
+            'SELECT i.id, i.name, i.active FROM menu_item_option_groups l JOIN menu_items i ON i.id = l.item_id
+              WHERE l.group_id = ? ORDER BY i.name',
+            [$id]
+        );
+        $g['used_in'] = count($g['items']);
+        return $g;
     }
 
     // ---- publicação / importação ----
@@ -408,6 +726,16 @@ final class CatalogController
 
     // ---- helpers ----
 
+    /**
+     * Fator de consumo do vínculo com o ERP. Coluna NOT NULL DEFAULT 1: ausente,
+     * vazio ou não-positivo vira 1 (o consumo sai da ficha técnica do produto).
+     */
+    private static function erpQty(mixed $v): float
+    {
+        $q = is_numeric($v) ? (float) $v : 0.0;
+        return $q > 0 ? $q : 1.0;
+    }
+
     /** INSERT e devolve o id gerado (Db::insertReturning retorna a linha inteira). */
     private static function insertId(string $sql, array $params, string $table): int
     {
@@ -417,9 +745,16 @@ final class CatalogController
     private static function itemDetail(int $id): array
     {
         $item = Db::queryOne('SELECT * FROM menu_items WHERE id = ?', [$id]) ?? [];
-        $groups = Db::query('SELECT * FROM menu_option_groups WHERE item_id = ? ORDER BY sort, id', [$id]);
+        // Classes anexadas ao item, na ordem do vínculo (o sort é por item).
+        $groups = Db::query(
+            'SELECT g.*, l.sort AS sort FROM menu_item_option_groups l
+               JOIN menu_option_groups g ON g.id = l.group_id
+              WHERE l.item_id = ? ORDER BY l.sort, l.id',
+            [$id]
+        );
         foreach ($groups as &$g) {
             $g['options'] = Db::query('SELECT * FROM menu_options WHERE group_id = ? ORDER BY sort, id', [$g['id']]);
+            $g['used_in'] = self::usedIn((int) $g['id'], 'group');
         }
         unset($g);
         $item['groups'] = $groups;

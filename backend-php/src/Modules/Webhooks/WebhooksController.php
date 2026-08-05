@@ -6,6 +6,7 @@ use App\Core\Env;
 use App\Core\Http;
 use App\Core\Request;
 use App\Services\Integrations\IngestService;
+use App\Services\MarmitexWaIngest;
 
 /**
  * Recebe eventos de pedido das plataformas (rotas PÚBLICAS — sem JWT).
@@ -30,6 +31,69 @@ final class WebhooksController
     public static function nineFood(Request $req): void
     {
         self::handle('99food', $req);
+    }
+
+    /**
+     * Evolution API → mensagens dos grupos de WhatsApp das empresas (Marmitex).
+     *
+     * Aqui NÃO se interpreta nada: o handler só identifica a empresa pelo JID do
+     * grupo e grava a mensagem crua. A IA local roda em CPU e leva minutos — se
+     * fosse chamada aqui, o túnel cortaria em 100s e a Evolution reentregaria a
+     * mensagem em loop. Quem interpreta é o worker `bin/marmitex-wa.php`.
+     *
+     * Responde 200 mesmo para grupo desconhecido: 4xx faz a Evolution reenviar.
+     */
+    public static function evolution(Request $req): void
+    {
+        $raw = file_get_contents('php://input');
+        $body = is_string($raw) && $raw !== '' ? json_decode($raw, true) : null;
+        if (!is_array($body)) {
+            $body = $req->body;
+        }
+
+        if (!self::evolutionSecretOk($req)) {
+            Http::error(401, 'Segredo do webhook inválido');
+        }
+
+        $event = strtolower((string) ($body['event'] ?? ''));
+        if (!in_array(str_replace('_', '.', $event), ['messages.upsert', ''], true)) {
+            Http::json(['ok' => true, 'ignored' => "evento {$event}"], 200);
+        }
+
+        // A Evolution manda `data` como objeto (1 mensagem) ou array (lote),
+        // dependendo da versão/configuração da instância.
+        $data = $body['data'] ?? [];
+        $records = isset($data['key']) ? [$data] : (is_array($data) ? $data : []);
+
+        $result = ['staged' => 0, 'duplicate' => 0, 'ignored' => 0];
+        foreach ($records as $m) {
+            if (!is_array($m) || !isset($m['key']['remoteJid'])) {
+                $result['ignored']++;
+                continue;
+            }
+            $cfg = MarmitexWaIngest::configByGroupJid((string) $m['key']['remoteJid']);
+            if (!$cfg || (int) $cfg['enabled'] !== 1) {
+                $result['ignored']++;
+                continue;
+            }
+            $r = MarmitexWaIngest::stageMessage($cfg, $m, 'webhook');
+            $result[$r === 'staged' ? 'staged' : ($r === 'duplicate' ? 'duplicate' : 'ignored')]++;
+        }
+        Http::json(['ok' => true] + $result, 200);
+    }
+
+    /** Segredo compartilhado no header (preferido — não vaza em log de proxy) ou na query. */
+    private static function evolutionSecretOk(Request $req): bool
+    {
+        if (Env::bool('INTEGRATIONS_MOCK', false)) {
+            return true;
+        }
+        $expected = (string) Env::get('MARMITEX_WA_WEBHOOK_SECRET', '');
+        if ($expected === '') {
+            return false; // sem segredo configurado, a rota pública fica fechada
+        }
+        $sent = (string) ($_SERVER['HTTP_X_WEBHOOK_SECRET'] ?? $req->query('secret') ?? '');
+        return $sent !== '' && hash_equals($expected, $sent);
     }
 
     private static function handle(string $platform, Request $req): void
