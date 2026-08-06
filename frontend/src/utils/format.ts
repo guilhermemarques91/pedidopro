@@ -94,10 +94,52 @@ export function brl(value: number | string | null | undefined): string {
   return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
 
-/** Formata data ISO como dd/mm/aaaa. */
+/**
+ * Formata data ISO como dd/mm/aaaa.
+ *
+ * Data PURA ("2026-05-30", sem hora) é formatada na mão: `new Date` a
+ * interpretaria como meia-noite UTC, que em America/Sao_Paulo (UTC-3) cai no
+ * dia anterior — a data 30/05 apareceria como 29/05.
+ */
 export function date(iso: string | null | undefined): string {
   if (!iso) return '—';
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (dateOnly) {
+    const [, y, m, d] = dateOnly;
+    return `${d}/${m}/${y}`;
+  }
   return new Date(iso).toLocaleDateString('pt-BR');
+}
+
+/**
+ * Formata data "AAAA-MM-DD" como dd/mm — sem passar por `new Date`, que
+ * interpretaria a string como UTC e voltaria um dia em fusos negativos.
+ */
+export function dmy(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const [, m, d] = iso.slice(0, 10).split('-');
+  return d && m ? `${d}/${m}` : iso;
+}
+
+/** Formata fração como percentual pt-BR: 0.2995 → "29,95%". */
+export function pct(value: number | string | null | undefined, digits = 1): string {
+  if (value === null || value === undefined || value === '') return '—';
+  const n = typeof value === 'string' ? Number(value) : value;
+  if (!Number.isFinite(n)) return '—';
+  return `${(n * 100).toLocaleString('pt-BR', { minimumFractionDigits: digits, maximumFractionDigits: digits })}%`;
+}
+
+const MONTH_NAMES = [
+  'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
+  'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro',
+];
+
+/** Formata competência "2026-07" como "julho/2026". */
+export function monthLabel(refMonth: string | null | undefined): string {
+  if (!refMonth) return '—';
+  const [y, m] = refMonth.split('-');
+  const idx = Number(m) - 1;
+  return MONTH_NAMES[idx] ? `${MONTH_NAMES[idx]}/${y}` : refMonth;
 }
 
 /** Formata data ISO como dd/mm/aaaa hh:mm. */

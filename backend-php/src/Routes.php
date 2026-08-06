@@ -43,6 +43,10 @@ use App\Modules\Marmitex\MarmitexSheetController;
 use App\Modules\Marmitex\MarmitexWaController;
 use App\Modules\Vendas\VendasController;
 use App\Modules\Vendas\VendasStationsController;
+use App\Modules\Financeiro\FinImportController;
+use App\Modules\Financeiro\FinAccountsController;
+use App\Modules\Financeiro\FinDreController;
+use App\Modules\Financeiro\FinAnalyticsController;
 
 /**
  * Registro central das rotas. Guards por PERMISSÃO granular (`modulo:acao`), ver
@@ -70,6 +74,9 @@ final class Routes
     // Vendas (balcão, retirada, mesas e comandas)
     private const VENDAS = ['vendas:operate'];
     private const VENDAS_ADMIN = ['vendas:admin'];
+    // Financeiro (DRE, margens e análises sobre planilhas importadas)
+    private const FINANCEIRO = ['financeiro:read'];
+    private const FINANCEIRO_ADMIN = ['financeiro:admin'];
     // Administração / sistema
     private const USERS = ['users:manage'];
     private const SYSTEM = ['system:admin'];
@@ -234,6 +241,26 @@ final class Routes
         // Import — cadastro de Produtos/Estoque (planilha do sistema atual do usuário, AllFood)
         $r->post('/import/products/preview', [ProductsImportController::class, 'preview'], self::WRITE);
         $r->post('/import/products', [ProductsImportController::class, 'commit'], self::WRITE);
+
+        // Financeiro — importação das planilhas (AllFood DRE / contas a pagar / ficha
+        // técnica, 99Food, iFood). A fonte é detectada pelo conteúdo do arquivo.
+        $r->post('/financeiro/import/preview', [FinImportController::class, 'preview'], self::FINANCEIRO_ADMIN);
+        $r->post('/financeiro/import', [FinImportController::class, 'commit'], self::FINANCEIRO_ADMIN);
+        $r->get('/financeiro/imports', [FinImportController::class, 'history'], self::FINANCEIRO);
+        $r->delete('/financeiro/imports/:id', [FinImportController::class, 'destroy'], self::FINANCEIRO_ADMIN);
+        // Plano de contas (classificação que monta o DRE gerencial)
+        $r->get('/financeiro/contas', [FinAccountsController::class, 'index'], self::FINANCEIRO);
+        $r->put('/financeiro/contas', [FinAccountsController::class, 'bulkUpdate'], self::FINANCEIRO_ADMIN);
+        $r->get('/financeiro/settings', [FinAccountsController::class, 'settings'], self::FINANCEIRO);
+        $r->put('/financeiro/settings', [FinAccountsController::class, 'updateSettings'], self::FINANCEIRO_ADMIN);
+        // Relatórios e análises
+        $r->get('/financeiro/dre', [FinDreController::class, 'dre'], self::FINANCEIRO);
+        $r->get('/financeiro/dre/meses', [FinDreController::class, 'months'], self::FINANCEIRO);
+        $r->get('/financeiro/canais', [FinAnalyticsController::class, 'canais'], self::FINANCEIRO);
+        $r->get('/financeiro/produtos', [FinAnalyticsController::class, 'produtos'], self::FINANCEIRO);
+        $r->get('/financeiro/cmv', [FinAnalyticsController::class, 'cmv'], self::FINANCEIRO);
+        $r->get('/financeiro/breakeven', [FinAnalyticsController::class, 'breakeven'], self::FINANCEIRO);
+        $r->get('/financeiro/overview', [FinAnalyticsController::class, 'overview'], self::FINANCEIRO);
 
         // WhatsApp
         $r->post('/whatsapp/test', [WhatsappController::class, 'sendTest'], self::SYSTEM);

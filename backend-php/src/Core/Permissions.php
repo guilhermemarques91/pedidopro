@@ -57,6 +57,13 @@ final class Permissions
                 'vendas:admin' => 'Cadastrar mesas/comandas e cancelar pedidos',
             ],
         ],
+        'financeiro' => [
+            'label' => 'Financeiro (relatórios e análises)',
+            'items' => [
+                'financeiro:read' => 'Ver DRE, margens e análises',
+                'financeiro:admin' => 'Importar planilhas e configurar o plano de contas',
+            ],
+        ],
         'sistema' => [
             'label' => 'Administração',
             'items' => [

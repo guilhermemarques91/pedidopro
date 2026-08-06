@@ -6,7 +6,7 @@ import {
   ClipboardList, ShoppingCart, LogOut, Inbox, ListChecks, Users, Menu, X,
   Bike, Plug, Building2, BookOpen, FileText, Receipt, BarChart3, UtensilsCrossed, Store as StoreIcon, MapPin,
   ChevronDown, ChevronRight, PanelLeftClose, PanelLeft, ScrollText, Palette, ShoppingBag, Armchair,
-  ClipboardCheck, SlidersHorizontal, Layers, MessageCircle,
+  ClipboardCheck, SlidersHorizontal, Layers, MessageCircle, Wallet,
 } from 'lucide-react';
 import { useAuth } from '../store/auth.store';
 import { inboxApi, marmitexApi } from '../services/resources';
@@ -41,6 +41,9 @@ const navGroups: NavGroup[] = [
     { to: '/cardapio/complementos', label: 'Complementos', icon: Layers, perm: 'delivery:admin' },
     { to: '/loja', label: 'Loja (iFood)', icon: StoreIcon, perm: 'delivery:operate' },
     { to: '/integrations', label: 'Integrações', icon: Plug, perm: 'delivery:admin' },
+  ] },
+  { title: 'Financeiro', items: [
+    { to: '/financeiro', label: 'Relatórios & DRE', icon: Wallet, perm: 'financeiro:read' },
   ] },
   { title: 'Compras', items: [
     // A contagem abre o fluxo: conta a prateleira → sistema sugere → vira lista de compras.

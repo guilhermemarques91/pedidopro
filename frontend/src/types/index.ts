@@ -1174,3 +1174,249 @@ export interface VendasCreateBody {
   party_size?: number;
   items: VendasCartItem[];
 }
+
+// ---- Financeiro (relatórios e análises sobre planilhas importadas) ----
+
+export type FinSource =
+  | 'allfood_dre' | 'allfood_ap' | 'allfood_ficha'
+  | '99food_daily' | 'ifood_quality' | 'ifood_settlement';
+
+export interface FinImport {
+  id: number;
+  source: FinSource;
+  source_label: string;
+  filename: string;
+  ref_month: string | null;
+  period_start: string | null;
+  period_end: string | null;
+  total_rows: number;
+  imported_rows: number;
+  error_rows: number;
+  created_at: string;
+  created_by_name: string | null;
+}
+
+export interface FinImportPreview {
+  filename: string;
+  source: FinSource;
+  sourceLabel: string;
+  meta: Record<string, unknown>;
+  totalRows: number;
+  validRows: number;
+  errorRows: number;
+  errors: { rowNumber: number; errors: string[] }[];
+  sample: Record<string, unknown>[];
+  /** Linhas já existentes que o commit vai substituir. */
+  replaces: number;
+}
+
+export interface FinImportResult {
+  importId: number;
+  source: FinSource;
+  sourceLabel: string;
+  filename: string;
+  totalRows: number;
+  importedRows: number;
+  errorRows: number;
+  [stat: string]: unknown;
+}
+
+export type FinCostBehavior = 'fixo' | 'variavel' | 'nao_classificado';
+
+export interface FinAccount {
+  code: string;
+  name: string;
+  parent_code: string | null;
+  level: number;
+  dre_group: string | null;
+  group_label: string;
+  cost_behavior: FinCostBehavior;
+  include_in_dre: boolean;
+  /** false = o usuário classificou à mão; a importação não sobrescreve. */
+  auto_group: boolean;
+}
+
+export interface FinAccountsResponse {
+  accounts: FinAccount[];
+  groups: Record<string, string>;
+  behaviors: FinCostBehavior[];
+}
+
+export interface FinSettings {
+  target_margin_pct: number;
+  tax_rate_pct: number;
+  channel_commission: Record<string, number>;
+}
+
+export interface FinDreLine {
+  code: string;
+  name: string;
+  line_type: 'account' | 'subtotal';
+  sign: '+' | '-' | '=' | null;
+  level: number;
+  amount: number;
+  pct_gross: number | null;
+  sort_order: number;
+  parent_code: string | null;
+  dre_group: string | null;
+  group_label: string;
+  cost_behavior: FinCostBehavior | null;
+  include_in_dre: boolean;
+  compare_amount: number | null;
+  delta: number | null;
+  delta_pct: number | null;
+}
+
+export interface FinDreTotals {
+  receita_bruta: number; deducoes: number; receita_liquida: number;
+  cmv: number; custo_direto: number; custo_indireto: number; custos: number;
+  lucro_bruto: number; desp_comercial: number; desp_financeira: number;
+  rec_financeira: number; desp_admin: number; outras_desp_op: number;
+  outras_rec_op: number; lucro_operacional: number; desp_nao_op: number;
+  rec_nao_op: number; resultado_antes_impostos: number; imposto: number;
+  resultado_liquido: number;
+  margem_bruta: number | null; margem_operacional: number | null;
+  margem_liquida: number | null; cmv_pct: number | null;
+}
+
+export interface FinWarning {
+  code: string | null;
+  name: string;
+  amount: number;
+  pct_gross: number;
+  severity: string;
+  message: string;
+}
+
+export interface FinDreResponse {
+  month: string;
+  compare: string | null;
+  mode: 'gerencial' | 'original';
+  lines: FinDreLine[];
+  totals: FinDreTotals;
+  compare_totals: FinDreTotals | null;
+  groups: Record<string, number>;
+  warnings: FinWarning[];
+  excluded: string[];
+}
+
+export interface FinChannelRow {
+  platform: string;
+  days: number;
+  orders: number;
+  cancelled_orders: number;
+  gross_revenue: number;
+  commission: number;
+  offers_cost: number;
+  payment_fee: number;
+  platform_cost: number;
+  platform_rewards: number;
+  net_revenue: number;
+  cancelled_value: number;
+  visitors: number;
+  new_customers: number;
+  returning_customers: number;
+  rating: number | null;
+  prep_time_avg: number | null;
+  take_rate: number | null;
+  avg_ticket: number | null;
+}
+
+export interface FinChannelsResponse {
+  from: string;
+  to: string;
+  platforms: FinChannelRow[];
+  totals: FinChannelRow;
+  daily: { stat_date: string; platform: string; gross_revenue: number; platform_cost: number; net_revenue: number; orders: number }[];
+}
+
+export interface FinProductRow {
+  item_name: string;
+  classe: string | null;
+  unit: string | null;
+  cost: number;
+  /** false = item sem ficha técnica cadastrada; margem não é calculável. */
+  has_cost: boolean;
+  sale_price: number | null;
+  net_price: number | null;
+  margin: number | null;
+  margin_pct: number | null;
+  markup: number | null;
+  cost_pct: number | null;
+}
+
+export interface FinProductsResponse {
+  snapshot: string | null;
+  snapshots: string[];
+  channel: string;
+  channels: { key: string; label: string; take_rate: number }[];
+  take_rate: number;
+  items: FinProductRow[];
+  worst: FinProductRow[];
+  best: FinProductRow[];
+  negatives: FinProductRow[];
+  summary: {
+    items: number; priced: number; unpriced: number; no_cost: number; negative: number;
+    avg_margin_pct: number | null; median_margin_pct: number | null;
+  };
+  note: string;
+  empty?: boolean;
+}
+
+export interface FinCmvPoint {
+  ref_month: string;
+  receita_liquida: number;
+  cmv: number;
+  cmv_pct: number | null;
+  custos: number;
+  lucro_bruto: number;
+  margem_bruta: number | null;
+}
+
+export interface FinCostMover {
+  component_name: string;
+  from_date: string;
+  to_date: string;
+  from_cost: number;
+  to_cost: number;
+  delta: number;
+  delta_pct: number;
+  points: number;
+}
+
+export interface FinCmvResponse {
+  series: FinCmvPoint[];
+  components: Record<string, { snapshot_date: string; unit_cost: number }[]>;
+  movers: FinCostMover[];
+  snapshots: string[];
+}
+
+export interface FinBreakevenResponse {
+  month: string | null;
+  empty?: boolean;
+  receita_liquida: number;
+  receita_bruta: number;
+  custo_fixo: number;
+  custo_variavel: number;
+  custo_nao_classificado: number;
+  margem_contribuicao: number;
+  margem_contribuicao_pct: number | null;
+  ponto_equilibrio: number | null;
+  margem_seguranca: number | null;
+  margem_seguranca_pct: number | null;
+  dias_no_mes: number;
+  receita_media_diaria: number;
+  dias_para_equilibrio: number | null;
+  resultado_liquido: number;
+  atingiu: boolean | null;
+  warnings: FinWarning[];
+  nao_classificado_alerta: boolean;
+}
+
+export interface FinOverviewResponse {
+  empty?: boolean;
+  series: (FinDreTotals & { ref_month: string })[];
+  current: (FinDreTotals & { ref_month: string }) | null;
+  previous: (FinDreTotals & { ref_month: string }) | null;
+  warnings: FinWarning[];
+}

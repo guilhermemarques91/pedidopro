@@ -28,6 +28,7 @@ import { DeliveryMap } from './pages/Delivery/Map';
 import { OrderReceipt } from './pages/Delivery/OrderReceipt';
 import { Integrations } from './pages/Integrations';
 import { Reports } from './pages/Reports';
+import { Financeiro } from './pages/Financeiro';
 import { Store } from './pages/Store';
 import { MenuPage } from './pages/Menu';
 import { OptionGroupsPage } from './pages/Menu/OptionGroups';
@@ -107,6 +108,7 @@ export default function App() {
         <Route path="delivery/mapa" element={<DeliveryMap />} />
         <Route path="delivery/:id" element={<DeliveryOrderDetailPage />} />
         <Route path="relatorios" element={<Reports />} />
+        <Route path="financeiro" element={<Financeiro />} />
         <Route path="cardapio" element={<MenuPage />} />
         <Route path="cardapio/complementos" element={<OptionGroupsPage />} />
         <Route path="loja" element={<Store />} />

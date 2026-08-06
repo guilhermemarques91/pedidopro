@@ -11,6 +11,9 @@ import type {
   MenuCategory, MenuItem, MenuItemInput, MenuOptionGroup, MenuOptionGroupInput, MergeDuplicatesResult,
   VendasStation, VendasSale, VendasBoardCard, VendasCreateBody, BoardOrigin, PaymentMethod,
   PaymentLine, VendasPrep, VariationGroupInput,
+  FinSource, FinImport, FinImportPreview, FinImportResult, FinAccount, FinAccountsResponse,
+  FinSettings, FinDreResponse, FinChannelsResponse, FinProductsResponse, FinCmvResponse,
+  FinBreakevenResponse, FinOverviewResponse,
 } from '../types';
 
 // ---- Categories ----
@@ -684,4 +687,53 @@ export const vendasApi = {
       api.put<VendasStation>(`/vendas/stations/${id}`, body).then((r) => r.data),
     remove: (id: number) => api.delete(`/vendas/stations/${id}`).then((r) => r.data),
   },
+};
+
+// ---- Financeiro ----
+export interface FinChannelsFilters { from: string; to: string }
+export interface FinImportOptions {
+  /** Ano do relatório de qualidade do iFood (o arquivo não traz o ano). */
+  year?: number;
+  /** Data do snapshot da ficha técnica, quando a planilha não traz "Emissão:". */
+  snapshot_date?: string;
+  /** Força a fonte quando a detecção automática erra. */
+  source?: FinSource;
+}
+
+const finFormData = (file: File, opts?: FinImportOptions) => {
+  const fd = new FormData();
+  fd.append('file', file);
+  if (opts?.year) fd.append('year', String(opts.year));
+  if (opts?.snapshot_date) fd.append('snapshot_date', opts.snapshot_date);
+  if (opts?.source) fd.append('source', opts.source);
+  return fd;
+};
+
+export const financeiroApi = {
+  preview: (file: File, opts?: FinImportOptions) =>
+    api.post<FinImportPreview>('/financeiro/import/preview', finFormData(file, opts)).then((r) => r.data),
+  commit: (file: File, opts?: FinImportOptions) =>
+    api.post<FinImportResult>('/financeiro/import', finFormData(file, opts)).then((r) => r.data),
+  imports: () => api.get<{ imports: FinImport[] }>('/financeiro/imports').then((r) => r.data.imports),
+  removeImport: (id: number) => api.delete(`/financeiro/imports/${id}`).then((r) => r.data),
+
+  accounts: (month?: string) =>
+    api.get<FinAccountsResponse>('/financeiro/contas', { params: month ? { month } : {} }).then((r) => r.data),
+  saveAccounts: (accounts: Partial<FinAccount>[]) =>
+    api.put<{ updated: number }>('/financeiro/contas', { accounts }).then((r) => r.data),
+  settings: () => api.get<{ settings: FinSettings }>('/financeiro/settings').then((r) => r.data.settings),
+  saveSettings: (settings: Partial<FinSettings>) =>
+    api.put<{ settings: FinSettings }>('/financeiro/settings', { settings }).then((r) => r.data.settings),
+
+  months: () => api.get<{ months: { ref_month: string; lines: number }[] }>('/financeiro/dre/meses').then((r) => r.data.months),
+  dre: (params: { month?: string; compare?: string; mode?: 'gerencial' | 'original' }) =>
+    api.get<FinDreResponse>('/financeiro/dre', { params }).then((r) => r.data),
+  canais: (params: FinChannelsFilters) =>
+    api.get<FinChannelsResponse>('/financeiro/canais', { params }).then((r) => r.data),
+  produtos: (params: { snapshot?: string; channel?: string }) =>
+    api.get<FinProductsResponse>('/financeiro/produtos', { params }).then((r) => r.data),
+  cmv: () => api.get<FinCmvResponse>('/financeiro/cmv').then((r) => r.data),
+  breakeven: (params: { month?: string }) =>
+    api.get<FinBreakevenResponse>('/financeiro/breakeven', { params }).then((r) => r.data),
+  overview: () => api.get<FinOverviewResponse>('/financeiro/overview').then((r) => r.data),
 };
