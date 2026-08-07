@@ -39,6 +39,7 @@ final class FinWriter
             SourceDetector::NINETYNINE_DAILY,
             SourceDetector::IFOOD_QUALITY,
             SourceDetector::IFOOD_SETTLEMENT => self::writePlatform($pdo, $orgId, $parsed, $importId),
+            SourceDetector::IFOOD_SALES => self::writePlatformMonthly($pdo, $orgId, $parsed, $importId),
             default => throw HttpError::badRequest("Fonte não suportada: {$source}"),
         };
     }
@@ -200,6 +201,49 @@ final class FinWriter
         return [
             'days' => count($parsed['valid']),
             'platform' => $parsed['meta']['platform'] ?? null,
+        ];
+    }
+
+    /**
+     * Plataforma com granularidade MENSAL (relatório de vendas do iFood).
+     * Mesmo COALESCE por coluna do diário: um relatório que não conhece a
+     * métrica manda NULL e não apaga o que o outro já trouxe.
+     */
+    private static function writePlatformMonthly(PDO $pdo, int $orgId, array $parsed, int $importId): array
+    {
+        $cols = [
+            'orders', 'gross_revenue', 'delivery_fee', 'commission', 'offers_cost',
+            'payment_fee', 'net_revenue', 'avg_ticket', 'new_customers',
+        ];
+        $insertCols = array_merge(['org_id', 'platform', 'ref_month', 'import_id'], $cols, ['extra_json']);
+        $placeholders = implode(', ', array_fill(0, count($insertCols), '?'));
+
+        $updates = ['import_id = new.import_id'];
+        foreach ($cols as $c) {
+            $updates[] = "{$c} = COALESCE(new.{$c}, fin_platform_monthly.{$c})";
+        }
+        $updates[] = "extra_json = JSON_MERGE_PATCH(COALESCE(fin_platform_monthly.extra_json, '{}'), COALESCE(new.extra_json, '{}'))";
+
+        $ins = $pdo->prepare(
+            'INSERT INTO fin_platform_monthly (' . implode(', ', $insertCols) . ')'
+            . " VALUES ({$placeholders}) AS new"
+            . ' ON DUPLICATE KEY UPDATE ' . implode(', ', $updates)
+        );
+
+        foreach ($parsed['valid'] as $m) {
+            $params = [$orgId, $m['platform'], $m['ref_month'], $importId];
+            foreach ($cols as $c) {
+                $params[] = $m[$c] ?? null;
+            }
+            $extra = $m['extra_json'] ?? null;
+            $params[] = $extra ? json_encode($extra, JSON_UNESCAPED_UNICODE) : null;
+            $ins->execute($params);
+        }
+
+        return [
+            'months' => count($parsed['valid']),
+            'platform' => $parsed['meta']['platform'] ?? null,
+            'granularity' => 'mensal',
         ];
     }
 

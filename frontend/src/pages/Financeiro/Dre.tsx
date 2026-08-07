@@ -230,6 +230,7 @@ function RevenueSources({
           hint={
             mode === 'planilhas'
               ? `${platform.orders} pedidos · ${platform.platforms} plataforma(s)`
+                + (platform.delivery_fee > 0 ? ` · inclui ${brl(platform.delivery_fee)} de taxa de entrega própria` : '')
               : mode === 'recebimentos'
                 ? 'conta de recebimentos do DRE (caixa)'
                 : 'desligado nas Configurações'

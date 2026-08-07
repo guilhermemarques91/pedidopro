@@ -20,6 +20,7 @@ const ACCEPTED = [
   'AllFood — Ficha técnica',
   '99Food — Dados da loja',
   'iFood — Qualidade da operação',
+  'iFood — Relatório de vendas',
 ];
 
 export function Importacoes() {

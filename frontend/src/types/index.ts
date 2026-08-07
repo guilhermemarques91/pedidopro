@@ -1179,7 +1179,7 @@ export interface VendasCreateBody {
 
 export type FinSource =
   | 'allfood_dre' | 'allfood_ap' | 'allfood_ficha'
-  | '99food_daily' | 'ifood_quality' | 'ifood_settlement';
+  | '99food_daily' | 'ifood_quality' | 'ifood_sales' | 'ifood_settlement';
 
 export interface FinImport {
   id: number;
@@ -1254,6 +1254,8 @@ export interface FinSettings {
 
 export interface FinPlatformTotals {
   gross_revenue: number;
+  delivery_fee: number;
+  revenue_total: number;
   commission: number;
   offers_cost: number;
   payment_fee: number;
@@ -1261,6 +1263,8 @@ export interface FinPlatformTotals {
   net_revenue: number;
   orders: number;
   platforms: number;
+  /** Plataformas cujo faturamento entrou sem a comissão correspondente. */
+  missing_commission: string[];
 }
 
 export interface FinDreLine {
@@ -1330,6 +1334,10 @@ export interface FinChannelRow {
   orders: number;
   cancelled_orders: number;
   gross_revenue: number;
+  /** Taxa de entrega — receita da loja só na entrega própria. */
+  delivery_fee: number;
+  /** gross_revenue + delivery_fee: o que a loja fatura pelo canal. */
+  revenue_total: number;
   commission: number;
   offers_cost: number;
   payment_fee: number;
@@ -1344,12 +1352,17 @@ export interface FinChannelRow {
   prep_time_avg: number | null;
   take_rate: number | null;
   avg_ticket: number | null;
+  /** false = comissão do canal não importada; take_rate é desconhecido, não 0%. */
+  commission_known: boolean;
+  /** Relatórios que alimentaram a linha: 'diario' e/ou 'mensal'. */
+  sources: string[];
 }
 
 export interface FinChannelsResponse {
   from: string;
   to: string;
   platforms: FinChannelRow[];
+  /** Consolidado; commission_known só é true se TODOS os canais tiverem comissão. */
   totals: FinChannelRow;
   daily: { stat_date: string; platform: string; gross_revenue: number; platform_cost: number; net_revenue: number; orders: number }[];
 }

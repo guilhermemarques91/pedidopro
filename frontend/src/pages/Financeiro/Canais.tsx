@@ -91,8 +91,24 @@ export function Canais() {
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Mini label="Receita bruta" value={brl(t.gross_revenue)} hint={`${t.orders} pedidos`} />
-        <Mini label="Custo das plataformas" value={brl(t.platform_cost)} hint="comissão + ofertas + taxa" tone="bad" />
-        <Mini label="Take-rate efetivo" value={pct(t.take_rate)} hint="do faturamento fica na plataforma" tone="bad" />
+        <Mini
+          label="Custo das plataformas"
+          value={brl(t.platform_cost)}
+          hint={t.commission_known ? 'comissão + ofertas + taxa' : 'parcial — falta comissão de um canal'}
+          tone="bad"
+        />
+        {/* Sem a comissão de todos os canais, o take-rate consolidado sairia
+            diluído pelo canal sem custo e passaria uma folga que não existe. */}
+        <Mini
+          label="Take-rate efetivo"
+          value={t.commission_known ? pct(t.take_rate) : 'n/d'}
+          hint={
+            t.commission_known
+              ? 'do faturamento fica na plataforma'
+              : 'falta o extrato de um canal para consolidar'
+          }
+          tone="bad"
+        />
         <Mini label="Receita líquida" value={brl(t.net_revenue)} hint={`ticket médio ${brl(t.avg_ticket)}`} tone="good" />
       </div>
 
@@ -176,8 +192,16 @@ export function Canais() {
         <p className="flex items-start gap-2 text-xs text-slate-500">
           <Info size={14} className="mt-0.5 shrink-0" />
           Canal com pedidos e faturamento zerado significa que só o relatório operacional foi
-          importado. O relatório de qualidade do iFood traz pedidos, nota e cancelamentos, mas não
-          traz faturamento nem comissão — para isso é preciso o extrato financeiro da plataforma.
+          importado. Importe o "Relatório de vendas" da plataforma para trazer o faturamento.
+        </p>
+      )}
+
+      {data.platforms.some((p) => !p.commission_known && p.gross_revenue > 0) && (
+        <p className="flex items-start gap-2 text-xs text-amber-700">
+          <Info size={14} className="mt-0.5 shrink-0" />
+          Take-rate <strong>n/d</strong>: o faturamento do canal entrou, mas a comissão não. O
+          relatório de vendas traz volume, não extrato financeiro — enquanto o extrato de repasse
+          não for importado, o custo desse canal fica invisível e a margem aparece otimista.
         </p>
       )}
     </div>
@@ -198,7 +222,18 @@ function ChannelRow({ row }: { row: FinChannelRow }) {
       <td className="px-4 py-2 text-right tabular-nums">{brl(row.commission)}</td>
       <td className="px-4 py-2 text-right tabular-nums">{brl(row.offers_cost)}</td>
       <td className="px-4 py-2 text-right tabular-nums">{brl(row.payment_fee)}</td>
-      <td className="px-4 py-2 text-right font-medium tabular-nums text-rose-700">{pct(row.take_rate)}</td>
+      <td className="px-4 py-2 text-right font-medium tabular-nums">
+        {row.commission_known ? (
+          <span className="text-rose-700">{pct(row.take_rate)}</span>
+        ) : (
+          <span
+            className="text-slate-400"
+            title="A comissão deste canal não foi importada — o relatório de vendas traz volume, não extrato financeiro."
+          >
+            n/d
+          </span>
+        )}
+      </td>
       <td className="px-4 py-2 text-right tabular-nums text-emerald-700">{brl(row.net_revenue)}</td>
       <td className="px-4 py-2 text-right tabular-nums">{brl(row.avg_ticket)}</td>
       <td className="px-4 py-2 text-right tabular-nums">{row.rating ?? '—'}</td>

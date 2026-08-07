@@ -15,6 +15,7 @@ final class SourceDetector
     public const ALLFOOD_FICHA = 'allfood_ficha';
     public const NINETYNINE_DAILY = '99food_daily';
     public const IFOOD_QUALITY = 'ifood_quality';
+    public const IFOOD_SALES = 'ifood_sales';
     public const IFOOD_SETTLEMENT = 'ifood_settlement';
 
     public const LABELS = [
@@ -23,6 +24,7 @@ final class SourceDetector
         self::ALLFOOD_FICHA => 'AllFood — Ficha técnica',
         self::NINETYNINE_DAILY => '99Food — Dados da loja',
         self::IFOOD_QUALITY => 'iFood — Qualidade da operação',
+        self::IFOOD_SALES => 'iFood — Relatório de vendas',
         self::IFOOD_SETTLEMENT => 'iFood — Extrato financeiro',
     ];
 
@@ -30,6 +32,12 @@ final class SourceDetector
     public static function detect(array $rows): ?string
     {
         $head = self::headText($rows, 12);
+
+        // Relatório de vendas do iFood: começa direto no cabeçalho (sem a célula
+        // "iFood" do relatório de qualidade), com o total do período por logística.
+        if (self::hasHeader($rows, ['valor_total_de_vendas', 'taxa_de_entrega'])) {
+            return self::IFOOD_SALES;
+        }
 
         // iFood: a célula A1 é literalmente "iFood".
         if (preg_match('/^\s*ifood\s*$/i', SheetHelper::clean($rows[0][0] ?? ''))) {

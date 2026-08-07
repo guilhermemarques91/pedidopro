@@ -10,6 +10,7 @@ use App\Modules\Financeiro\Parsers\AllfoodApParser;
 use App\Modules\Financeiro\Parsers\AllfoodDreParser;
 use App\Modules\Financeiro\Parsers\AllfoodFichaParser;
 use App\Modules\Financeiro\Parsers\IfoodQualityParser;
+use App\Modules\Financeiro\Parsers\IfoodSalesParser;
 use App\Modules\Financeiro\Parsers\NinetyNineDailyParser;
 use App\Modules\Financeiro\Parsers\SheetHelper;
 use App\Modules\Financeiro\Parsers\SourceDetector;
@@ -119,7 +120,7 @@ final class FinImportController
 
         $removed = Db::transaction(function (PDO $pdo) use ($id, $orgId) {
             $counts = [];
-            foreach (['fin_dre_lines', 'fin_expenses', 'fin_platform_daily', 'fin_product_components', 'fin_product_costs'] as $table) {
+            foreach (['fin_dre_lines', 'fin_expenses', 'fin_platform_daily', 'fin_platform_monthly', 'fin_product_components', 'fin_product_costs'] as $table) {
                 $stmt = $pdo->prepare("DELETE FROM {$table} WHERE org_id = ? AND import_id = ?");
                 $stmt->execute([$orgId, $id]);
                 if ($stmt->rowCount() > 0) {
@@ -175,6 +176,7 @@ final class FinImportController
             SourceDetector::ALLFOOD_FICHA => AllfoodFichaParser::parse($path, self::fichaHint($req, $filename)),
             SourceDetector::NINETYNINE_DAILY => NinetyNineDailyParser::parse($path),
             SourceDetector::IFOOD_QUALITY => IfoodQualityParser::parse($path, self::yearHint($req)),
+            SourceDetector::IFOOD_SALES => IfoodSalesParser::parse($path),
             default => throw HttpError::badRequest(
                 'O extrato financeiro do iFood ainda não tem leitor — envie um exemplo do arquivo para habilitar.'
             ),
@@ -242,6 +244,13 @@ final class FinImportController
                 'installment',
                 $orgId,
                 array_map(static fn ($e) => [$e['ext_id'], $e['installment']], $parsed['valid'])
+            ),
+            SourceDetector::IFOOD_SALES => self::countPairs(
+                'fin_platform_monthly',
+                'platform',
+                'ref_month',
+                $orgId,
+                array_map(static fn ($m) => [$m['platform'], $m['ref_month']], $parsed['valid'])
             ),
             default => self::countPairs(
                 'fin_platform_daily',

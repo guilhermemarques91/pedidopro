@@ -90,34 +90,7 @@ final class DreCalculator
      */
     public static function platformMonth(int $orgId, string $month): array
     {
-        $row = Db::queryOne(
-            "SELECT COALESCE(SUM(gross_revenue), 0) AS gross,
-                    COALESCE(SUM(commission), 0) AS commission,
-                    COALESCE(SUM(offers_cost), 0) AS offers,
-                    COALESCE(SUM(payment_fee), 0) AS payment_fee,
-                    COALESCE(SUM(orders), 0) AS orders,
-                    COUNT(DISTINCT platform) AS platforms
-               FROM fin_platform_daily
-              WHERE org_id = ? AND DATE_FORMAT(stat_date, '%Y-%m') = ?",
-            [$orgId, $month]
-        );
-
-        $gross = round((float) ($row['gross'] ?? 0), 2);
-        $cost = round(
-            (float) ($row['commission'] ?? 0) + (float) ($row['offers'] ?? 0) + (float) ($row['payment_fee'] ?? 0),
-            2
-        );
-
-        return [
-            'gross_revenue' => $gross,
-            'commission' => round((float) ($row['commission'] ?? 0), 2),
-            'offers_cost' => round((float) ($row['offers'] ?? 0), 2),
-            'payment_fee' => round((float) ($row['payment_fee'] ?? 0), 2),
-            'platform_cost' => $cost,
-            'net_revenue' => round($gross - $cost, 2),
-            'orders' => (int) ($row['orders'] ?? 0),
-            'platforms' => (int) ($row['platforms'] ?? 0),
-        ];
+        return PlatformTotals::forMonth($orgId, $month);
     }
 
     private static function mode(int $orgId): string
@@ -310,8 +283,10 @@ final class DreCalculator
         $receitaDre = $get('receita_bruta');
         $recebimentos = $get('recebimentos');
 
+        // revenue_total = venda de itens + taxa de entrega própria (na entrega
+        // própria a taxa é dinheiro da loja; na logística da plataforma, não).
         $receitaPlataformas = match ($mode) {
-            'planilhas' => $platform['gross_revenue'],
+            'planilhas' => $platform['revenue_total'],
             'recebimentos' => $recebimentos,
             default => 0.0,
         };
@@ -411,9 +386,28 @@ final class DreCalculator
             return $out;
         }
 
+        // Plataforma faturando sem comissão importada: o relatório de vendas do
+        // iFood traz volume, não extrato — o custo dela fica invisível.
+        if ($mode === 'planilhas' && !empty($platform['missing_commission'])) {
+            $names = implode(', ', array_map(
+                static fn ($p) => $p === 'ifood' ? 'iFood' : ($p === '99food' ? '99Food' : $p),
+                $platform['missing_commission']
+            ));
+            $out[] = [
+                'code' => null,
+                'name' => 'Comissão da plataforma não importada',
+                'amount' => 0.0,
+                'pct_gross' => 0.0,
+                'severity' => 'media',
+                'message' => "O faturamento de {$names} entrou, mas a comissão não — o relatório de vendas "
+                    . 'traz volume, não extrato financeiro. Enquanto isso, o custo dessa plataforma fica de '
+                    . 'fora e a margem aqui está otimista. Importe o extrato de repasse para fechar.',
+            ];
+        }
+
         // Mês com DRE mas sem planilha de plataforma: a receita fica só com o
         // balcão e todos os indicadores saem menores do que a realidade.
-        if ($mode === 'planilhas' && $platform['gross_revenue'] <= 0) {
+        if ($mode === 'planilhas' && $platform['revenue_total'] <= 0) {
             $out[] = [
                 'code' => null,
                 'name' => 'Faturamento das plataformas ausente',

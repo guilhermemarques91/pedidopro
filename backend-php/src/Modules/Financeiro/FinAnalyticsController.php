@@ -25,31 +25,11 @@ final class FinAnalyticsController
         [$from, $to] = self::range($req);
         $orgId = $req->orgId();
 
-        $rows = Db::query(
-            "SELECT platform,
-                    SUM(orders) AS orders,
-                    SUM(cancelled_orders) AS cancelled_orders,
-                    SUM(gross_revenue) AS gross_revenue,
-                    SUM(commission) AS commission,
-                    SUM(offers_cost) AS offers_cost,
-                    SUM(payment_fee) AS payment_fee,
-                    SUM(platform_rewards) AS platform_rewards,
-                    SUM(net_revenue) AS net_revenue,
-                    SUM(cancelled_value) AS cancelled_value,
-                    SUM(visitors) AS visitors,
-                    SUM(new_customers) AS new_customers,
-                    SUM(returning_customers) AS returning_customers,
-                    AVG(NULLIF(rating, 0)) AS rating,
-                    AVG(NULLIF(prep_time_avg, 0)) AS prep_time_avg,
-                    COUNT(*) AS days
-               FROM fin_platform_daily
-              WHERE org_id = ? AND stat_date BETWEEN ? AND ?
-              GROUP BY platform
-              ORDER BY SUM(gross_revenue) DESC",
-            [$orgId, $from, $to]
-        );
-
-        $platforms = array_map([self::class, 'channelRow'], $rows);
+        // Mescla o relatório diário (99Food, qualidade do iFood) com o mensal
+        // (relatório de vendas do iFood) — ver PlatformTotals.
+        $merged = PlatformTotals::byPlatformForRange($orgId, $from, $to);
+        $platforms = array_values(array_map([self::class, 'channelRow'], $merged));
+        usort($platforms, static fn ($a, $b) => $b['gross_revenue'] <=> $a['gross_revenue']);
         $totals = self::channelTotals($platforms);
 
         $daily = Db::query(
@@ -75,42 +55,41 @@ final class FinAnalyticsController
 
     private static function channelRow(array $r): array
     {
-        $gross = round((float) $r['gross_revenue'], 2);
-        $commission = round((float) $r['commission'], 2);
-        $offers = round((float) $r['offers_cost'], 2);
-        $paymentFee = round((float) $r['payment_fee'], 2);
-        $platformCost = round($commission + $offers + $paymentFee, 2);
-        $orders = (int) $r['orders'];
-
         return [
             'platform' => $r['platform'],
             'days' => (int) $r['days'],
-            'orders' => $orders,
+            'orders' => (int) $r['orders'],
             'cancelled_orders' => (int) $r['cancelled_orders'],
-            'gross_revenue' => $gross,
-            'commission' => $commission,
-            'offers_cost' => $offers,
-            'payment_fee' => $paymentFee,
-            'platform_cost' => $platformCost,
-            'platform_rewards' => round((float) $r['platform_rewards'], 2),
-            'net_revenue' => round((float) $r['net_revenue'], 2),
-            'cancelled_value' => round((float) $r['cancelled_value'], 2),
+            'gross_revenue' => round((float) ($r['gross_revenue'] ?? 0), 2),
+            'delivery_fee' => round((float) ($r['delivery_fee'] ?? 0), 2),
+            'revenue_total' => round((float) ($r['revenue_total'] ?? 0), 2),
+            'commission' => round((float) ($r['commission'] ?? 0), 2),
+            'offers_cost' => round((float) ($r['offers_cost'] ?? 0), 2),
+            'payment_fee' => round((float) ($r['payment_fee'] ?? 0), 2),
+            'platform_cost' => round((float) ($r['platform_cost'] ?? 0), 2),
+            'platform_rewards' => round((float) ($r['platform_rewards'] ?? 0), 2),
+            'net_revenue' => round((float) ($r['net_revenue'] ?? 0), 2),
+            'cancelled_value' => round((float) ($r['cancelled_value'] ?? 0), 2),
             'visitors' => (int) $r['visitors'],
-            'new_customers' => (int) $r['new_customers'],
+            'new_customers' => (int) ($r['new_customers'] ?? 0),
             'returning_customers' => (int) $r['returning_customers'],
-            'rating' => $r['rating'] === null ? null : round((float) $r['rating'], 2),
-            'prep_time_avg' => $r['prep_time_avg'] === null ? null : round((float) $r['prep_time_avg'], 1),
-            'take_rate' => $gross > 0 ? round($platformCost / $gross, 4) : null,
-            'avg_ticket' => $orders > 0 ? round($gross / $orders, 2) : null,
+            'rating' => $r['rating'],
+            'prep_time_avg' => $r['prep_time_avg'],
+            'take_rate' => $r['take_rate'],
+            'avg_ticket' => $r['avg_ticket'],
+            // false = a comissão desta plataforma não foi importada; o take-rate
+            // exibido não é 0%, é desconhecido.
+            'commission_known' => (bool) $r['commission_known'],
+            'sources' => $r['sources'],
         ];
     }
 
     private static function channelTotals(array $platforms): array
     {
         $sum = [
-            'orders' => 0, 'cancelled_orders' => 0, 'gross_revenue' => 0.0, 'commission' => 0.0,
-            'offers_cost' => 0.0, 'payment_fee' => 0.0, 'platform_cost' => 0.0,
-            'platform_rewards' => 0.0, 'net_revenue' => 0.0, 'cancelled_value' => 0.0,
+            'orders' => 0, 'cancelled_orders' => 0, 'gross_revenue' => 0.0, 'delivery_fee' => 0.0,
+            'revenue_total' => 0.0, 'commission' => 0.0, 'offers_cost' => 0.0, 'payment_fee' => 0.0,
+            'platform_cost' => 0.0, 'platform_rewards' => 0.0, 'net_revenue' => 0.0, 'cancelled_value' => 0.0,
         ];
         foreach ($platforms as $p) {
             foreach ($sum as $k => $_) {
@@ -120,8 +99,11 @@ final class FinAnalyticsController
         foreach ($sum as $k => $v) {
             $sum[$k] = is_float($v) ? round($v, 2) : $v;
         }
+        $sum['platform'] = 'total';
         $sum['take_rate'] = $sum['gross_revenue'] > 0 ? round($sum['platform_cost'] / $sum['gross_revenue'], 4) : null;
         $sum['avg_ticket'] = $sum['orders'] > 0 ? round($sum['gross_revenue'] / $sum['orders'], 2) : null;
+        // Só é confiável se TODAS as plataformas tiverem comissão importada.
+        $sum['commission_known'] = !array_filter($platforms, static fn ($p) => !$p['commission_known']);
         return $sum;
     }
 
