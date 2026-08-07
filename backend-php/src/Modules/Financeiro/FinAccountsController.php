@@ -26,7 +26,11 @@ final class FinAccountsController
         // Comissão por canal usada no simulador de margem. Vazio = o sistema usa
         // o take-rate REAL calculado das planilhas das plataformas.
         'channel_commission' => [],
+        // De onde vem a receita de iFood/99Food. Ver DreCalculator::PLATFORM_MODES.
+        'platform_revenue_mode' => 'planilhas',
     ];
+
+    public const PLATFORM_MODES = ['planilhas', 'recebimentos', 'off'];
 
     public static function index(Request $req): void
     {
@@ -136,6 +140,9 @@ final class FinAccountsController
             foreach ($body as $key => $value) {
                 if (!array_key_exists($key, self::SETTING_DEFAULTS)) {
                     continue;
+                }
+                if ($key === 'platform_revenue_mode' && !in_array($value, self::PLATFORM_MODES, true)) {
+                    throw HttpError::badRequest("Modo de receita das plataformas inválido: {$value}");
                 }
                 $stmt->execute([$orgId, $key, json_encode($value, JSON_UNESCAPED_UNICODE)]);
             }

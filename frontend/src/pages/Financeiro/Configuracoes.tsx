@@ -80,6 +80,62 @@ export function Configuracoes() {
     <div className="space-y-5">
       {form && (
         <Card>
+          <h3 className="text-sm font-semibold text-slate-700">Receita das plataformas</h3>
+          <p className="mt-1 text-sm text-slate-500">
+            O AllFood registra só balcão e comanda. Escolha de onde vem o faturamento de iFood e 99Food.
+          </p>
+          <div className="mt-3 space-y-2">
+            {([
+              {
+                key: 'planilhas' as const,
+                title: 'Das planilhas das plataformas (recomendado)',
+                desc: 'Soma o faturamento pela DATA DA VENDA, como as plataformas reportam. '
+                  + 'Respeita a competência do mês e traz junto comissão, ofertas e taxas como custo.',
+              },
+              {
+                key: 'recebimentos' as const,
+                title: 'Da conta de recebimentos do DRE',
+                desc: 'Usa o que caiu em caixa no mês (conta 3.02). Casa com o extrato bancário, '
+                  + 'mas joga a venda de junho no mês em que o repasse chegou. O valor já vem líquido de comissão.',
+              },
+              {
+                key: 'off' as const,
+                title: 'Não somar',
+                desc: 'Só o que o DRE registra como venda. Use se o AllFood já receber os pedidos das plataformas.',
+              },
+            ]).map((opt) => (
+              <label
+                key={opt.key}
+                className={`flex cursor-pointer gap-3 rounded-lg border p-3 transition ${
+                  form.platform_revenue_mode === opt.key
+                    ? 'border-emerald-400 bg-emerald-50'
+                    : 'border-slate-200 hover:border-slate-300'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="platform_revenue_mode"
+                  className="mt-1"
+                  checked={form.platform_revenue_mode === opt.key}
+                  onChange={() => setForm({ ...form, platform_revenue_mode: opt.key })}
+                />
+                <span>
+                  <span className="block text-sm font-medium text-slate-800">{opt.title}</span>
+                  <span className="block text-xs text-slate-500">{opt.desc}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+          <div className="mt-3">
+            <Button onClick={() => saveSettings.mutate()} disabled={saveSettings.isPending}>
+              <Save size={16} /> {saveSettings.isPending ? 'Salvando...' : 'Salvar'}
+            </Button>
+          </div>
+        </Card>
+      )}
+
+      {form && (
+        <Card>
           <h3 className="text-sm font-semibold text-slate-700">Parâmetros</h3>
           <div className="mt-3 flex flex-wrap items-end gap-4">
             <label className="w-44 text-sm">

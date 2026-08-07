@@ -26,16 +26,34 @@ use App\Core\Db;
 final class DreCalculator
 {
     /**
+     * De onde vem a receita de iFood/99Food:
+     *
+     *  - planilhas    (padrão): do faturamento diário importado das plataformas,
+     *                 pela DATA DA VENDA. É o único modo que respeita competência,
+     *                 já que o repasse cai com semanas de atraso.
+     *  - recebimentos: da conta de recebimento do DRE (3.02). Regime de CAIXA —
+     *                 o repasse de junho que caiu em julho vira receita de julho.
+     *  - off:         só o que o DRE registra como venda (balcão/comanda).
+     */
+    public const PLATFORM_MODES = ['planilhas', 'recebimentos', 'off'];
+
+    /**
      * @return array{
      *   lines:array<int,array>, totals:array<string,float>, groups:array<string,float>,
-     *   warnings:array<int,array>, excluded:array<int,string>
+     *   warnings:array<int,array>, excluded:array<int,string>, platform:array<string,float>
      * }
      */
     public static function build(int $orgId, string $month, bool $managerial): array
     {
         $lines = self::lines($orgId, $month);
+        $platform = self::platformMonth($orgId, $month);
+        $mode = self::mode($orgId);
+
         if (!$lines) {
-            return ['lines' => [], 'totals' => self::emptyTotals(), 'groups' => [], 'warnings' => [], 'excluded' => []];
+            return [
+                'lines' => [], 'totals' => self::emptyTotals(), 'groups' => [],
+                'warnings' => [], 'excluded' => [], 'platform' => $platform, 'mode' => $mode,
+            ];
         }
 
         $byCode = [];
@@ -44,8 +62,8 @@ final class DreCalculator
         }
 
         $groups = self::groupTotals($lines, $byCode, $managerial);
-        $totals = self::statement($groups);
-        $warnings = self::warnings($lines, $byCode, $totals, $managerial);
+        $totals = self::statement($groups, $platform, $mode);
+        $warnings = self::warnings($lines, $byCode, $totals, $managerial, $platform, $mode);
 
         $excluded = [];
         foreach ($lines as $l) {
@@ -60,7 +78,52 @@ final class DreCalculator
             'groups' => $groups,
             'warnings' => $warnings,
             'excluded' => $excluded,
+            'platform' => $platform,
+            'mode' => $mode,
         ];
+    }
+
+    /**
+     * Faturamento das plataformas no mês, das planilhas do iFood/99Food, pela
+     * DATA DA VENDA — é o que permite competência, já que o repasse cai depois.
+     * @return array<string,float>
+     */
+    public static function platformMonth(int $orgId, string $month): array
+    {
+        $row = Db::queryOne(
+            "SELECT COALESCE(SUM(gross_revenue), 0) AS gross,
+                    COALESCE(SUM(commission), 0) AS commission,
+                    COALESCE(SUM(offers_cost), 0) AS offers,
+                    COALESCE(SUM(payment_fee), 0) AS payment_fee,
+                    COALESCE(SUM(orders), 0) AS orders,
+                    COUNT(DISTINCT platform) AS platforms
+               FROM fin_platform_daily
+              WHERE org_id = ? AND DATE_FORMAT(stat_date, '%Y-%m') = ?",
+            [$orgId, $month]
+        );
+
+        $gross = round((float) ($row['gross'] ?? 0), 2);
+        $cost = round(
+            (float) ($row['commission'] ?? 0) + (float) ($row['offers'] ?? 0) + (float) ($row['payment_fee'] ?? 0),
+            2
+        );
+
+        return [
+            'gross_revenue' => $gross,
+            'commission' => round((float) ($row['commission'] ?? 0), 2),
+            'offers_cost' => round((float) ($row['offers'] ?? 0), 2),
+            'payment_fee' => round((float) ($row['payment_fee'] ?? 0), 2),
+            'platform_cost' => $cost,
+            'net_revenue' => round($gross - $cost, 2),
+            'orders' => (int) ($row['orders'] ?? 0),
+            'platforms' => (int) ($row['platforms'] ?? 0),
+        ];
+    }
+
+    private static function mode(int $orgId): string
+    {
+        $mode = FinAccountsController::load($orgId)['platform_revenue_mode'] ?? 'planilhas';
+        return in_array($mode, self::PLATFORM_MODES, true) ? $mode : 'planilhas';
     }
 
     /** Linhas do mês com a classificação vigente do plano de contas. */
@@ -238,26 +301,44 @@ final class DreCalculator
      * faz o modo gerencial refletir as exclusões.
      * @return array<string,float>
      */
-    private static function statement(array $g): array
+    private static function statement(array $g, array $platform, string $mode): array
     {
         $get = static fn (string $k): float => round($g[$k] ?? 0.0, 2);
 
-        $receitaBruta = $get('receita_bruta');
+        // O AllFood registra só balcão/comanda; o faturamento de iFood e 99Food
+        // entra por fora, das planilhas das plataformas.
+        $receitaDre = $get('receita_bruta');
+        $recebimentos = $get('recebimentos');
+
+        $receitaPlataformas = match ($mode) {
+            'planilhas' => $platform['gross_revenue'],
+            'recebimentos' => $recebimentos,
+            default => 0.0,
+        };
+        // Comissão/ofertas/taxa só entram como custo no modo 'planilhas': o
+        // repasse do modo 'recebimentos' já chega líquido desses descontos.
+        $custoPlataformas = $mode === 'planilhas' ? $platform['platform_cost'] : 0.0;
+
+        $receitaBruta = round($receitaDre + $receitaPlataformas, 2);
         $deducoes = $get('deducoes');
-        // A receita líquida importada (3.01) é preferida, mas se ela sumir por
-        // exclusão/classificação, o cálculo direto assume.
-        $receitaLiquida = isset($g['receita_liquida']) ? $get('receita_liquida') : $receitaBruta - $deducoes;
+        // A receita líquida importada (3.01) é preferida para a parte do DRE;
+        // se sumir por exclusão/classificação, o cálculo direto assume.
+        $receitaLiquidaDre = isset($g['receita_liquida']) ? $get('receita_liquida') : $receitaDre - $deducoes;
+        $receitaLiquida = round($receitaLiquidaDre + $receitaPlataformas, 2);
 
         $cmv = $get('cmv');
         $custoDireto = $get('custo_direto');
         $custoIndireto = $get('custo_indireto');
         // "custos" (conta 5) já engloba direto + indireto quando existe.
-        $custos = isset($g['custos']) ? $get('custos') : $custoDireto + $custoIndireto;
+        $custosDre = isset($g['custos']) ? $get('custos') : $custoDireto + $custoIndireto;
+        $custos = round($custosDre + $custoPlataformas, 2);
 
         $lucroBruto = round($receitaLiquida - $custos, 2);
 
         $despComercial = $get('desp_comercial');
         $despFinanceira = $get('desp_financeira');
+        // No modo 'recebimentos' o valor já virou receita acima; somá-lo de novo
+        // aqui como receita financeira contaria o mesmo dinheiro duas vezes.
         $recFinanceira = $get('rec_financeira');
         $despAdmin = $get('desp_admin');
         $outrasDesp = $get('outras_desp_op');
@@ -278,13 +359,20 @@ final class DreCalculator
         $pct = static fn (float $v): ?float => $receitaBruta > 0 ? round($v / $receitaBruta, 6) : null;
 
         return [
+            'receita_dre' => $receitaDre,
+            'receita_plataformas' => round($receitaPlataformas, 2),
             'receita_bruta' => $receitaBruta,
             'deducoes' => $deducoes,
             'receita_liquida' => $receitaLiquida,
             'cmv' => $cmv,
             'custo_direto' => $custoDireto,
             'custo_indireto' => $custoIndireto,
+            'custo_plataformas' => round($custoPlataformas, 2),
+            'custos_dre' => $custosDre,
             'custos' => $custos,
+            // Fora do resultado no modo 'planilhas': é caixa entrando, não venda
+            // do mês. Fica exposto para conciliar com o extrato bancário.
+            'recebimentos' => $recebimentos,
             'lucro_bruto' => $lucroBruto,
             'desp_comercial' => $despComercial,
             'desp_financeira' => $despFinanceira,
@@ -309,12 +397,55 @@ final class DreCalculator
      * Inconsistências que valem um aviso na tela. Não alteram nada: só apontam
      * onde o dado importado provavelmente não representa operação.
      */
-    private static function warnings(array $lines, array $byCode, array $totals, bool $managerial): array
-    {
+    private static function warnings(
+        array $lines,
+        array $byCode,
+        array $totals,
+        bool $managerial,
+        array $platform,
+        string $mode
+    ): array {
         $out = [];
         $receitaBruta = $totals['receita_bruta'];
         if ($receitaBruta <= 0) {
             return $out;
+        }
+
+        // Mês com DRE mas sem planilha de plataforma: a receita fica só com o
+        // balcão e todos os indicadores saem menores do que a realidade.
+        if ($mode === 'planilhas' && $platform['gross_revenue'] <= 0) {
+            $out[] = [
+                'code' => null,
+                'name' => 'Faturamento das plataformas ausente',
+                'amount' => 0.0,
+                'pct_gross' => 0.0,
+                'severity' => 'alta',
+                'message' => 'Este mês tem DRE importado, mas nenhuma planilha de iFood/99Food. '
+                    . 'A receita está contando só o balcão — importe "Dados da loja" (99Food) e o '
+                    . 'extrato do iFood para o mês fechar.',
+            ];
+        }
+
+        // CMV baixo demais depois de somar as plataformas costuma significar que
+        // o custo do AllFood não cobre os insumos gastos nos pedidos de app.
+        if ($mode !== 'off' && $totals['receita_plataformas'] > 0 && $totals['cmv'] > 0) {
+            $cmvPct = $totals['cmv_pct'];
+            if ($cmvPct !== null && $cmvPct < 0.20) {
+                $out[] = [
+                    'code' => null,
+                    'name' => 'CMV baixo para o faturamento somado',
+                    'amount' => $totals['cmv'],
+                    'pct_gross' => $cmvPct,
+                    'severity' => 'media',
+                    'message' => sprintf(
+                        'Somando as plataformas, o CMV ficou em %s%% da receita líquida — abaixo dos 28-35%% '
+                        . 'típicos de restaurante. Como o AllFood não registra os pedidos de app, o custo dele '
+                        . 'pode não incluir os insumos gastos nesses pedidos; nesse caso a margem aqui está '
+                        . 'otimista. Confira o CMV contra as compras do mês.',
+                        number_format($cmvPct * 100, 1, ',', '.')
+                    ),
+                ];
+            }
         }
 
         // Receita não operacional do tamanho do faturamento = recebimento
@@ -411,8 +542,9 @@ final class DreCalculator
     private static function emptyTotals(): array
     {
         return array_fill_keys([
-            'receita_bruta', 'deducoes', 'receita_liquida', 'cmv', 'custo_direto', 'custo_indireto',
-            'custos', 'lucro_bruto', 'desp_comercial', 'desp_financeira', 'rec_financeira',
+            'receita_dre', 'receita_plataformas', 'receita_bruta', 'deducoes', 'receita_liquida',
+            'cmv', 'custo_direto', 'custo_indireto', 'custo_plataformas', 'custos_dre', 'custos',
+            'recebimentos', 'lucro_bruto', 'desp_comercial', 'desp_financeira', 'rec_financeira',
             'desp_admin', 'outras_desp_op', 'outras_rec_op', 'lucro_operacional', 'desp_nao_op',
             'rec_nao_op', 'resultado_antes_impostos', 'imposto', 'resultado_liquido',
             'margem_bruta', 'margem_operacional', 'margem_liquida', 'cmv_pct',

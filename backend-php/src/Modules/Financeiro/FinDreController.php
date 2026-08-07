@@ -82,6 +82,8 @@ final class FinDreController
             'groups' => $current['groups'],
             'warnings' => $current['warnings'],
             'excluded' => $current['excluded'],
+            'platform' => $current['platform'],
+            'platform_mode' => $current['mode'],
         ]);
     }
 

@@ -5,16 +5,26 @@ import { EyeOff, TrendingDown, TrendingUp } from 'lucide-react';
 import { financeiroApi } from '../../services/resources';
 import { apiError } from '../../services/api';
 import { Card, Spinner, ErrorBox } from '../../components/ui';
-import type { FinDreLine, FinDreTotals } from '../../types';
+import type { FinDreLine, FinDreTotals, FinPlatformMode, FinPlatformTotals } from '../../types';
 import { brl, pct, monthLabel } from '../../utils/format';
 import { WarningList, MonthSelect, ExportButton, exportCsv, NoData } from './shared';
 
-/** Linhas do demonstrativo montadas a partir dos totais recalculados. */
-const STATEMENT: { key: keyof FinDreTotals; label: string; sign: '+' | '-' | '='; strong?: boolean }[] = [
-  { key: 'receita_bruta', label: 'Receita bruta de vendas', sign: '+' },
+/**
+ * Linhas do demonstrativo montadas a partir dos totais recalculados.
+ *
+ * A receita aparece quebrada em duas origens porque elas vêm de arquivos
+ * diferentes: o balcão do DRE do AllFood e o delivery das planilhas das
+ * plataformas (que o AllFood não registra como venda).
+ */
+const STATEMENT: { key: keyof FinDreTotals; label: string; sign: '+' | '-' | '='; strong?: boolean; sub?: boolean }[] = [
+  { key: 'receita_dre', label: 'Balcão e comanda (DRE)', sign: '+', sub: true },
+  { key: 'receita_plataformas', label: 'iFood e 99Food (planilhas)', sign: '+', sub: true },
+  { key: 'receita_bruta', label: 'Receita bruta de vendas', sign: '=', strong: true },
   { key: 'deducoes', label: 'Deduções da receita', sign: '-' },
   { key: 'receita_liquida', label: 'Receita líquida', sign: '=', strong: true },
-  { key: 'custos', label: 'Custos (CMV + indiretos)', sign: '-' },
+  { key: 'custos_dre', label: 'Custos do DRE (CMV + indiretos)', sign: '-', sub: true },
+  { key: 'custo_plataformas', label: 'Comissão, ofertas e taxas das plataformas', sign: '-', sub: true },
+  { key: 'custos', label: 'Custos totais', sign: '=' },
   { key: 'lucro_bruto', label: 'Lucro bruto', sign: '=', strong: true },
   { key: 'desp_comercial', label: 'Despesas comerciais', sign: '-' },
   { key: 'desp_financeira', label: 'Despesas financeiras', sign: '-' },
@@ -108,6 +118,8 @@ export function Dre() {
 
       <WarningList warnings={data.warnings} />
 
+      <RevenueSources totals={t} platform={data.platform} mode={data.platform_mode} />
+
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Kpi label="Receita líquida" value={brl(t.receita_liquida)} prev={prev?.receita_liquida} current={t.receita_liquida} />
         <Kpi label="CMV" value={brl(t.cmv)} hint={pct(t.cmv_pct) + ' da receita líquida'} prev={prev?.cmv} current={t.cmv} invert />
@@ -139,7 +151,7 @@ export function Dre() {
               return (
                 <tr key={row.key} className={`border-b border-slate-100 last:border-0 ${row.strong ? 'bg-slate-50 font-semibold' : ''}`}>
                   <td className="w-10 px-4 py-2 text-center text-slate-400">{row.sign}</td>
-                  <td className="px-2 py-2">{row.label}</td>
+                  <td className={`px-2 py-2 ${row.sub ? 'pl-6 text-slate-600' : ''}`}>{row.label}</td>
                   <td className="px-4 py-2 text-right tabular-nums">{brl(value)}</td>
                   <td className="w-24 px-4 py-2 text-right text-xs text-slate-500 tabular-nums">
                     {t.receita_bruta > 0 ? pct(value / t.receita_bruta) : '—'}
@@ -181,6 +193,77 @@ export function Dre() {
           </table>
         </div>
       </Card>
+    </div>
+  );
+}
+
+/**
+ * De onde vem a receita do mês e como ela se compara ao dinheiro que entrou.
+ *
+ * As duas colunas medem coisas diferentes de propósito: a receita é do mês da
+ * VENDA (competência) e o recebimento é do mês em que o repasse caiu (caixa).
+ * O repasse das plataformas atrasa semanas, então a diferença é normal — o que
+ * importa é ela não crescer sem explicação mês a mês.
+ */
+function RevenueSources({
+  totals, platform, mode,
+}: {
+  totals: FinDreTotals;
+  platform: FinPlatformTotals;
+  mode: FinPlatformMode;
+}) {
+  const gap = totals.recebimentos - totals.receita_bruta;
+  return (
+    <Card>
+      <h3 className="mb-3 text-sm font-semibold text-slate-700">Composição da receita</h3>
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Source
+          label="Balcão e comanda"
+          value={totals.receita_dre}
+          total={totals.receita_bruta}
+          hint="conta 3.01.01 do DRE"
+        />
+        <Source
+          label="iFood e 99Food"
+          value={totals.receita_plataformas}
+          total={totals.receita_bruta}
+          hint={
+            mode === 'planilhas'
+              ? `${platform.orders} pedidos · ${platform.platforms} plataforma(s)`
+              : mode === 'recebimentos'
+                ? 'conta de recebimentos do DRE (caixa)'
+                : 'desligado nas Configurações'
+          }
+        />
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Repasses recebidos no mês</p>
+          <p className="mt-1 text-lg font-semibold text-slate-700">{brl(totals.recebimentos)}</p>
+          <p className="mt-0.5 text-xs text-slate-500">
+            {gap >= 0 ? 'Entrou ' : 'Faltou entrar '}
+            <strong>{brl(Math.abs(gap))}</strong> em relação ao vendido — diferença de prazo de repasse.
+          </p>
+        </div>
+      </div>
+      {mode === 'planilhas' && totals.custo_plataformas > 0 && (
+        <p className="mt-3 border-t border-slate-100 pt-3 text-xs text-slate-500">
+          Do faturamento de plataforma, {brl(totals.custo_plataformas)} ficam com elas
+          (comissão, ofertas e taxa de pagamento) e entram como custo acima.
+        </p>
+      )}
+    </Card>
+  );
+}
+
+function Source({ label, value, total, hint }: { label: string; value: number; total: number; hint: string }) {
+  const share = total > 0 ? value / total : 0;
+  return (
+    <div>
+      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="mt-1 text-lg font-semibold text-slate-900">{brl(value)}</p>
+      <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+        <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(share * 100, 100)}%` }} />
+      </div>
+      <p className="mt-1 text-xs text-slate-500">{pct(share)} da receita · {hint}</p>
     </div>
   );
 }

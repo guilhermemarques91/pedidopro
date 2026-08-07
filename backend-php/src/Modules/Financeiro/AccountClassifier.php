@@ -24,6 +24,7 @@ final class AccountClassifier
         'custos' => 'Custos (total)',
         'desp_comercial' => 'Despesas comerciais',
         'desp_financeira' => 'Despesas financeiras',
+        'recebimentos' => 'Recebimentos de vendas (caixa)',
         'rec_financeira' => 'Receitas financeiras',
         'desp_admin' => 'Despesas gerais e administrativas',
         'outras_desp_op' => 'Outras despesas operacionais',
@@ -39,7 +40,10 @@ final class AccountClassifier
         '3.01.01' => 'receita_bruta',
         '3.01.02' => 'deducoes',
         '3.01' => 'receita_liquida',
-        '3.02' => 'rec_financeira',
+        // 3.02 inteiro (não só a folha) entra em `recebimentos`: é dinheiro de
+        // venda caindo em caixa, não receita nova. Classificar só o filho faria
+        // o pai continuar somando o mesmo valor no grupo antigo, duplicando.
+        '3.02' => 'recebimentos',
         '3.03' => 'outras_rec_op',
         '3.04' => 'rec_nao_op',
         '5.01.01' => 'cmv',

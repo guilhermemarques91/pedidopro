@@ -1242,10 +1242,25 @@ export interface FinAccountsResponse {
   behaviors: FinCostBehavior[];
 }
 
+export type FinPlatformMode = 'planilhas' | 'recebimentos' | 'off';
+
 export interface FinSettings {
   target_margin_pct: number;
   tax_rate_pct: number;
   channel_commission: Record<string, number>;
+  /** De onde vem a receita de iFood/99Food no DRE consolidado. */
+  platform_revenue_mode: FinPlatformMode;
+}
+
+export interface FinPlatformTotals {
+  gross_revenue: number;
+  commission: number;
+  offers_cost: number;
+  payment_fee: number;
+  platform_cost: number;
+  net_revenue: number;
+  orders: number;
+  platforms: number;
 }
 
 export interface FinDreLine {
@@ -1268,8 +1283,15 @@ export interface FinDreLine {
 }
 
 export interface FinDreTotals {
+  /** Receita registrada no DRE do AllFood (balcão/comanda). */
+  receita_dre: number;
+  /** Faturamento de iFood/99Food no mês, pelas planilhas das plataformas. */
+  receita_plataformas: number;
   receita_bruta: number; deducoes: number; receita_liquida: number;
-  cmv: number; custo_direto: number; custo_indireto: number; custos: number;
+  cmv: number; custo_direto: number; custo_indireto: number;
+  custo_plataformas: number; custos_dre: number; custos: number;
+  /** Repasses/recebimentos do mês (regime de caixa) — só para conciliação. */
+  recebimentos: number;
   lucro_bruto: number; desp_comercial: number; desp_financeira: number;
   rec_financeira: number; desp_admin: number; outras_desp_op: number;
   outras_rec_op: number; lucro_operacional: number; desp_nao_op: number;
@@ -1298,6 +1320,8 @@ export interface FinDreResponse {
   groups: Record<string, number>;
   warnings: FinWarning[];
   excluded: string[];
+  platform: FinPlatformTotals;
+  platform_mode: FinPlatformMode;
 }
 
 export interface FinChannelRow {

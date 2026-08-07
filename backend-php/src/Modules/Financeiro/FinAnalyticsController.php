@@ -372,7 +372,10 @@ final class FinAnalyticsController
         $totals = $built['totals'];
         $behavior = DreCalculator::behaviorTotals($built['lines']);
         $fixed = round($behavior['fixo'] ?? 0.0, 2);
-        $variable = round($behavior['variavel'] ?? 0.0, 2);
+        // Comissão, ofertas e taxa das plataformas só existem porque houve venda:
+        // são custo variável e precisam entrar, senão a margem de contribuição
+        // sai inflada e o ponto de equilíbrio, otimista demais.
+        $variable = round(($behavior['variavel'] ?? 0.0) + $totals['custo_plataformas'], 2);
         $unclassified = round($behavior['nao_classificado'] ?? 0.0, 2);
 
         $receitaLiquida = $totals['receita_liquida'];
