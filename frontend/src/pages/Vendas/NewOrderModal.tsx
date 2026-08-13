@@ -323,74 +323,105 @@ export function NewOrderModal({
             <div className="grid gap-4 lg:grid-cols-[1fr_20rem]">
               {/* Cardápio — altura FIXA: trocar de aba não muda o tamanho da tela */}
               <div className="flex h-[60vh] min-w-0 flex-col">
-                <div className="relative mb-3 shrink-0">
-                  <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <Input
-                    placeholder="Buscar produto…"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    className="pl-9"
-                    autoFocus
-                  />
-                </div>
+                <div className="flex min-h-0 flex-1 gap-3">
+                  {/* Rail de categorias (telas maiores): lista fixa ao lado do grid, como no
+                      catálogo visual de referência — no celular vira abas horizontais abaixo
+                      da busca, porque o rail comeria espaço demais do grid num telão pequeno. */}
+                  {!search && tabs.length > 0 && (
+                    <div className="hidden w-32 shrink-0 flex-col gap-0.5 overflow-y-auto pr-2 sm:flex">
+                      {tabs.map((t) => (
+                        <button
+                          key={t.key}
+                          type="button"
+                          onClick={() => setActiveTab(t.key)}
+                          className={`shrink-0 rounded-lg px-2.5 py-2 text-left text-xs font-medium transition ${
+                            effectiveTab === t.key ? 'bg-emerald-600 text-white' : 'text-slate-600 hover:bg-slate-100'
+                          }`}
+                        >
+                          {t.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
 
-                {!search && tabs.length > 0 && (
-                  <div className="mb-3 flex shrink-0 gap-2 overflow-x-auto pb-1">
-                    {tabs.map((t) => (
+                  <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+                    <div className="relative mb-3 shrink-0">
+                      <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                      <Input
+                        placeholder="Buscar produto…"
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        className="pl-9"
+                        autoFocus
+                      />
+                    </div>
+
+                    {!search && tabs.length > 0 && (
+                      <div className="mb-3 flex shrink-0 gap-2 overflow-x-auto pb-1 sm:hidden">
+                        {tabs.map((t) => (
+                          <button
+                            key={t.key}
+                            type="button"
+                            onClick={() => setActiveTab(t.key)}
+                            className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition ${
+                              effectiveTab === t.key ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                            }`}
+                          >
+                            {t.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    {loadingProducts && <Spinner />}
+                    {/* Card foto-primeiro (thumb ocupa a largura toda, nome+preço embaixo) —
+                        mesmo padrão do catálogo visual de referência, reaproveitado do PDV do
+                        balcão até o app do garçom. */}
+                    <div className="grid min-h-0 flex-1 grid-cols-2 content-start gap-2 overflow-y-auto pb-2 sm:grid-cols-3 xl:grid-cols-4">
+                      {filtered.length === 0 && !loadingProducts && <EmptyState message="Nenhum produto vendável encontrado." />}
+                      {filtered.map((p) => {
+                        const qty = qtyByProduct.get(p.id) ?? 0;
+                        return (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => ((p.has_recipe || p.has_variation_groups) ? setPrepping(p) : addSimple(p))}
+                            className={`relative flex h-fit flex-col overflow-hidden rounded-lg border text-center transition active:scale-[0.98] ${
+                              qty > 0 ? 'border-emerald-400 bg-emerald-50/60' : 'border-slate-200 hover:border-emerald-400 hover:bg-emerald-50'
+                            }`}
+                          >
+                            {qty > 0 && (
+                              <span className="absolute right-1.5 top-1.5 z-10 flex h-5 min-w-5 items-center justify-center rounded-full bg-emerald-600 px-1 text-xs font-bold text-white shadow">
+                                {qty}
+                              </span>
+                            )}
+                            <div className="flex aspect-[4/3] w-full items-center justify-center bg-slate-100">
+                              {p.image_data
+                                ? <img src={p.image_data} alt="" className="h-full w-full object-cover" />
+                                : <Package size={26} className="text-slate-300" />}
+                            </div>
+                            <div className="px-2 py-2">
+                              <p className="line-clamp-2 text-sm font-medium text-slate-800 sm:text-xs">{p.name}</p>
+                              <p className="mt-0.5 text-sm font-semibold text-emerald-700 sm:text-xs">{brl(p.sale_price)}</p>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* Mobile: barra que abre o carrinho (no desktop ele fica sempre visível ao lado) */}
+                    {cartCount > 0 && (
                       <button
-                        key={t.key}
                         type="button"
-                        onClick={() => setActiveTab(t.key)}
-                        className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition ${
-                          effectiveTab === t.key ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                        }`}
+                        onClick={() => setMobileCartOpen(true)}
+                        className="mt-3 flex w-full shrink-0 items-center justify-between rounded-lg bg-emerald-600 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-700 lg:hidden"
                       >
-                        {t.label}
+                        <span className="flex items-center gap-2"><ShoppingCart size={16} /> {cartCount} {cartCount === 1 ? 'item' : 'itens'}</span>
+                        <span>{brl(total)} · Ver pedido</span>
                       </button>
-                    ))}
+                    )}
                   </div>
-                )}
-
-                {loadingProducts && <Spinner />}
-                <div className="grid min-h-0 flex-1 grid-cols-2 content-start gap-2 overflow-y-auto pb-2 sm:grid-cols-3 xl:grid-cols-4">
-                  {filtered.length === 0 && !loadingProducts && <EmptyState message="Nenhum produto vendável encontrado." />}
-                  {filtered.map((p) => {
-                    const qty = qtyByProduct.get(p.id) ?? 0;
-                    return (
-                      <button
-                        key={p.id}
-                        type="button"
-                        onClick={() => ((p.has_recipe || p.has_variation_groups) ? setPrepping(p) : addSimple(p))}
-                        className={`relative flex h-fit flex-col items-center gap-1.5 rounded-xl border p-3 text-center transition active:scale-[0.98] sm:p-2.5 ${
-                          qty > 0 ? 'border-emerald-400 bg-emerald-50/60' : 'border-slate-200 hover:border-emerald-400 hover:bg-emerald-50'
-                        }`}
-                      >
-                        {qty > 0 && (
-                          <span className="absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-emerald-600 px-1 text-xs font-bold text-white">
-                            {qty}
-                          </span>
-                        )}
-                        {p.image_data
-                          ? <img src={p.image_data} alt="" className="h-16 w-16 rounded-lg object-cover sm:h-12 sm:w-12" />
-                          : <Package size={22} className="text-slate-300" />}
-                        <span className="line-clamp-2 text-sm font-medium text-slate-800 sm:text-xs">{p.name}</span>
-                        <span className="text-sm font-semibold text-emerald-700 sm:text-xs">{brl(p.sale_price)}</span>
-                      </button>
-                    );
-                  })}
                 </div>
-
-                {/* Mobile: barra que abre o carrinho (no desktop ele fica sempre visível ao lado) */}
-                {cartCount > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setMobileCartOpen(true)}
-                    className="mt-3 flex w-full shrink-0 items-center justify-between rounded-lg bg-emerald-600 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-700 lg:hidden"
-                  >
-                    <span className="flex items-center gap-2"><ShoppingCart size={16} /> {cartCount} {cartCount === 1 ? 'item' : 'itens'}</span>
-                    <span>{brl(total)} · Ver pedido</span>
-                  </button>
-                )}
               </div>
 
               {/* Carrinho fixo (desktop) — mesma altura do cardápio */}
