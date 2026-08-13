@@ -77,7 +77,11 @@ final class ProductsController
                        (SELECT i2.unit FROM items i2
                          WHERE i2.product_id = p.id AND i2.active = 1
                          ORDER BY (i2.base_price IS NULL), i2.base_price ASC, i2.id
-                         LIMIT 1) AS default_unit
+                         LIMIT 1) AS default_unit,
+                       -- Lançamento de venda (NewOrderModal) usa isto pra pular a tela de preparo
+                       -- quando não há nada a configurar (item entra direto no carrinho).
+                       EXISTS(SELECT 1 FROM product_recipe pr WHERE pr.product_id = p.id) AS has_recipe,
+                       EXISTS(SELECT 1 FROM product_variation_groups g WHERE g.product_id = p.id) AS has_variation_groups
                   FROM products p
                   LEFT JOIN categories c ON c.id = p.category_id
                   LEFT JOIN product_types t ON t.id = p.type_id

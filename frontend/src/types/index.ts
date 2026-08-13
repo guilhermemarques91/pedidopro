@@ -117,6 +117,9 @@ export interface Product {
   pack_size?: string | null;   // múltiplo de compra (caixa/fardo)
   item_count?: string;
   default_unit?: string | null;
+  /** Ficha técnica / grupos de variação cadastrados — NewOrderModal usa pra decidir se pula a tela de preparo. */
+  has_recipe?: boolean;
+  has_variation_groups?: boolean;
   active: boolean;
   created_at: string;
 }

@@ -106,6 +106,30 @@ export function NewOrderModal({
     }]);
     setPrepping(null);
   }
+  /**
+   * Toque direto: produto sem ficha técnica nem grupo de variação não tem nada a
+   * configurar, então o modal de preparo (PrepModal) só atrapalharia — soma na
+   * linha já existente sem customização em vez de abrir uma tela pra confirmar
+   * o óbvio. Produto com algo a configurar continua abrindo o PrepModal.
+   */
+  function addSimple(product: Product) {
+    setCart((prev) => {
+      const idx = prev.findIndex((l) => l.product.id === product.id
+        && l.removed.length === 0 && l.variations.length === 0 && !l.notes);
+      if (idx >= 0) {
+        return prev.map((l, i) => (i === idx ? { ...l, quantity: l.quantity + 1 } : l));
+      }
+      return [...prev, {
+        uid: nextUid.current++,
+        product,
+        quantity: 1,
+        unitPrice: Number(product.sale_price ?? 0),
+        notes: null,
+        removed: [],
+        variations: [],
+      }];
+    });
+  }
   function changeQty(uid: number, delta: number) {
     setCart((prev) => prev
       .map((l) => (l.uid === uid ? { ...l, quantity: l.quantity + delta } : l))
@@ -336,8 +360,8 @@ export function NewOrderModal({
                       <button
                         key={p.id}
                         type="button"
-                        onClick={() => setPrepping(p)}
-                        className={`relative flex h-fit flex-col items-center gap-1.5 rounded-xl border p-3 text-center transition active:scale-[0.98] ${
+                        onClick={() => ((p.has_recipe || p.has_variation_groups) ? setPrepping(p) : addSimple(p))}
+                        className={`relative flex h-fit flex-col items-center gap-1.5 rounded-xl border p-3 text-center transition active:scale-[0.98] sm:p-2.5 ${
                           qty > 0 ? 'border-emerald-400 bg-emerald-50/60' : 'border-slate-200 hover:border-emerald-400 hover:bg-emerald-50'
                         }`}
                       >
@@ -347,10 +371,10 @@ export function NewOrderModal({
                           </span>
                         )}
                         {p.image_data
-                          ? <img src={p.image_data} alt="" className="h-12 w-12 rounded-lg object-cover" />
-                          : <Package size={20} className="text-slate-300" />}
-                        <span className="line-clamp-2 text-xs font-medium text-slate-800">{p.name}</span>
-                        <span className="text-xs font-semibold text-emerald-700">{brl(p.sale_price)}</span>
+                          ? <img src={p.image_data} alt="" className="h-16 w-16 rounded-lg object-cover sm:h-12 sm:w-12" />
+                          : <Package size={22} className="text-slate-300" />}
+                        <span className="line-clamp-2 text-sm font-medium text-slate-800 sm:text-xs">{p.name}</span>
+                        <span className="text-sm font-semibold text-emerald-700 sm:text-xs">{brl(p.sale_price)}</span>
                       </button>
                     );
                   })}
