@@ -24,7 +24,7 @@ use PDO;
 final class MarmitexOrderWriter
 {
     /**
-     * @param array<int,array{person_name?:?string,size_id:int,protein_id?:?int,side_ids?:int[],observation?:?string}> $marmitas
+     * @param array<int,array{person_name?:?string,size_id:int,protein_id?:?int,protein2_id?:?int,side_ids?:int[],observation?:?string}> $marmitas
      * @return int id do pedido
      */
     public static function saveDay(
@@ -108,13 +108,18 @@ final class MarmitexOrderWriter
             $size = $sizes[$sizeId];
 
             $proteinId = isset($r['protein_id']) && $r['protein_id'] ? (int) $r['protein_id'] : null;
-            $proteinName = null;
-            if ($proteinId !== null) {
-                if (!isset($proteins[$proteinId])) {
-                    throw HttpError::badRequest('Proteína inválida em uma das marmitas');
-                }
-                $proteinName = $proteins[$proteinId];
+            $protein2Id = isset($r['protein2_id']) && $r['protein2_id'] ? (int) $r['protein2_id'] : null;
+            // Só a segunda preenchida: ela é a proteína da marmita, não a "segunda".
+            // Senão o relatório contaria a marmita como sem proteína.
+            if ($proteinId === null && $protein2Id !== null) {
+                $proteinId = $protein2Id;
+                $protein2Id = null;
             }
+            if ($protein2Id === $proteinId) {
+                $protein2Id = null; // a mesma proteína duas vezes é uma só
+            }
+            $proteinName = self::proteinName($proteinId, $proteins);
+            $protein2Name = self::proteinName($protein2Id, $proteins);
 
             $sides = [];
             $sideIds = isset($r['side_ids']) && is_array($r['side_ids']) ? $r['side_ids'] : [];
@@ -135,6 +140,8 @@ final class MarmitexOrderWriter
                 'size_name' => $size['name'],
                 'protein_id' => $proteinId,
                 'protein_name' => $proteinName,
+                'protein2_id' => $protein2Id,
+                'protein2_name' => $protein2Name,
                 'sides_json' => json_encode($sides, JSON_UNESCAPED_UNICODE),
                 'observation' => $obs !== '' ? $obs : null,
                 'unit_price' => (float) $size['price'],
@@ -143,17 +150,31 @@ final class MarmitexOrderWriter
         return $out;
     }
 
+    /** Nome de snapshot da proteína, validado contra o cardápio efetivo. @param array<int,string> $proteins */
+    private static function proteinName(?int $id, array $proteins): ?string
+    {
+        if ($id === null) {
+            return null;
+        }
+        if (!isset($proteins[$id])) {
+            throw HttpError::badRequest('Proteína inválida em uma das marmitas');
+        }
+        return $proteins[$id];
+    }
+
     private static function insertMarmitas(PDO $pdo, int $orderId, int $companyId, string $serviceDate, array $marmitas): void
     {
         $stmt = $pdo->prepare(
             'INSERT INTO marmitex_marmitas
-               (order_id, company_id, service_date, person_name, size_id, size_name, protein_id, protein_name, sides_json, observation, unit_price)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+               (order_id, company_id, service_date, person_name, size_id, size_name, protein_id, protein_name,
+                protein2_id, protein2_name, sides_json, observation, unit_price)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         foreach ($marmitas as $m) {
             $stmt->execute([
                 $orderId, $companyId, $serviceDate, $m['person_name'], $m['size_id'], $m['size_name'],
-                $m['protein_id'], $m['protein_name'], $m['sides_json'], $m['observation'], $m['unit_price'],
+                $m['protein_id'], $m['protein_name'], $m['protein2_id'], $m['protein2_name'],
+                $m['sides_json'], $m['observation'], $m['unit_price'],
             ]);
         }
     }

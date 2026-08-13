@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Bike, Store, Clock, MapPin, ExternalLink, RefreshCw, Printer } from 'lucide-react';
 import { deliveryApi } from '../../services/resources';
 import { apiError } from '../../services/api';
@@ -25,10 +25,28 @@ const PLATFORM_META: Record<string, { label: string; cls: string }> = {
   '99food': { label: '99Food', cls: 'bg-yellow-100 text-yellow-800' },
 };
 
+/**
+ * Ação que faz o pedido ANDAR para a coluna seguinte. É o que o operador faz 95%
+ * do tempo, então é o que o Enter dispara — não precisa decorar uma tecla por
+ * transição, só "empurrar" o pedido. Cancelar fica de fora de propósito: é
+ * destrutivo e continua exigindo o clique com confirmação.
+ */
+const NEXT_ACTION: Partial<Record<DeliveryStatus, { key: 'confirm' | 'ready' | 'dispatch' | 'conclude'; label: string }>> = {
+  placed: { key: 'confirm', label: 'Confirmar' },
+  confirmed: { key: 'ready', label: 'Pronto' },
+  preparing: { key: 'ready', label: 'Pronto' },
+  ready: { key: 'dispatch', label: 'Despachar' },
+  dispatched: { key: 'conclude', label: 'Concluir' },
+};
+
 export function Delivery() {
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const isAdmin = useAuth((s) => s.can('delivery:admin'));
   const [showPrinters, setShowPrinters] = useState(false);
+  // Índice do pedido selecionado na lista achatada (ordem das colunas do kanban).
+  const [cursor, setCursor] = useState(0);
+  const [keyboardOn, setKeyboardOn] = useState(false);
   const { data, isLoading, error } = useQuery({
     queryKey: ['delivery-orders'],
     queryFn: () => deliveryApi.list(),
@@ -70,6 +88,50 @@ export function Delivery() {
   // no Layout), então imprime mesmo com o operador em outra tela do app. Aqui sobra
   // só a impressão manual pelo card (printOrder acima).
 
+  /**
+   * Lista achatada na ordem em que as colunas aparecem — é sobre ela que as setas
+   * andam, então o percurso do teclado é o mesmo que o olho faz na tela.
+   * Cancelados ficam de fora: não são operáveis daqui.
+   */
+  const flat = (data ?? []).filter((o) => COLUMNS.some((c) => c.match.includes(o.status)));
+  const ordered = COLUMNS.flatMap((c) => flat.filter((o) => c.match.includes(o.status)));
+  const selected = ordered[Math.min(cursor, ordered.length - 1)];
+
+  const advance = (o: DeliveryOrder) => {
+    const next = NEXT_ACTION[o.status];
+    if (!next || busy) return;
+    ({ confirm, ready, dispatch, conclude })[next.key].mutate(o.id);
+  };
+
+  /**
+   * Teclado do painel. Só entra em ação fora de campo de texto — e o Ctrl+K da
+   * busca global continua funcionando por cima, porque nem tocamos nele aqui.
+   */
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const el = document.activeElement as HTMLElement | null;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (!ordered.length) return;
+      const k = e.key.toLowerCase();
+
+      if (e.key === 'ArrowDown' || k === 'j') { e.preventDefault(); setKeyboardOn(true); setCursor((c) => (c + 1) % ordered.length); }
+      else if (e.key === 'ArrowUp' || k === 'k') { e.preventDefault(); setKeyboardOn(true); setCursor((c) => (c - 1 + ordered.length) % ordered.length); }
+      else if (e.key === 'Enter') { e.preventDefault(); setKeyboardOn(true); if (selected) advance(selected); }
+      else if (k === 'o') { e.preventDefault(); if (selected) navigate(`/delivery/${selected.id}`); }
+      else if (k === 'i') { e.preventDefault(); if (selected) printOrder(selected.id); }
+      else if (e.key === 'Escape') { setKeyboardOn(false); }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [ordered, selected, busy]);
+
+  // Rola o card selecionado para dentro da tela ao andar com as setas.
+  useEffect(() => {
+    if (!keyboardOn || !selected) return;
+    document.querySelector<HTMLElement>(`[data-order="${selected.id}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [selected?.id, keyboardOn]);
+
   return (
     <div>
       <PageHeader
@@ -97,6 +159,24 @@ export function Delivery() {
         <div className="mb-3"><ErrorBox message={apiError(confirm.error || ready.error || dispatch.error || conclude.error || cancel.error)} /></div>
       )}
 
+      {/* Atalhos anunciados na tela: teclado que ninguém descobre não existe.
+          Escondido no celular, onde não há teclado físico. */}
+      {data && data.length > 0 && (
+        <div className="mb-3 hidden flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500 md:flex">
+          <span className="font-semibold text-slate-600">Teclado:</span>
+          <span><kbd className="rounded border border-slate-300 bg-slate-50 px-1">↑</kbd><kbd className="ml-0.5 rounded border border-slate-300 bg-slate-50 px-1">↓</kbd> selecionar</span>
+          <span><kbd className="rounded border border-slate-300 bg-slate-50 px-1">Enter</kbd> avançar o pedido</span>
+          <span><kbd className="rounded border border-slate-300 bg-slate-50 px-1">O</kbd> abrir</span>
+          <span><kbd className="rounded border border-slate-300 bg-slate-50 px-1">I</kbd> imprimir</span>
+          {keyboardOn && selected && (
+            <span className="ml-auto font-medium text-emerald-700">
+              Selecionado: #{selected.display_id ?? selected.id}
+              {NEXT_ACTION[selected.status] ? ` · Enter = ${NEXT_ACTION[selected.status]!.label}` : ''}
+            </span>
+          )}
+        </div>
+      )}
+
       {data && (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
           {COLUMNS.map((col) => {
@@ -113,6 +193,7 @@ export function Delivery() {
                     <OrderCard
                       key={o.id}
                       order={o}
+                      selected={keyboardOn && selected?.id === o.id}
                       busy={busy}
                       onConfirm={() => confirm.mutate(o.id)}
                       onReady={() => ready.mutate(o.id)}
@@ -208,9 +289,10 @@ function CancelledStrip({ orders }: { orders: DeliveryOrder[] }) {
 }
 
 function OrderCard({
-  order, busy, onConfirm, onReady, onDispatch, onConclude, onCancel, onPrint,
+  order, selected, busy, onConfirm, onReady, onDispatch, onConclude, onCancel, onPrint,
 }: {
   order: DeliveryOrder;
+  selected?: boolean;
   busy: boolean;
   onConfirm: () => void;
   onReady: () => void;
@@ -224,7 +306,7 @@ function OrderCard({
   const p = PLATFORM_META[order.platform] ?? { label: order.platform, cls: 'bg-slate-100 text-slate-700' };
   const mode = order.delivery_mode;
   return (
-    <Card className="p-3">
+    <Card className={`p-3 ${selected ? 'ring-2 ring-emerald-500 ring-offset-1' : ''}`} data-order={order.id}>
       <div className="mb-2 flex items-center justify-between">
         <span className={`rounded px-2 py-0.5 text-xs font-bold ${p.cls}`}>{p.label}</span>
         <Link to={`/delivery/${order.id}`} className="flex items-center gap-1 text-xs font-medium text-emerald-700 hover:underline">

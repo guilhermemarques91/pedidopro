@@ -55,6 +55,17 @@ export function parseSides(v: unknown): { id: number; name: string }[] {
 }
 
 /**
+ * As proteínas da marmita numa linha só ("Costelinha Suína + Omelete").
+ *
+ * Junta em vez de virar coluna nova: a marmita mista é UM item na etiqueta, no
+ * relatório e na conferência da nota — abrir "Proteína 2" em toda tabela deixaria
+ * a coluna vazia em 95% das linhas.
+ */
+export function proteinLabel(first?: string | null, second?: string | null): string {
+  return [first, second].filter(Boolean).join(' + ');
+}
+
+/**
  * Formata o endereço de entrega numa linha legível. Aceita o objeto normalizado
  * ({street,number,neighborhood,...}) ou o cru de iFood (camelCase) / 99Food
  * (snake_case), e até string JSON (parseia) — cobre pedidos novos e antigos.
@@ -173,4 +184,18 @@ export function numToInput(value: number | string | null | undefined): string {
   const n = typeof value === 'string' ? Number(value) : value;
   if (!Number.isFinite(n)) return '';
   return String(n).replace('.', ',');
+}
+
+/**
+ * Quantidade para LEITURA: inteiro sai sem casas, fracionário sai com vírgula e sem zeros
+ * à direita (1 → "1", 1.5 → "1,5", 0.25 → "0,25"). Vazio/ inválido vira travessão.
+ *
+ * Estava copiada em Contagem e em Produtos com regras ligeiramente diferentes — a mesma
+ * quantidade aparecia como "1,5" numa tela e "1,500" na outra.
+ */
+export function fmtQty(v: number | string | null | undefined): string {
+  if (v === null || v === undefined || v === '') return '—';
+  const n = Number(v);
+  if (!Number.isFinite(n)) return '—';
+  return Number.isInteger(n) ? String(n) : n.toFixed(3).replace(/0+$/, '').replace(/\.$/, '').replace('.', ',');
 }

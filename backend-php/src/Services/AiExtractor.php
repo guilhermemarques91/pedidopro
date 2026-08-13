@@ -52,14 +52,14 @@ final class AiExtractor
     private const CHUNK_CHARS = 700;
 
     /** @return array<int,array{name:string,unit:string,price:?float,quantity:?float,notes:?string}> */
-    public static function fromText(string $text): array
+    public static function fromText(string $text, ?string $prompt = null): array
     {
         $out = [];
         $chunks = self::splitForExtraction($text);
         $total = count($chunks);
         foreach ($chunks as $i => $chunk) {
             try {
-                foreach (self::extractChunk($chunk) as $row) {
+                foreach (self::extractChunk($chunk, $prompt) as $row) {
                     $out[] = $row;
                 }
             } catch (\Throwable $e) {
@@ -79,11 +79,11 @@ final class AiExtractor
     }
 
     /** Uma única chamada à IA p/ um trecho de texto. */
-    private static function extractChunk(string $text): array
+    private static function extractChunk(string $text, ?string $prompt = null): array
     {
         $model = Env::get('OLLAMA_MODEL', 'qwen2.5:3b');
         $content = Ollama::chat($model, [
-            ['role' => 'system', 'content' => self::SYSTEM_PROMPT],
+            ['role' => 'system', 'content' => $prompt ?? self::SYSTEM_PROMPT],
             ['role' => 'user', 'content' => "Extraia os itens e preços do texto a seguir:\n\n{$text}"],
         ], self::schema());
 
@@ -137,6 +137,66 @@ final class AiExtractor
         throw HttpError::unprocessable(
             'Extração de imagem requer um modelo de visão. Envie o orçamento como texto.'
         );
+    }
+
+    // ---- nota de entrega (conferência de recebimento) ----
+
+    private const DELIVERY_PROMPT =
+        'Você lê NOTAS DE ENTREGA de fornecedores brasileiros (romaneios, notas de pedido, ' .
+        'canhotos, fotos de papel). O que importa é O QUE FOI ENTREGUE: para cada item, o nome, ' .
+        'a UNIDADE e a QUANTIDADE entregue. O preço unitário, quando aparecer, também é útil — ' .
+        'está em reais e costuma usar vírgula decimal ("12,90" → 12.90). Nunca invente item, ' .
+        'quantidade nem preço: o que não estiver legível deve vir como null. Ignore cabeçalho, ' .
+        'rodapé, totais, impostos e dados do transportador. Responda apenas com o JSON estruturado.';
+
+    /**
+     * Lê a nota que veio junto com a mercadoria (foto ou PDF) e devolve as linhas.
+     *
+     * É o caminho para a conferência acontecer no balcão, com a caixa na mão — digitar 20
+     * linhas era o motivo de a conferência não acontecer. O resultado é sempre RASCUNHO: quem
+     * confirma é o conferente (ver Modules\Stock\ReceiptsController::scan).
+     *
+     * @return array<int,array{name:string,unit:string,price:?float,quantity:?float,notes:?string}>
+     */
+    public static function deliveryNote(string $binary, string $mediaType): array
+    {
+        if ($mediaType === 'application/pdf') {
+            $text = Pdf::extractText($binary);
+            if (mb_strlen(trim($text)) >= 20) {
+                return self::fromText($text, self::DELIVERY_PROMPT);
+            }
+            // PDF escaneado é uma imagem dentro de um PDF, e o modelo de visão do Ollama só
+            // aceita imagem de verdade. Fotografar a nota resolve e é o que já se faz.
+            throw HttpError::unprocessable(
+                'PDF sem texto extraível (escaneado). Tire uma foto da nota e envie a imagem.'
+            );
+        }
+        return self::fromImage($binary, self::DELIVERY_PROMPT);
+    }
+
+    /** Uma chamada ao modelo de visão com a foto da nota. */
+    private static function fromImage(string $binary, string $prompt): array
+    {
+        $model = (string) Env::get('OLLAMA_VISION_MODEL', '');
+        if ($model === '') {
+            throw HttpError::unprocessable(
+                'Leitura de foto exige um modelo de visão. Defina OLLAMA_VISION_MODEL (ex.: qwen2.5vl:7b).'
+            );
+        }
+        $content = Ollama::chat($model, [
+            ['role' => 'system', 'content' => $prompt],
+            [
+                'role' => 'user',
+                'content' => 'Extraia os itens desta nota de entrega.',
+                'images' => [base64_encode($binary)],
+            ],
+        ], self::schema());
+
+        $parsed = json_decode($content, true);
+        if (!is_array($parsed)) {
+            throw new HttpError(502, 'A IA local não retornou JSON estruturado válido.');
+        }
+        return self::normalize($parsed['items'] ?? null);
     }
 
     /** Normaliza a lista crua da IA. */

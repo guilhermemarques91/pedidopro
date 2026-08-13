@@ -18,8 +18,8 @@ use PDO;
  */
 final class ParamsController
 {
-    /** Mesmo recorte da folha de contagem: só o que se compra tem reposição. */
-    private const COUNTABLE_TIPOS = ['Mercadoria', 'Matéria-prima', 'Uso e consumo', 'Item intermediário'];
+    /** Mesmo recorte da folha de contagem — lista única em App\Services\Replenishment. */
+    private const COUNTABLE_TIPOS = Replenishment::COUNTABLE_TIPOS;
 
     /**
      * GET /stock/replenishment?q=&tipo=&category_id=&type_id=&only_missing=1
@@ -53,6 +53,10 @@ final class ParamsController
             $where[] = 'p.type_id = ?';
             $params[] = (int) $typeId;
         }
+        if (($subId = $req->query('sub_classe_id')) !== null && ctype_digit($subId)) {
+            $where[] = 'p.sub_classe_id = ?';
+            $params[] = (int) $subId;
+        }
         // Atalho para o cadastro inicial: só o que ainda não tem alvo definido.
         if ($req->query('only_missing') !== null) {
             $where[] = 'p.max_stock IS NULL';
@@ -61,12 +65,14 @@ final class ParamsController
         $rows = Db::query(
             'SELECT p.id, p.name, p.tipo, p.unit, p.purchase_unit, p.stock_qty,
                     p.min_stock, p.max_stock, p.pack_size, p.avg_cost, p.cost_price,
-                    c.name AS category_name, t.name AS type_name
+                    c.name AS category_name, t.name AS type_name,
+                    sub.id AS sub_classe_id, sub.name AS sub_classe_name
                FROM products p
                LEFT JOIN categories c ON c.id = p.category_id
                LEFT JOIN product_types t ON t.id = p.type_id
+               LEFT JOIN product_subclasses sub ON sub.id = p.sub_classe_id
               WHERE ' . implode(' AND ', $where) . '
-              ORDER BY p.name',
+              ORDER BY COALESCE(sub.sort_order, 9999), COALESCE(sub.name, \'zzz\'), p.name',
             $params
         );
         if (!$rows) {
@@ -75,10 +81,13 @@ final class ParamsController
         }
 
         // Consumo médio diário ao lado de cada linha: é o número que embasa o mín/máx.
-        $usage = Replenishment::dailyUsage($req->orgId(), array_map(static fn ($r) => (int) $r['id'], $rows));
+        $ids = array_map(static fn ($r) => (int) $r['id'], $rows);
+        $usage = Replenishment::dailyUsage($req->orgId(), $ids);
+        $incoming = Replenishment::incoming($req->orgId(), $ids);
         foreach ($rows as &$r) {
             $daily = $usage[(int) $r['id']] ?? null;
             $r['daily_usage'] = $daily !== null ? round($daily, 3) : null;
+            $r['incoming'] = $incoming[(int) $r['id']] ?? 0.0;
             $r['unit_cost'] = $r['avg_cost'] ?? $r['cost_price'];
         }
         unset($r);

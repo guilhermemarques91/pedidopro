@@ -22,10 +22,13 @@ use App\Modules\Settings\SettingsController;
 use App\Modules\Stock\StockController;
 use App\Modules\Stock\CountsController;
 use App\Modules\Stock\ParamsController;
+use App\Modules\Stock\ReceiptsController;
+use App\Modules\Search\SearchController;
 use App\Modules\Nfe\NfeController;
 use App\Modules\Inbox\InboxController;
 use App\Modules\Import\ImportController;
 use App\Modules\Import\ProductsImportController;
+use App\Modules\Whatsapp\WaInboxController;
 use App\Modules\Whatsapp\WhatsappController;
 use App\Modules\Webhooks\WebhooksController;
 use App\Modules\Delivery\DeliveryController;
@@ -77,6 +80,8 @@ final class Routes
     // Financeiro (DRE, margens e análises sobre planilhas importadas)
     private const FINANCEIRO = ['financeiro:read'];
     private const FINANCEIRO_ADMIN = ['financeiro:admin'];
+    // WhatsApp (caixa de entrada dentro do app)
+    private const WA = ['whatsapp:chat'];
     // Administração / sistema
     private const USERS = ['users:manage'];
     private const SYSTEM = ['system:admin'];
@@ -149,12 +154,26 @@ final class Routes
         $r->delete('/production-printers/:id', [PrintersController::class, 'remove'], self::WRITE);
 
         // Estoque (movimentações; saldo vive em products)
+        // ATENÇÃO à ordem: literal antes de paramétrica (o `:id` casaria com "batch").
         $r->get('/stock/moves', [StockController::class, 'moves'], self::ESTOQUE_READ);
+        $r->post('/stock/moves/batch', [StockController::class, 'batch'], self::ESTOQUE_MOVE); // perda do dia em uma transação só
         $r->post('/stock/moves', [StockController::class, 'create'], self::ESTOQUE_MOVE);
+        // Entradas de mercadoria: o pedido enviado vira entrada aguardando e a NOTA confirma.
+        $r->get('/stock/receipts', [ReceiptsController::class, 'list'], self::ESTOQUE_READ);
+        $r->get('/stock/receipts/:id', [ReceiptsController::class, 'getById'], self::ESTOQUE_READ);
+        $r->post('/stock/receipts/:id/confirm', [ReceiptsController::class, 'confirm'], self::ESTOQUE_MOVE);
+        $r->post('/stock/receipts/:id/cancel', [ReceiptsController::class, 'cancel'], self::ESTOQUE_MOVE);
+        $r->post('/stock/receipts/:id/scan', [ReceiptsController::class, 'scan'], self::ESTOQUE_MOVE);
+        $r->post('/stock/receipts/:id/apply-scan', [ReceiptsController::class, 'applyScan'], self::ESTOQUE_MOVE);
+        $r->put('/stock/receipts/:id/items/:lineId', [ReceiptsController::class, 'updateLine'], self::ESTOQUE_MOVE);
+        $r->post('/stock/receipts/:id/items/:lineId/link', [ReceiptsController::class, 'linkLine'], self::ESTOQUE_MOVE);
         // Contagem (inventário) → compra sugerida. Concluir a contagem corrige o saldo,
         // por isso apply exige a mesma permissão de contagem (e não só leitura).
         $r->get('/stock/counts', [CountsController::class, 'list'], self::ESTOQUE_READ);
         $r->post('/stock/counts', [CountsController::class, 'create'], self::ESTOQUE_COUNT);
+        // ATENÇÃO à ordem: `:id` vira o regex ([^/]+) e casaria com "scopes".
+        // Rota literal precisa vir ANTES da paramétrica.
+        $r->get('/stock/counts/scopes', [CountsController::class, 'scopes'], self::ESTOQUE_READ);
         $r->get('/stock/counts/:id', [CountsController::class, 'getById'], self::ESTOQUE_READ);
         $r->put('/stock/counts/:id', [CountsController::class, 'update'], self::ESTOQUE_COUNT);
         $r->delete('/stock/counts/:id', [CountsController::class, 'remove'], self::ESTOQUE_COUNT);
@@ -209,6 +228,9 @@ final class Routes
         $r->delete('/requests/:id', [RequestsController::class, 'remove'], self::REQUESTS);
         $r->put('/requests/:id/allocation', [RequestsController::class, 'allocate'], self::COMPRAS_ADMIN);
         $r->post('/requests/:id/generate-orders', [RequestsController::class, 'generateOrders'], self::COMPRAS_ADMIN);
+
+        // Busca global (Ctrl+K) — filtra por permissão dentro do controller.
+        $r->get('/search', [SearchController::class, 'query'], self::ANY);
 
         // Users (admin)
         $r->get('/users', [UsersController::class, 'list'], self::USERS);
@@ -267,6 +289,14 @@ final class Routes
         $r->get('/whatsapp/status', [WhatsappController::class, 'status'], self::ANY);
         $r->get('/whatsapp/outbox', [WhatsappController::class, 'outbox'], self::WRITE);
         $r->post('/whatsapp/outbox/drain', [WhatsappController::class, 'drainOutbox'], self::WRITE);
+        // Caixa de entrada (janela flutuante). `/updates` antes de `/chats/:id/*`:
+        // rota específica sempre é declarada antes de qualquer captura de parâmetro.
+        $r->get('/whatsapp/inbox/updates', [WaInboxController::class, 'updates'], self::WA);
+        $r->get('/whatsapp/inbox/chats', [WaInboxController::class, 'chats'], self::WA);
+        $r->get('/whatsapp/inbox/chats/:id/messages', [WaInboxController::class, 'messages'], self::WA);
+        $r->post('/whatsapp/inbox/chats/:id/read', [WaInboxController::class, 'read'], self::WA);
+        $r->post('/whatsapp/inbox/chats/:id/send', [WaInboxController::class, 'send'], self::WA);
+        $r->post('/whatsapp/inbox/chats/:id/backfill', [WaInboxController::class, 'backfill'], self::WA);
 
         // Webhooks de delivery (PÚBLICOS — validados por segredo do canal)
         $r->post('/webhooks/ifood', [WebhooksController::class, 'ifood'], null);
@@ -296,6 +326,7 @@ final class Routes
         $r->get('/delivery/reports/customers', [ReportsController::class, 'customers'], self::DELIVERY);     // ranking + recorrência
         $r->get('/delivery/reports/items', [ReportsController::class, 'items'], self::DELIVERY);             // mais vendidos
         $r->get('/delivery/reports/performance', [ReportsController::class, 'performance'], self::DELIVERY); // dia/hora + tempos
+        $r->get('/delivery/reports/menu-engineering', [ReportsController::class, 'menuEngineering'], self::DELIVERY); // popularidade × margem
         // Mapa de pedidos + distância (endereço da loja, listagem geocodificada, backfill sob demanda)
         $r->get('/delivery/settings/store', [MapController::class, 'getSettings'], self::DELIVERY);
         $r->put('/delivery/settings/store', [MapController::class, 'updateSettings'], self::DELIVERY_ADMIN);
@@ -330,6 +361,10 @@ final class Routes
         $r->put('/delivery/menu/option-groups/:id', [CatalogController::class, 'updateGroup'], self::DELIVERY_ADMIN);
         $r->put('/delivery/menu/option-groups/:id/items', [CatalogController::class, 'setGroupUsage'], self::DELIVERY_ADMIN);
         $r->delete('/delivery/menu/option-groups/:id', [CatalogController::class, 'deleteGroup'], self::DELIVERY_ADMIN);
+        // Preço por canal: o mesmo prato pode sair mais caro onde a comissão é maior.
+        // Sem override o publicador usa o preço base — o comportamento de sempre.
+        $r->put('/delivery/menu/channel-prices', [CatalogController::class, 'setChannelPrices'], self::DELIVERY_ADMIN);
+        $r->put('/delivery/menu/channels/:id/markup', [CatalogController::class, 'setChannelMarkup'], self::DELIVERY_ADMIN);
         $r->post('/delivery/menu/publish/:channelId', [CatalogController::class, 'publish'], self::DELIVERY_ADMIN);
         $r->post('/delivery/menu/import/:channelId', [CatalogController::class, 'import'], self::DELIVERY_ADMIN);
         $r->get('/delivery/alerts', [DeliveryController::class, 'listAlerts'], self::DELIVERY);

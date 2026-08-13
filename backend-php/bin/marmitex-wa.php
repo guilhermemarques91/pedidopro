@@ -22,6 +22,7 @@ use App\Core\Db;
 use App\Core\Env;
 use App\Services\MarmitexWaDraft;
 use App\Services\MarmitexWaIngest;
+use App\Services\WaInbox;
 
 if (PHP_SAPI !== 'cli') {
     http_response_code(403);
@@ -113,6 +114,11 @@ $intervalMs = Env::int('MARMITEX_WA_INTERVAL_MS', 60000);
 $sweepMs = Env::int('MARMITEX_WA_SWEEP_MS', 300000);
 $batch = Env::int('MARMITEX_WA_BATCH', 20);
 $lastSweep = 0.0;
+// Varredura da caixa de entrada geral: mesmo laço, cadência própria. É bem mais
+// barata que a do marmitex (não chama IA), mas cobre TODAS as conversas.
+$inboxMs = Env::int('WA_INBOX_SWEEP_MS', 120000);
+$lastInbox = 0.0;
+$lastPurge = 0.0;
 
 $say('worker iniciado' . ($loop ? " (laço de {$intervalMs}ms, varredura a cada {$sweepMs}ms)" : ' (rodada única)'));
 
@@ -124,6 +130,22 @@ do {
             $s = MarmitexWaIngest::sweep();
             if ($s['staged'] > 0 || $s['groups'] === 0) {
                 $say("varredura: {$s['groups']} grupo(s), {$s['scanned']} msg(s), {$s['staged']} nova(s)");
+            }
+        }
+
+        if (!$noSweep && ($nowMs - $lastInbox) >= $inboxMs) {
+            $lastInbox = $nowMs;
+            $i = WaInbox::sweep();
+            if ($i['stored'] > 0) {
+                $say("inbox: {$i['chats']} conversa(s) relida(s), {$i['stored']} mensagem(ns) recuperada(s)");
+            }
+            // Retenção uma vez por dia — dado pessoal de cliente não fica para sempre.
+            if (($nowMs - $lastPurge) >= 86400000) {
+                $lastPurge = $nowMs;
+                $removed = WaInbox::purge();
+                if ($removed > 0) {
+                    $say("inbox: {$removed} mensagem(ns) fora da janela de retenção removida(s)");
+                }
             }
         }
 

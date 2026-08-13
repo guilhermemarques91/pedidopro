@@ -27,12 +27,17 @@ final class Production
         $sold = [];     // product_id do CARDÁPIO => unidades vendidas
         $unlinked = [];
 
-        $st = $pdo->prepare('SELECT size_id, protein_id, sides_json FROM marmitex_marmitas WHERE order_id = ?');
+        $st = $pdo->prepare('SELECT size_id, protein_id, protein2_id, sides_json FROM marmitex_marmitas WHERE order_id = ?');
         $st->execute([$orderId]);
         foreach ($st->fetchAll() as $m) {
             self::tally($pdo, 'marmitex_sizes', (int) $m['size_id'], $sold, $unlinked);
-            if ($m['protein_id'] !== null) {
-                self::tally($pdo, 'marmitex_proteins', (int) $m['protein_id'], $sold, $unlinked);
+            // As duas proteínas baixam: a marmita mista consome as duas de verdade na
+            // cozinha. Enquanto a segunda era só texto na observação, o omelete saía da
+            // geladeira sem sair do estoque.
+            foreach (['protein_id', 'protein2_id'] as $col) {
+                if ($m[$col] !== null) {
+                    self::tally($pdo, 'marmitex_proteins', (int) $m[$col], $sold, $unlinked);
+                }
             }
             foreach (json_decode((string) $m['sides_json'], true) ?: [] as $side) {
                 self::tally($pdo, 'marmitex_sides', (int) $side['id'], $sold, $unlinked);

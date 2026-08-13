@@ -5,7 +5,7 @@ import { Printer } from 'lucide-react';
 import { marmitexApi } from '../../../services/resources';
 import { apiError } from '../../../services/api';
 import { Spinner, ErrorBox } from '../../../components/ui';
-import { parseSides } from '../../../utils/format';
+import { parseSides, proteinLabel } from '../../../utils/format';
 
 /**
  * Etiquetas Pimaco 6080 (= Avery 5160), medidas do gabarito do fabricante:
@@ -144,7 +144,9 @@ export function LabelsPrint() {
               return (
                 <div key={m.id} className="label">
                   {m.person_name && <div className="name">{m.person_name}</div>}
-                  <div className="line">{m.size_name}{m.protein_name ? ` · ${m.protein_name}` : ''}</div>
+                  <div className="line">
+                    {[m.size_name, proteinLabel(m.protein_name, m.protein2_name)].filter(Boolean).join(' · ')}
+                  </div>
                   {sides && <div className="line">{sides}</div>}
                   {m.observation && <div className="obs">{m.observation}</div>}
                 </div>

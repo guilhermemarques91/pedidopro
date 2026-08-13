@@ -15,13 +15,16 @@ final class RequestsController
         $own = !$req->isAdmin();
         $where = 'WHERE pr.org_id = ?' . ($own ? ' AND pr.created_by = ?' : '');
         $params = $own ? [$req->orgId(), $req->userId()] : [$req->orgId()];
+        // stock_count_id: o inverso do que Contagens.tsx já mostra (chip "Lista #N" a
+        // partir da contagem) — fecha o círculo sem tabela nova, é o mesmo vínculo.
         Http::json(Db::query(
-            "SELECT pr.*, u.name AS created_by_name, COUNT(pri.id) AS item_count
+            "SELECT pr.*, u.name AS created_by_name, COUNT(DISTINCT pri.id) AS item_count, sc.id AS stock_count_id
                FROM purchase_requests pr
                JOIN users u ON u.id = pr.created_by
                LEFT JOIN purchase_request_items pri ON pri.request_id = pr.id
+               LEFT JOIN stock_counts sc ON sc.request_id = pr.id
                {$where}
-              GROUP BY pr.id, u.name
+              GROUP BY pr.id, u.name, sc.id
               ORDER BY pr.created_at DESC",
             $params
         ));
@@ -60,6 +63,31 @@ final class RequestsController
                 $productIds[(int) $it['product_id']] = true;
             }
         }
+        // Fornecedor padrão: o "Fornecedor principal" já cadastrado no produto
+        // (products.supplier_id, editável na ficha do produto). Existe desde sempre mas
+        // nada o usava — a alocação sempre pré-selecionava o MAIS BARATO cadastrado, nunca
+        // o que o usuário registrou como o de sempre. Isso também cobre o caso mais comum
+        // de todos: produto sem NENHUM item de fornecedor vinculado (a maioria — só 16 dos
+        // 145 itens de fornecedor estão ligados a um produto) continua sem oferta com
+        // preço, mas passa a vir com o fornecedor já certo, faltando só completar o resto.
+        $defaultSupplierByProduct = [];
+        $supplierNameById = [];
+        if ($productIds) {
+            $ids = array_keys($productIds);
+            $place = Db::inClause($ids);
+            foreach (Db::query("SELECT id, supplier_id FROM products WHERE id IN ({$place})", $ids) as $p) {
+                if ($p['supplier_id'] !== null) {
+                    $defaultSupplierByProduct[(int) $p['id']] = (int) $p['supplier_id'];
+                }
+            }
+            if ($defaultSupplierByProduct) {
+                $sids = array_values(array_unique($defaultSupplierByProduct));
+                $splace = Db::inClause($sids);
+                foreach (Db::query("SELECT id, name FROM suppliers WHERE id IN ({$splace})", $sids) as $s) {
+                    $supplierNameById[(int) $s['id']] = $s['name'];
+                }
+            }
+        }
         $offersByProduct = [];
         if ($productIds) {
             $ids = array_keys($productIds);
@@ -84,8 +112,8 @@ final class RequestsController
             foreach (array_merge($offers, $extras) as $o) {
                 $offersByProduct[(int) $o['product_id']][] = $o;
             }
-            foreach ($offersByProduct as &$list) {
-                self::sortOffers($list);
+            foreach ($offersByProduct as $pid => &$list) {
+                self::sortOffers($list, $defaultSupplierByProduct[$pid] ?? null);
             }
             unset($list);
         }
@@ -168,10 +196,24 @@ final class RequestsController
             } else {
                 $it['offers'] = [];
             }
+            // Vai junto MESMO quando não há oferta nenhuma: é o que deixa o frontend
+            // pré-selecionar o fornecedor cadastrado no produto ainda que ninguém tenha
+            // vinculado um SKU dele — sem isso a linha nascia sempre em branco.
+            $defaultId = $pid !== null ? ($defaultSupplierByProduct[$pid] ?? null) : null;
+            $it['default_supplier_id'] = $defaultId;
+            $it['default_supplier_name'] = $defaultId !== null ? ($supplierNameById[$defaultId] ?? null) : null;
         }
         unset($it);
 
         $header['items'] = $items;
+        // Pedidos já gerados desta lista: torna persistente (sobrevive a F5) o que antes
+        // só existia em estado local do frontend logo após "Gerar pedidos" — recarregar a
+        // página perdia os links, sobrando só um texto solto avisando que a lista tinha
+        // pedido, sem dizer qual.
+        $header['order_ids'] = array_map(
+            static fn ($r) => (int) $r['id'],
+            Db::query('SELECT id FROM orders WHERE purchase_request_id = ? ORDER BY id', [$id])
+        );
         Http::json($header);
     }
 
@@ -200,7 +242,9 @@ final class RequestsController
             throw HttpError::forbidden('Lista de outro usuário');
         }
         // Funcionário (dono) edita enquanto a lista ainda não virou pedido (draft/submitted);
-        // admin edita também depois de alocada. Editar reseta as alocações (re-derivadas na tela).
+        // admin edita também depois de alocada. As alocações são PRESERVADAS: antes o
+        // DELETE+INSERT abaixo as apagava, então corrigir a quantidade de uma linha
+        // custava refazer o fornecedor de todas.
         $editable = $req->isAdmin()
             ? in_array($r['status'], ['draft', 'submitted', 'allocated'], true)
             : in_array($r['status'], ['draft', 'submitted'], true);
@@ -215,8 +259,11 @@ final class RequestsController
         Db::transaction(function (PDO $pdo) use ($id, $title, $notes, $items) {
             $pdo->prepare('UPDATE purchase_requests SET title = COALESCE(?, title), notes = ? WHERE id = ?')
                 ->execute([$title, $notes, $id]);
+            // Guarda a alocação antes do replace-all para devolvê-la às linhas equivalentes.
+            $saved = self::snapshotAllocations($pdo, $id);
             $pdo->prepare('DELETE FROM purchase_request_items WHERE request_id = ?')->execute([$id]);
             self::insertItems($pdo, $id, $items);
+            self::restoreAllocations($pdo, $id, $saved);
         });
         Http::json(self::row($id));
     }
@@ -332,12 +379,14 @@ final class RequestsController
             foreach ($bySupplier as $supplierId => $lines) {
                 // Junta com um pedido já aberto (não enviado) do mesmo fornecedor, se existir,
                 // para não gerar pedidos separados de listas diferentes (#7).
+                // org_id no filtro: sem ele, uma org podia anexar linhas ao pedido
+                // aberto de outra (todas as outras consultas do arquivo já escopam).
                 $open = $pdo->prepare(
                     "SELECT id, status FROM orders
-                      WHERE supplier_id = ? AND status IN ('draft', 'pending_approval')
+                      WHERE org_id = ? AND supplier_id = ? AND status IN ('draft', 'pending_approval')
                       ORDER BY created_at DESC LIMIT 1"
                 );
-                $open->execute([$supplierId]);
+                $open->execute([$req->orgId(), $supplierId]);
                 $existing = $open->fetch();
 
                 if ($existing) {
@@ -355,7 +404,7 @@ final class RequestsController
                 }
 
                 foreach ($lines as $line) {
-                    self::insertOrderLine($pdo, $orderId, $supplierId, $line);
+                    self::insertOrderLine($pdo, $req->orgId(), $orderId, $supplierId, $line);
                 }
                 $pdo->prepare(
                     'UPDATE orders SET total_amount = COALESCE(
@@ -371,21 +420,107 @@ final class RequestsController
 
     // ---- helpers ----
 
-    /** Insere uma linha alocada como item de pedido, criando o item no catálogo do fornecedor se necessário. */
-    private static function insertOrderLine(PDO $pdo, int $orderId, int $supplierId, array $line): void
+    /**
+     * Insere uma linha alocada como item de pedido, criando o item no catálogo do
+     * fornecedor SÓ se ele ainda não existir.
+     *
+     * A busca antes do INSERT é a garantia de verdade: mesmo que o cliente mande
+     * `alloc_item_id` nulo (foi o que aconteceu por um bug na tela de alocação, que
+     * gerou 21 itens duplicados), o mesmo par (fornecedor, nome) é reaproveitado em
+     * vez de virar uma linha nova a cada geração de pedido.
+     */
+    private static function insertOrderLine(PDO $pdo, int $orgId, int $orderId, int $supplierId, array $line): void
     {
         $itemId = $line['alloc_item_id'] !== null ? (int) $line['alloc_item_id'] : null;
         if ($itemId === null) {
             $name = trim((string) ($line['alloc_name'] ?: $line['free_text'] ?: $line['product_name']));
             $unit = $line['alloc_unit'] ?: ($line['unit'] ?: 'un');
-            $pdo->prepare(
-                'INSERT INTO items (supplier_id, product_id, name, unit, base_price) VALUES (?, ?, ?, ?, ?)'
-            )->execute([$supplierId, $line['product_id'], $name, $unit, $line['alloc_price']]);
-            $itemId = (int) $pdo->lastInsertId();
+
+            $found = $pdo->prepare(
+                'SELECT id FROM items
+                  WHERE org_id = ? AND supplier_id = ? AND LOWER(TRIM(name)) = LOWER(TRIM(?)) AND active = 1
+                  ORDER BY id LIMIT 1'
+            );
+            $found->execute([$orgId, $supplierId, $name]);
+            $hit = $found->fetch();
+
+            if ($hit) {
+                $itemId = (int) $hit['id'];
+            } else {
+                // org_id era omitido aqui: a coluna existe desde a migration 009 e caía
+                // no default 1, carimbando itens de qualquer tenant na org 1.
+                $pdo->prepare(
+                    'INSERT INTO items (org_id, supplier_id, product_id, name, unit, base_price) VALUES (?, ?, ?, ?, ?, ?)'
+                )->execute([$orgId, $supplierId, $line['product_id'], $name, $unit, $line['alloc_price']]);
+                $itemId = (int) $pdo->lastInsertId();
+            }
         }
         $pdo->prepare(
             'INSERT INTO order_items (order_id, item_id, quantity, unit_price, notes) VALUES (?, ?, ?, ?, ?)'
         )->execute([$orderId, $itemId, $line['quantity'], $line['alloc_price'] ?? 0, $line['notes']]);
+    }
+
+    /**
+     * Identidade de uma linha para efeito de preservar alocação entre edições.
+     * Usa o que define "o mesmo item pedido": produto canônico, item de origem ou
+     * o texto livre digitado.
+     */
+    private static function allocKey(array $row): string
+    {
+        return ($row['product_id'] ?? '') . '|' . ($row['source_item_id'] ?? '')
+            . '|' . mb_strtolower(trim((string) ($row['free_text'] ?? '')));
+    }
+
+    /**
+     * Alocações atuais indexadas por allocKey().
+     * Chave ambígua (duas linhas do mesmo produto) é DESCARTADA: sem saber para qual
+     * linha a alocação volta, devolver ao acaso seria pior do que pedir de novo.
+     * @return array<string,array>
+     */
+    private static function snapshotAllocations(PDO $pdo, int $requestId): array
+    {
+        $rows = $pdo->prepare(
+            'SELECT product_id, source_item_id, free_text, alloc_supplier_id, alloc_item_id, alloc_name, alloc_unit, alloc_price
+               FROM purchase_request_items WHERE request_id = ? AND alloc_supplier_id IS NOT NULL'
+        );
+        $rows->execute([$requestId]);
+
+        $out = [];
+        $ambiguas = [];
+        foreach ($rows->fetchAll() as $r) {
+            $k = self::allocKey($r);
+            if (isset($out[$k])) {
+                $ambiguas[$k] = true;
+                continue;
+            }
+            $out[$k] = $r;
+        }
+        foreach (array_keys($ambiguas) as $k) {
+            unset($out[$k]);
+        }
+        return $out;
+    }
+
+    /** Devolve as alocações guardadas às linhas recém-inseridas de mesma identidade. */
+    private static function restoreAllocations(PDO $pdo, int $requestId, array $saved): void
+    {
+        if (!$saved) {
+            return;
+        }
+        $rows = $pdo->prepare('SELECT id, product_id, source_item_id, free_text FROM purchase_request_items WHERE request_id = ?');
+        $rows->execute([$requestId]);
+
+        $upd = $pdo->prepare(
+            'UPDATE purchase_request_items
+                SET alloc_supplier_id = ?, alloc_item_id = ?, alloc_name = ?, alloc_unit = ?, alloc_price = ?
+              WHERE id = ?'
+        );
+        foreach ($rows->fetchAll() as $r) {
+            $a = $saved[self::allocKey($r)] ?? null;
+            if ($a) {
+                $upd->execute([$a['alloc_supplier_id'], $a['alloc_item_id'], $a['alloc_name'], $a['alloc_unit'], $a['alloc_price'], $r['id']]);
+            }
+        }
     }
 
     /** Gate de tenant quando $orgId é informado (entradas públicas); null = uso interno já gated. */
@@ -477,9 +612,22 @@ final class RequestsController
     }
 
     /** Ordena ofertas: com preço primeiro (mais barato), depois por fornecedor. */
-    private static function sortOffers(array &$list): void
+    /**
+     * Ordena ofertas: o fornecedor PADRÃO do produto primeiro (se informado e presente
+     * entre as ofertas), depois preço (mais barato primeiro), por fim nome. O padrão
+     * ganha de qualquer preço de propósito — é uma escolha registrada, não um achado
+     * automático, e o usuário não deveria ter que trocar de volta toda lista.
+     */
+    private static function sortOffers(array &$list, ?int $defaultSupplierId = null): void
     {
-        usort($list, static function ($a, $b) {
+        usort($list, static function ($a, $b) use ($defaultSupplierId) {
+            if ($defaultSupplierId !== null) {
+                $da = (int) $a['supplier_id'] === $defaultSupplierId;
+                $db = (int) $b['supplier_id'] === $defaultSupplierId;
+                if ($da !== $db) {
+                    return $da ? -1 : 1;
+                }
+            }
             $pa = $a['base_price'];
             $pb = $b['base_price'];
             if (($pa === null) !== ($pb === null)) {

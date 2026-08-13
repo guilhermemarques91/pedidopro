@@ -1,4 +1,4 @@
-import { ReactNode, ButtonHTMLAttributes, InputHTMLAttributes, SelectHTMLAttributes, TextareaHTMLAttributes, useEffect, useId, useRef, useState } from 'react';
+import { ReactNode, ButtonHTMLAttributes, HTMLAttributes, InputHTMLAttributes, KeyboardEvent as ReactKeyboardEvent, SelectHTMLAttributes, TextareaHTMLAttributes, forwardRef, useEffect, useId, useRef, useState } from 'react';
 import { AlertCircle, ChevronDown, MoreVertical, Plus } from 'lucide-react';
 
 type Variant = 'primary' | 'secondary' | 'danger' | 'ghost';
@@ -42,9 +42,13 @@ const controlBase =
   'placeholder:text-slate-400 hover:border-slate-300 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/25 ' +
   'disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500';
 
-export function Input({ className = '', ...props }: InputHTMLAttributes<HTMLInputElement>) {
-  return <input className={`${controlBase} ${className}`} {...props} />;
-}
+// forwardRef: telas de lançamento em série (pedido, lista de compras) precisam focar
+// programaticamente o próximo campo depois de escolher um item — sem isso, `ref` na
+// Input não tinha onde pousar (function component simples não aceita ref).
+export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(
+  ({ className = '', ...props }, ref) => <input ref={ref} className={`${controlBase} ${className}`} {...props} />
+);
+Input.displayName = 'Input';
 
 export function Textarea({ className = '', ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return <textarea className={`${controlBase} py-2.5 leading-relaxed ${className}`} {...props} />;
@@ -60,9 +64,17 @@ export function Select({ className = '', children, ...props }: SelectHTMLAttribu
 
 export interface ComboOption { value: string; label: string; hint?: string }
 
-/** Select com filtro por texto digitado. Com `onCreate`, permite criar um item pelo texto buscado. */
+/**
+ * Select com filtro por texto digitado. Com `onCreate`, permite criar um item pelo texto buscado.
+ *
+ * `autoFocus`: nasce com o popover já aberto e o campo de busca focado — usado em listas de
+ * lançamento (pedido, lista de compras) onde cada linha nova devia estar pronta pra digitar sem
+ * um clique extra. Só lido no PRIMEIRO render (via `useState(() => ...)`); mudar o prop depois de
+ * montado não reabre o popover sozinho — é assim que só a linha recém-criada abre, sem reabrir as
+ * que o usuário já preencheu e fechou.
+ */
 export function Combobox({
-  options, value, onChange, placeholder = 'Buscar…', disabled = false, onCreate,
+  options, value, onChange, placeholder = 'Buscar…', disabled = false, onCreate, autoFocus = false,
 }: {
   options: ComboOption[];
   value: string;
@@ -70,8 +82,9 @@ export function Combobox({
   placeholder?: string;
   disabled?: boolean;
   onCreate?: (label: string) => void;
+  autoFocus?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(() => autoFocus);
   const [search, setSearch] = useState('');
   const ref = useRef<HTMLDivElement>(null);
 
@@ -92,6 +105,32 @@ export function Combobox({
     : options;
   // Oferece criar quando há texto digitado sem correspondência exata de nome.
   const canCreate = !!onCreate && q.length > 0 && !options.some((o) => o.label.toLowerCase() === q);
+
+  /**
+   * Enter aceita o primeiro resultado filtrado (ou cria, se não houver nenhum) — o
+   * `preventDefault()` é o que importa de verdade aqui: sem ele, o Enter escapava pro
+   * `<form>` que envolve as telas de lançamento e SUBMETIA o formulário inteiro, fechando a
+   * janela no meio do lançamento (o campo de busca era o único da tela sem essa trava —
+   * Quantidade/Preço já tinham). Escape fecha só o popover, sem deixar o Modal por trás
+   * também fechar com a mesma tecla.
+   */
+  function onSearchKeyDown(e: ReactKeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (filtered.length > 0) {
+        onChange(filtered[0].value);
+        setOpen(false);
+      } else if (canCreate) {
+        onCreate!(search.trim());
+        setSearch('');
+        setOpen(false);
+      }
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      setOpen(false);
+    }
+  }
 
   return (
     <div className="relative" ref={ref}>
@@ -116,6 +155,7 @@ export function Combobox({
               autoFocus
               value={search}
               onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={onSearchKeyDown}
               placeholder="Digite para filtrar…"
               className="w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-emerald-500"
             />
@@ -220,10 +260,13 @@ export function Field({ label, children }: { label: string; children: ReactNode 
   );
 }
 
-export function Card({ className = '', children, onClick }: { className?: string; children: ReactNode; onClick?: () => void }) {
+// `...rest` repassa atributos de div (data-*, aria-*, role…): sem isso não dava
+// para marcar um cartão como alvo de rolagem/seleção do teclado sem envolvê-lo
+// num div extra só para carregar o atributo.
+export function Card({ className = '', children, onClick, ...rest }: HTMLAttributes<HTMLDivElement>) {
   return (
     // Raio maior + sombra em camadas: o cartão "descola" do fundo sem borda pesada.
-    <div className={`rounded-2xl border border-slate-200/80 bg-white p-5 shadow-[var(--shadow-sm)] ${className}`} onClick={onClick}>
+    <div className={`rounded-2xl border border-slate-200/80 bg-white p-5 shadow-[var(--shadow-sm)] ${className}`} onClick={onClick} {...rest}>
       {children}
     </div>
   );

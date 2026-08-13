@@ -79,11 +79,12 @@ final class MarmitexWaController
 
         Db::execute(
             'INSERT INTO marmitex_wa_configs
-                (company_id, enabled, group_jid, mode, list_replaces, auto_apply, auto_apply_after_cutoff,
+                (company_id, enabled, group_jid, mode, ai_first, list_replaces, auto_apply, auto_apply_after_cutoff,
                  confirm_reply, default_size_id, ownerless_size_ids, aliases_json, ai_instructions, enabled_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON DUPLICATE KEY UPDATE
                 enabled = VALUES(enabled), group_jid = VALUES(group_jid), mode = VALUES(mode),
+                ai_first = VALUES(ai_first),
                 list_replaces = VALUES(list_replaces), auto_apply = VALUES(auto_apply),
                 auto_apply_after_cutoff = VALUES(auto_apply_after_cutoff), confirm_reply = VALUES(confirm_reply),
                 default_size_id = VALUES(default_size_id), ownerless_size_ids = VALUES(ownerless_size_ids),
@@ -91,6 +92,7 @@ final class MarmitexWaController
                 ai_instructions = VALUES(ai_instructions), enabled_at = VALUES(enabled_at)',
             [
                 $companyId, $enabled, $jid, $mode,
+                $in->boolean('ai_first', false) ? 1 : 0,
                 $in->boolean('list_replaces', true) ? 1 : 0,
                 $in->boolean('auto_apply', false) ? 1 : 0,
                 $in->boolean('auto_apply_after_cutoff', false) ? 1 : 0,
@@ -196,9 +198,9 @@ final class MarmitexWaController
         $data = self::lineInput($req, (int) $draft['company_id']);
         Db::execute(
             'INSERT INTO marmitex_wa_draft_lines
-                (draft_id, message_id, line_index, raw_text, person_name, size_id, protein_id, side_ids_json, observation, status)
-             VALUES (?, NULL, 0, NULL, ?, ?, ?, ?, ?, \'ok\')',
-            [$draft['id'], $data['person_name'], $data['size_id'], $data['protein_id'],
+                (draft_id, message_id, line_index, raw_text, person_name, size_id, protein_id, protein2_id, side_ids_json, observation, status)
+             VALUES (?, NULL, 0, NULL, ?, ?, ?, ?, ?, ?, \'ok\')',
+            [$draft['id'], $data['person_name'], $data['size_id'], $data['protein_id'], $data['protein2_id'],
                 json_encode($data['side_ids'], JSON_UNESCAPED_UNICODE), $data['observation']]
         );
         self::reopen((int) $draft['id']);
@@ -213,10 +215,10 @@ final class MarmitexWaController
         $data = self::lineInput($req, (int) $draft['company_id']);
         Db::execute(
             "UPDATE marmitex_wa_draft_lines
-                SET person_name = ?, size_id = ?, protein_id = ?, side_ids_json = ?, observation = ?,
+                SET person_name = ?, size_id = ?, protein_id = ?, protein2_id = ?, side_ids_json = ?, observation = ?,
                     status = 'ok', issues_json = NULL
               WHERE id = ?",
-            [$data['person_name'], $data['size_id'], $data['protein_id'],
+            [$data['person_name'], $data['size_id'], $data['protein_id'], $data['protein2_id'],
                 json_encode($data['side_ids'], JSON_UNESCAPED_UNICODE), $data['observation'], $line['id']]
         );
         self::reopen((int) $draft['id']);
@@ -359,6 +361,13 @@ final class MarmitexWaController
         if ($proteinId !== null && !isset($proteins[$proteinId])) {
             throw HttpError::badRequest('Proteína inválida');
         }
+        $protein2Id = $in->integer('protein2_id') ?: null;
+        if ($protein2Id !== null && !isset($proteins[$protein2Id])) {
+            throw HttpError::badRequest('Segunda proteína inválida');
+        }
+        if ($protein2Id !== null && $protein2Id === $proteinId) {
+            $protein2Id = null; // a mesma proteína duas vezes é uma só
+        }
         $sideIds = [];
         foreach ($in->intArray('side_ids') as $sid) {
             if (!isset($sides[$sid])) {
@@ -375,6 +384,7 @@ final class MarmitexWaController
             'person_name' => mb_substr($person, 0, 150),
             'size_id' => $sizeId,
             'protein_id' => $proteinId,
+            'protein2_id' => $protein2Id,
             'side_ids' => array_values(array_unique($sideIds)),
             'observation' => $in->string('observation') ? mb_substr((string) $in->string('observation'), 0, 255) : null,
         ];
@@ -414,6 +424,7 @@ final class MarmitexWaController
             'enabled' => 0,
             'group_jid' => '',
             'mode' => 'incremental',
+            'ai_first' => 0,
             'list_replaces' => 1,
             'auto_apply' => 0,
             'auto_apply_after_cutoff' => 0,

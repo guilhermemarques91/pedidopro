@@ -106,6 +106,11 @@ export interface Product {
   image_data?: string | null;  // foto (data URL base64, thumbnail leve)
   stock_qty?: string;          // saldo atual (etapa 2 do estoque)
   avg_cost?: string | null;    // custo médio ponderado
+  incoming?: number;           // já comprado e ainda não recebido (entradas aguardando)
+  /** null nos tipos que não se compram (prato/combo) — o saldo deles vem da ficha técnica. */
+  stock_status?: ReplenishStatus | null;
+  daily_usage?: number | null;
+  days_left?: number | null;
   // Reposição: parâmetros usados pela contagem para sugerir a compra
   min_stock?: string | null;   // ponto de pedido (abaixo disso = crítico)
   max_stock?: string | null;   // alvo de reposição (a compra repõe até aqui)
@@ -138,9 +143,80 @@ export interface StockMove {
   unit_cost: string | null;
   balance_after: string;
   ref: string | null;
+  /** Motivo estruturado do lançamento manual (perda, consumo interno…). Ver MOVE_REASONS. */
+  reason?: MoveReason | null;
   notes: string | null;
   user_name?: string | null;
   created_at: string;
+}
+
+/** Motivos de lançamento manual — espelho de StockController::REASONS. */
+export type MoveReason =
+  | 'compra' | 'devolucao'
+  | 'perda_vencimento' | 'perda_quebra' | 'perda_preparo'
+  | 'consumo_interno' | 'degustacao'
+  | 'acerto_inventario' | 'transferencia';
+
+export interface StockMovesPage {
+  moves: StockMove[];
+  totals: { moves: number; qty_in: string; qty_out: string; value_in: string; value_out: string };
+  reasons: Record<string, string>;
+}
+
+// ---- Entrada de mercadoria (o pedido vira estoque quando a nota confirma) ----
+export type ReceiptStatus = 'aguardando' | 'conferida' | 'cancelada';
+export type ReceiptSource = 'pedido' | 'nfe' | 'nota_ia' | 'manual';
+/** ok = casou e bate com o pedido; divergente = veio diferente; pendente_vinculo = sem produto. */
+export type ReceiptLineStatus = 'ok' | 'divergente' | 'pendente_vinculo' | 'nao_veio';
+
+export interface StockReceiptItem {
+  id: number;
+  receipt_id: number;
+  order_item_id: number | null;
+  item_id: number | null;
+  product_id: number | null;
+  product_name?: string | null;
+  product_unit?: string | null;
+  stock_qty?: string | null;
+  doc_code: string | null;
+  doc_name: string | null;
+  doc_unit: string | null;
+  qty_expected: string | null;    // o que o pedido dizia
+  price_expected: string | null;
+  qty_received: string | null;    // o que a nota diz
+  price_received: string | null;
+  status: ReceiptLineStatus;
+  sort_order: number;
+}
+
+export interface StockReceipt {
+  id: number;
+  supplier_id: number | null;
+  supplier_name?: string | null;
+  order_id: number | null;
+  order_status?: string | null;
+  status: ReceiptStatus;
+  source: ReceiptSource;
+  doc_number: string | null;
+  doc_key: string | null;
+  doc_date: string | null;
+  doc_total: string | null;
+  notes: string | null;
+  created_at: string;
+  confirmed_at: string | null;
+  line_count?: number;
+  pending_count?: number;
+  diverging_count?: number;
+  items?: StockReceiptItem[];
+}
+
+/** Linha crua devolvida pela IA ao ler a foto da nota — rascunho, ninguém gravou nada. */
+export interface ScannedLine {
+  name: string;
+  unit: string;
+  price: number | null;
+  quantity: number | null;
+  notes: string | null;
 }
 
 /** Situação de reposição de uma linha da contagem (ver App\Services\Replenishment). */
@@ -153,6 +229,8 @@ export interface StockCountItem {
   product_id: number;
   product_name: string;
   category_name: string | null;
+  sub_classe_id: number | null;
+  sub_classe_name: string | null;   // grupo de prateleira: é por aqui que a folha agrupa
   supplier_name: string | null;
   unit: string | null;
   system_qty: string;        // saldo do sistema quando a folha foi aberta
@@ -171,6 +249,7 @@ export interface StockCountItem {
   suggested: number | null;
   status: ReplenishStatus;
   basis: 'minmax' | 'consumo' | 'sem_parametro';
+  incoming?: number;          // já comprado e ainda não recebido (entradas aguardando)
   unit_cost: string | null;
 }
 
@@ -203,12 +282,15 @@ export interface ReplenishRow {
   purchase_unit: string | null;
   category_name: string | null;
   type_name: string | null;
+  sub_classe_id: number | null;
+  sub_classe_name: string | null;
   stock_qty: string;
   min_stock: string | null;
   max_stock: string | null;
   pack_size: string | null;
   daily_usage: number | null;   // consumo médio diário (saídas dos últimos 30 dias)
   unit_cost: string | null;
+  incoming?: number;            // já comprado e ainda não recebido (entradas aguardando)
 }
 
 export interface ProductType {
@@ -318,6 +400,7 @@ export interface Order {
   supplier_id: number;
   supplier_name?: string;
   quotation_id: number | null;
+  purchase_request_id: number | null;   // lista de compras que gerou este pedido
   status: OrderStatus;
   total_amount: string | null;
   notes: string | null;
@@ -373,6 +456,8 @@ export interface PurchaseRequest {
   item_count?: string;
   created_at: string;
   submitted_at: string | null;
+  stock_count_id?: number | null;   // contagem de estoque que gerou esta lista, quando houver
+  order_ids?: number[];             // pedidos já gerados (só em RequestDetail)
 }
 
 export interface RequestItemOffer {
@@ -403,6 +488,10 @@ export interface RequestItem {
   alloc_unit: string | null;
   alloc_price: string | null;
   offers: RequestItemOffer[];
+  /** "Fornecedor principal" já cadastrado no produto (products.supplier_id) — quando
+   *  presente, é ele que a alocação sempre pré-seleciona, mesmo sem oferta com preço. */
+  default_supplier_id: number | null;
+  default_supplier_name: string | null;
 }
 
 export interface RequestDetail extends PurchaseRequest {
@@ -597,6 +686,9 @@ export interface MenuOption {
   erp_product_unit?: string | null;   // só leitura (vem do tree)
   sort: number;
   active: number | boolean;
+  cost?: number | null;               // custo da ficha técnica do complemento
+  cost_source?: MenuCostSource;
+  pricing?: MenuChannelPrice[];
 }
 /**
  * Classe de complementos ("Escolha sua proteína"): pertence à ORG, não a um item.
@@ -643,6 +735,26 @@ export interface MenuItemChannelLink {
   channel_name: string;
   synced_at: string | null;
 }
+/**
+ * De onde saiu (ou não saiu) o custo do item:
+ *   ok          custo veio da ficha técnica do produto vinculado
+ *   sem_vinculo item não mapeado a um produto do ERP — também não baixa estoque
+ *   sem_ficha   mapeado, mas nem ele nem a ficha dele têm custo cadastrado
+ */
+export type MenuCostSource = 'ok' | 'sem_vinculo' | 'sem_ficha';
+/** Preço praticado em UM canal e o que sobra ali, já descontada a comissão. */
+export interface MenuChannelPrice {
+  channel_id: number;
+  channel_name: string;
+  platform: DeliveryPlatform;
+  commission_rate: number;
+  markup_pct: number | null;
+  price: number;
+  is_override: boolean;   // false = está publicando o preço base do cardápio
+  net_price: number;
+  margin: number | null;
+  margin_pct: number | null;
+}
 export interface MenuItem {
   id: number;
   category_id: number;
@@ -660,6 +772,10 @@ export interface MenuItem {
   active: number | boolean;
   groups: MenuOptionGroup[];
   channels?: MenuItemChannelLink[];
+  cost?: number | null;              // custo da ficha técnica, por unidade vendida
+  cost_source?: MenuCostSource;
+  cost_missing?: string[];           // insumos sem custo cadastrado (margem incompleta)
+  pricing?: MenuChannelPrice[];
 }
 export interface MenuCategory {
   id: number;
@@ -761,6 +877,52 @@ export interface ReportItem {
   avg_price: number;
 }
 
+/**
+ * Engenharia de cardápio: cada prato posicionado por popularidade × margem, contra a
+ * mediana do próprio período. `quadrant` é null quando o custo é desconhecido — sem custo
+ * não há margem, e chutar zero promoveria a estrela qualquer prato sem ficha cadastrada.
+ */
+export type MenuQuadrant = 'estrela' | 'cavalo' | 'quebra_cabeca' | 'abacaxi';
+export interface MenuEngineeringItem {
+  name: string;               // nome como veio no pedido da plataforma
+  menu_item_id: number;
+  menu_item_name: string;     // nome no cardápio mestre (pode diferir do da plataforma)
+  qty: number;
+  orders: number;
+  revenue: number;
+  net_revenue: number;        // já descontada a comissão do canal, linha a linha
+  avg_price: number;
+  cost_unit: number | null;
+  cost_total: number | null;
+  cost_source: MenuCostSource;
+  margin_total: number | null;
+  margin_unit: number | null;
+  margin_pct: number | null;
+  quadrant: MenuQuadrant | null;
+}
+export interface MenuEngineeringReport {
+  from: string;
+  to: string;
+  median_qty: number;
+  median_margin_unit: number;
+  items: MenuEngineeringItem[];
+  /** Vendeu, mas o cardápio mestre não reconhece o nome — também não baixou estoque. */
+  unmatched: { name: string; qty: number; revenue: number }[];
+  /** Totais contam SÓ os itens com custo conhecido — ver `uncovered_revenue`. */
+  totals: {
+    revenue: number;
+    net_revenue: number;
+    cost: number;
+    margin: number;
+    margin_pct: number | null;
+    costed_items: number;
+    uncosted_items: number;
+    unmatched_items: number;
+    /** Receita vendida que ficou de fora da conta (sem custo ou fora do cardápio). */
+    uncovered_revenue: number;
+  };
+}
+
 export interface ReportPerformance {
   from: string;
   to: string;
@@ -845,6 +1007,9 @@ export interface Marmita {
   size_name: string;
   protein_id: number | null;
   protein_name: string | null;
+  /** Segunda proteína da mesma marmita ("costelinha e omelete"). */
+  protein2_id: number | null;
+  protein2_name: string | null;
   // Backend decodifica para array, mas tolera string (coluna JSON crua) por robustez.
   sides_json: MarmitaSide[] | string | null;
   observation: string | null;
@@ -890,6 +1055,7 @@ export interface MarmitexOrderDetail extends MarmitexOrder {
 export interface MarmitexReportRow {
   size_name: string;
   protein_name: string | null;
+  protein2_name: string | null;
   unit_price: string;
   quantity: string;
   line_total: string;
@@ -908,6 +1074,7 @@ export interface MarmitexReportDetailRow {
   person_name: string | null;
   size_name: string;
   protein_name: string | null;
+  protein2_name: string | null;
   sides_json: MarmitaSide[] | string | null;
   observation: string | null;
   unit_price: string;
@@ -935,6 +1102,8 @@ export interface MarmitexWaConfig {
   group_jid: string;
   /** 'list' = manda a lista inteira de uma vez; 'incremental' = uma pessoa por mensagem. */
   mode: 'list' | 'incremental';
+  /** A IA lê primeiro, em vez de entrar só quando as regras não entendem. */
+  ai_first: boolean;
   /** No modo lista, reenviar a lista substitui a anterior (em vez de somar). */
   list_replaces: boolean;
   /** Grava o pedido sozinho quando entendeu 100% das linhas. */
@@ -979,6 +1148,7 @@ export interface MarmitexWaDraftLine {
   person_name: string | null;
   size_id: number | null;
   protein_id: number | null;
+  protein2_id: number | null;
   side_ids: number[];
   observation: string | null;
   status: MarmitexWaLineStatus;
@@ -1021,7 +1191,7 @@ export interface MarmitexInvoice {
 export interface MarmitexLabelData {
   company: { id: number; name: string } | null;
   date: string;
-  marmitas: Pick<Marmita, 'id' | 'person_name' | 'size_name' | 'protein_name' | 'sides_json' | 'observation'>[];
+  marmitas: Pick<Marmita, 'id' | 'person_name' | 'size_name' | 'protein_name' | 'protein2_name' | 'sides_json' | 'observation'>[];
 }
 
 // ---- Vendas (balcão, retirada, mesas e comandas) ----
@@ -1456,4 +1626,34 @@ export interface FinOverviewResponse {
   current: (FinDreTotals & { ref_month: string }) | null;
   previous: (FinDreTotals & { ref_month: string }) | null;
   warnings: FinWarning[];
+}
+
+// --- Caixa de entrada do WhatsApp (janela flutuante da barra superior) ---
+
+export interface WaChat {
+  id: number;
+  remote_jid: string;
+  name: string | null;
+  is_group: 0 | 1;
+  last_message_at: string | null;
+  last_preview: string | null;
+  last_from_me: 0 | 1;
+  unread_count: number;
+}
+
+export interface WaMessage {
+  id: number;
+  message_key: string;
+  from_me: 0 | 1;
+  sender_name: string | null;
+  type: 'text' | 'image' | 'video' | 'audio' | 'document' | 'sticker' | 'location' | 'contact' | 'other';
+  body: string | null;
+  message_ts: string | null;
+}
+
+/** Resposta do polling curto: só o delta, nunca a lista de mensagens. */
+export interface WaUpdates {
+  lastId: number;
+  unreadTotal: number;
+  changed: (Pick<WaChat, 'id' | 'name' | 'remote_jid' | 'is_group' | 'unread_count' | 'last_preview' | 'last_message_at'> & { novas: number })[];
 }

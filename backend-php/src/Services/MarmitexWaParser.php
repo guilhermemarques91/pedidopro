@@ -28,6 +28,13 @@ use App\Modules\Marmitex\MarmitexResolver;
  * devolve TEXTO, nunca id: quem converte texto em item é o MarmitexResolver,
  * contra o cardápio efetivo da empresa. Invenção do modelo vira linha duvidosa na
  * revisão, não marmita errada na produção.
+ *
+ * Na empresa em que cada funcionário escreve do seu jeito (`ai_first`), a ordem se
+ * inverte: a IA lê primeiro. As regras acima dependem de POSIÇÃO — o nome está numa
+ * linha sem item de cardápio, no fim do bloco — e quando não há posição fixa elas
+ * erram sem avisar: `readBlock` só devolve null quando não achou nada, nunca quando
+ * achou a coisa errada. Modelo lendo texto curto e solto é melhor nisso, e agora tem
+ * a mesma rede que o cardápio: o elenco da empresa confere o nome no resolver.
  */
 final class MarmitexWaParser
 {
@@ -51,6 +58,14 @@ final class MarmitexWaParser
     private const CHUNK_CHARS = 700;
 
     /**
+     * Quantos nomes do elenco cabem no prompt. Passar a lista muda o trabalho do
+     * modelo de "invente o nome que está no texto" para "escolha entre estes" — é o
+     * que um modelo pequeno faz bem. Mas lista longa demais come o contexto e ele
+     * começa a perder o pedido: 40 cobre uma empresa inteira com folga.
+     */
+    private const PROMPT_ROSTER_MAX = 40;
+
+    /**
      * @return array<int,array{action:string,person_name:?string,size:?string,protein:?string,sides:string[],observation:?string,raw:string,by:string}>
      */
     public static function parse(array $cfg, string $text): array
@@ -59,7 +74,8 @@ final class MarmitexWaParser
         $aliases = MarmitexWaIngest::aliases($cfg);
         $menu = MarmitexResolver::menu($companyId);
         $terms = self::terms($menu, $aliases);
-        $rulesFirst = Env::bool('MARMITEX_WA_RULES_FIRST', true);
+        $rulesFirst = Env::bool('MARMITEX_WA_RULES_FIRST', true)
+            && (int) ($cfg['ai_first'] ?? 0) !== 1;
 
         $out = [];
         $forAi = [];
@@ -105,15 +121,27 @@ final class MarmitexWaParser
         }
 
         if ($forAi) {
-            $ai = self::byAi($cfg, $menu, implode("\n\n", $forAi));
+            $aiText = implode("\n\n", $forAi);
+            $ai = self::byAi($cfg, $menu, $aiText);
+            // Cada leitor no que sabe fazer. Tamanho é onde o modelo pequeno mais
+            // escorrega — medido: "uma marmita G de carne de panela" volta como Médio,
+            // e volta limpo, sem pendência nenhuma para segurar a linha (Grande R$23
+            // virando Médio R$21 sem ninguém ver). A regra não erra isso: "G" é apelido
+            // cadastrado da empresa, casamento exato. Então quando o texto cita UM
+            // tamanho só, quem manda é a regra, e o modelo fica com o que faz melhor
+            // que ela — achar o nome da pessoa em qualquer canto da frase.
+            $anchor = self::soleSize($aiText, $terms);
             foreach ($ai['rows'] as $row) {
+                if ($anchor !== null && $row['action'] === 'add') {
+                    $row['size'] = $anchor;
+                }
                 $out[] = $row;
             }
             // IA fora do ar: não pode sumir pedido. Cada bloco não lido vira uma
             // linha vazia — cai como dúvida na revisão, com o texto original à vista.
             if ($ai['failed']) {
                 foreach ($forAi as $blockText) {
-                    $out[] = self::row(null, null, null, [], null, $blockText, 'nao-lido');
+                    $out[] = self::row(null, null, null, null, [], null, $blockText, 'nao-lido');
                 }
             }
         }
@@ -242,18 +270,20 @@ final class MarmitexWaParser
         // Com item identificado mas sem dono (a bebida do pedido, por exemplo), a linha
         // vale mais preenchida do que descartada: vira dúvida na revisão já com o item.
 
-        // O modelo guarda UMA proteína por marmita. Quando pedem duas ("carne de
-        // panela e omelete"), a segunda entra na observação — sai na etiqueta e no
-        // relatório detalhado, mas NÃO baixa estoque pela ficha técnica.
+        // Duas proteínas cabem na marmita ("carne de panela e omelete"): as duas viram
+        // campo, baixam estoque pela ficha técnica e saem na etiqueta separadas do
+        // recado de cozinha. Da terceira em diante não há onde guardar — vai para a
+        // observação, que ao menos chega na cozinha.
         $obs = array_merge($notes, array_map(
             static fn ($p) => '+ ' . $p,
-            array_slice($proteins, 1)
+            array_slice($proteins, 2)
         ));
 
         return self::row(
             $person,
             $size,
             $proteins[0] ?? null,
+            $proteins[1] ?? null,
             $sides,
             $obs ? implode(' · ', $obs) : null,
             implode(' ', $lines),
@@ -291,6 +321,37 @@ final class MarmitexWaParser
         }
         $name = trim(implode(' ', $keep));
         return $name === '' ? null : mb_substr($name, 0, 150);
+    }
+
+    /**
+     * O tamanho citado no texto, quando é um só.
+     *
+     * Dois tamanhos na mesma mensagem ("uma G pra mim e uma P pro Pedro") não têm
+     * resposta única: aí quem distribui é o modelo, que sabe de quem é cada uma.
+     */
+    private static function soleSize(string $text, array $terms): ?string
+    {
+        $words = self::tokenize($text);
+        $used = array_fill(0, count($words), false);
+        $found = [];
+        foreach ($terms as [$termNorm, $kind, $name]) {
+            if ($kind !== 'size') {
+                continue;
+            }
+            $termWords = explode(' ', $termNorm);
+            $n = count($termWords);
+            for ($i = 0; $i + $n <= count($words); $i++) {
+                if (!self::matchAt($words, $used, $i, $termWords)) {
+                    continue;
+                }
+                $found[$name] = true;
+                for ($k = 0; $k < $n; $k++) {
+                    $used[$i + $k] = true;
+                }
+                $i += $n - 1;
+            }
+        }
+        return count($found) === 1 ? (string) array_key_first($found) : null;
     }
 
     private static function mentionsMenu(string $line, array $terms): bool
@@ -386,7 +447,7 @@ final class MarmitexWaParser
         if ($who === '') {
             return null;
         }
-        $row = self::row(self::original($line, $who), null, null, [], null, $line, 'regras');
+        $row = self::row(self::original($line, $who), null, null, null, [], null, $line, 'regras');
         $row['action'] = 'cancel';
         return $row;
     }
@@ -433,14 +494,15 @@ final class MarmitexWaParser
         return $out;
     }
 
-    /** @return array{action:string,person_name:?string,size:?string,protein:?string,sides:string[],observation:?string,raw:string,by:string} */
-    private static function row(?string $person, ?string $size, ?string $protein, array $sides, ?string $obs, string $raw, string $by): array
+    /** @return array{action:string,person_name:?string,size:?string,protein:?string,protein2:?string,sides:string[],observation:?string,raw:string,by:string} */
+    private static function row(?string $person, ?string $size, ?string $protein, ?string $protein2, array $sides, ?string $obs, string $raw, string $by): array
     {
         return [
             'action' => 'add',
             'person_name' => $person,
             'size' => $size,
             'protein' => $protein,
+            'protein2' => $protein2,
             'sides' => array_values(array_unique($sides)),
             'observation' => $obs,
             'raw' => mb_substr(trim($raw), 0, 500),
@@ -490,14 +552,19 @@ final class MarmitexWaParser
             // Sem ênfase em caixa alta: modelo pequeno copia a palavra destacada do
             // prompt para dentro do campo (visto na prática: size = "EXCLUSIVAMENTE").
             'Você lê mensagens de WhatsApp de um grupo de empresa pedindo marmitas (Brasil).',
-            'Cada marmita pertence a uma pessoa. O nome costuma vir junto do pedido, mas às vezes',
-            'aparece sozinho numa linha logo depois dele — nesse caso é o dono daquele pedido.',
-            'Sem nome identificável, use person_name null.',
+            'Cada marmita pertence a uma pessoa, e o nome pode estar em qualquer lugar da mensagem:',
+            'na primeira linha, na última, sozinho numa linha ou no meio da frase. Não existe posição fixa —',
+            'procure o nome no texto inteiro. Quem escreveu pode estar pedindo para outra pessoa: vale o nome',
+            'escrito na mensagem, não quem enviou. Sem nome identificável, use person_name null.',
+            // Sem esta linha o modelo largava o pedido sem dono quando a pessoa assinava
+            // depois de uma despedida ("Obrigada, / Camila Ribeiro") — ele lia a saudação
+            // como conversa e jogava a linha fora junto.
+            'Um nome próprio no fim da mensagem, mesmo depois de "obrigado", "abraço" ou "att", é a assinatura de quem pediu: use esse nome em person_name.',
             'Os campos size, protein e sides só aceitam valores destas listas:',
             'size: ' . $names($menu['sizes']),
             'protein: ' . $names($menu['proteins']),
             'sides: ' . $names($menu['sides']),
-            'Se pedirem duas proteínas na mesma marmita, ponha a primeira em protein e a outra em observation.',
+            'Se pedirem duas proteínas na mesma marmita ("costelinha e omelete"), ponha a primeira em protein e a segunda em protein2. Uma proteína só: protein2 é null.',
         ];
 
         $pairs = [];
@@ -508,6 +575,19 @@ final class MarmitexWaParser
         }
         if ($pairs) {
             $lines[] = 'Abreviações usadas por esta empresa: ' . implode(', ', $pairs) . '.';
+        }
+
+        // O elenco entra como pista, não como enum: quem chegou esta semana ainda não
+        // está nele, e forçar o encaixe daria a marmita dela para um colega. Nome de
+        // fora passa como está escrito e o resolver segura a linha para revisão.
+        $roster = array_slice(
+            array_values(MarmitexResolver::roster((int) $cfg['company_id'])),
+            0,
+            self::PROMPT_ROSTER_MAX
+        );
+        if ($roster) {
+            $lines[] = 'Quem costuma pedir nesta empresa: ' . implode(' | ', $roster) . '.';
+            $lines[] = 'Se o nome no texto for um destes, copie a grafia da lista. Se for outra pessoa, copie como está escrito na mensagem — não troque por um nome parecido da lista.';
         }
 
         // Modelo pequeno precisa da regra explícita: com o enum solto ele escolhia
@@ -543,11 +623,12 @@ final class MarmitexWaParser
                             'person_name' => ['type' => ['string', 'null']],
                             'size' => ['type' => ['string', 'null']],
                             'protein' => ['type' => ['string', 'null']],
+                            'protein2' => ['type' => ['string', 'null']],
                             'sides' => ['type' => 'array', 'items' => ['type' => 'string']],
                             'observation' => ['type' => ['string', 'null']],
                             'quantity' => ['type' => ['integer', 'null']],
                         ],
-                        'required' => ['action', 'person_name', 'size', 'protein', 'sides', 'observation', 'quantity'],
+                        'required' => ['action', 'person_name', 'size', 'protein', 'protein2', 'sides', 'observation', 'quantity'],
                     ],
                 ],
             ],
@@ -572,6 +653,7 @@ final class MarmitexWaParser
                 self::text($r['person_name'] ?? null, 150),
                 self::text($r['size'] ?? null, 80),
                 self::text($r['protein'] ?? null, 120),
+                self::text($r['protein2'] ?? null, 120),
                 self::stringList($r['sides'] ?? null),
                 self::text($r['observation'] ?? null, 255),
                 // O texto de origem vem de nós, não do modelo: pedir que ele repetisse
@@ -635,6 +717,7 @@ final class MarmitexWaParser
         sort($sides);
         return MarmitexResolver::norm((string) $r['size']) . '|'
             . MarmitexResolver::norm((string) $r['protein']) . '|'
+            . MarmitexResolver::norm((string) $r['protein2']) . '|'
             . MarmitexResolver::norm(implode(',', $sides));
     }
 

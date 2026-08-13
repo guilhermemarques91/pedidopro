@@ -6,7 +6,7 @@ import { apiError } from '../../../services/api';
 import type { MarmitexReport, MarmitexReportDetail } from '../../../types';
 import { PageHeader } from '../../../components/PageHeader';
 import { Button, Card, Field, Select, Spinner, ErrorBox, EmptyState } from '../../../components/ui';
-import { brl, parseSides } from '../../../utils/format';
+import { brl, parseSides, proteinLabel } from '../../../utils/format';
 
 const dmy = (d: string) => d.split('-').reverse().join('/');
 
@@ -20,7 +20,7 @@ function DetailTable({ data }: { data: MarmitexReportDetail }) {
       dmy(r.service_date),
       r.person_name ?? '',
       r.size_name,
-      r.protein_name ?? '',
+      proteinLabel(r.protein_name, r.protein2_name),
       parseSides(r.sides_json).map((s) => s.name).join(', '),
       r.observation ?? '',
       String(r.unit_price).replace('.', ','),
@@ -61,7 +61,7 @@ function DetailTable({ data }: { data: MarmitexReportDetail }) {
                   <td className="px-5 py-2 text-slate-500">{newDay ? dmy(r.service_date) : ''}</td>
                   <td className="px-5 py-2 font-medium text-slate-800">{r.person_name || '—'}</td>
                   <td className="px-5 py-2 text-slate-700">{r.size_name}</td>
-                  <td className="px-5 py-2 text-slate-600">{r.protein_name || '—'}</td>
+                  <td className="px-5 py-2 text-slate-600">{proteinLabel(r.protein_name, r.protein2_name) || '—'}</td>
                   <td className="px-5 py-2 text-slate-500">
                     {parseSides(r.sides_json).map((s) => s.name).join(', ') || '—'}
                     {r.observation && <span className="block text-xs italic">{r.observation}</span>}
@@ -212,7 +212,7 @@ export function MarmitexReportPage() {
               {data.rows.map((r, i) => (
                 <tr key={i} className="border-b border-slate-100 last:border-0">
                   <td className="px-5 py-3 font-medium text-slate-800">{r.size_name}</td>
-                  <td className="px-5 py-3 text-slate-600">{r.protein_name || '—'}</td>
+                  <td className="px-5 py-3 text-slate-600">{proteinLabel(r.protein_name, r.protein2_name) || '—'}</td>
                   <td className="px-5 py-3 text-right text-slate-700">{r.quantity}</td>
                   <td className="px-5 py-3 text-right text-slate-700">{brl(r.unit_price)}</td>
                   <td className="px-5 py-3 text-right font-medium text-slate-800">{brl(r.line_total)}</td>

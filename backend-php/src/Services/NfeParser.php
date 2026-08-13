@@ -8,7 +8,8 @@ use App\Core\HttpError;
  * Parser de XML de NF-e (modelo 55, layout 4.00). Aceita tanto o <nfeProc>
  * (nota processada, o arquivo que o fornecedor envia) quanto <NFe> puro.
  * Extrai o que interessa à entrada de estoque: emitente, número/chave/data,
- * itens (código, nome, NCM, unidade, quantidade, valor unitário) e total.
+ * itens (código, código de barras, nome, NCM, unidade, quantidade, valor
+ * unitário) e total.
  */
 final class NfeParser
 {
@@ -42,6 +43,10 @@ final class NfeParser
             $qty = (float) $p->qCom;
             $items[] = [
                 'code' => (string) $p->cProd,
+                // Código de barras do item. Emitente que não tem GTIN manda a
+                // literal "SEM GTIN" — tratar como ausente, senão viraria um
+                // "código" que casa qualquer produto com qualquer outro.
+                'ean' => self::gtin($p->cEAN ?? null) ?? self::gtin($p->cEANTrib ?? null),
                 'name' => trim((string) $p->xProd),
                 'ncm' => (string) $p->NCM,
                 'unit' => strtolower(trim((string) $p->uCom)) ?: 'un',
@@ -67,5 +72,12 @@ final class NfeParser
             'total' => isset($inf->total->ICMSTot->vNF) ? (float) $inf->total->ICMSTot->vNF : null,
             'items' => $items,
         ];
+    }
+
+    /** GTIN só vale se for numérico de 8/12/13/14 dígitos; "SEM GTIN" e afins viram null. */
+    private static function gtin(mixed $raw): ?string
+    {
+        $v = trim((string) $raw);
+        return (ctype_digit($v) && in_array(strlen($v), [8, 12, 13, 14], true)) ? $v : null;
     }
 }

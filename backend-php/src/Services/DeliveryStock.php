@@ -192,8 +192,12 @@ final class DeliveryStock
      * O casamento antigo era feito no MySQL (`LOWER(TRIM(...))` sob collation
      * accent-insensitive); dobrar o acento aqui mantém a mesma tolerância agora
      * que a comparação é em PHP.
+     *
+     * Pública porque o relatório de engenharia de cardápio precisa casar item do pedido
+     * com item do cardápio EXATAMENTE como a baixa de estoque casa. Duas normalizações
+     * diferentes dariam dois cardápios diferentes: um que consome e outro que reporta.
      */
-    private static function key(string $name): string
+    public static function key(string $name): string
     {
         $s = mb_strtolower(trim($name), 'UTF-8');
         $s = strtr($s, [
@@ -325,8 +329,13 @@ final class DeliveryStock
             if (!$demand['items'] && self::itemCount($pdo, $orderId) === 0) {
                 return;
             }
+            // A saída vai VALORIZADA (custo do insumo no momento em que ele saiu da despensa):
+            // é o que transforma stock_moves em CMV real, em vez de só um contador de peso.
+            // Em `out` o custo não mexe no custo médio — ver Stock::apply, que só recalcula
+            // avg_cost em entradas —, então carimbar aqui é seguro.
             foreach ($demand['items'] as $productId => $qty) {
-                Stock::apply($pdo, $orgId, $productId, 'out', $qty, null, "delivery:{$orderId}", null, $userId);
+                $unitCost = Costing::unitCost($pdo, $orgId, (int) $productId);
+                Stock::apply($pdo, $orgId, $productId, 'out', $qty, $unitCost, "delivery:{$orderId}", null, $userId);
             }
             if ($demand['unlinked']) {
                 error_log("[delivery stock] pedido #{$orderId}: sem vínculo no cardápio (não baixou): " . implode(', ', $demand['unlinked']));
@@ -342,6 +351,9 @@ final class DeliveryStock
             if (!self::claim($pdo, $orgId, $orderId, consumed: true)) {
                 return; // pedido inexistente ou nada a estornar
             }
+            // Sem unitCost de propósito: o estorno é uma entrada, e entrada COM custo entra
+            // no cálculo do custo médio (Stock::apply). Devolver comida cancelada não é uma
+            // compra — carimbar custo aqui contaminaria o avg_cost do insumo.
             foreach (self::demand($pdo, $orgId, $orderId)['items'] as $productId => $qty) {
                 Stock::apply($pdo, $orgId, $productId, 'in', $qty, null, "delivery:{$orderId}:estorno", null, $userId);
             }

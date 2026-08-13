@@ -6,7 +6,7 @@ import { apiError } from '../../../services/api';
 import type { MarmitexInvoice, MarmitexReportRow } from '../../../types';
 import { PageHeader } from '../../../components/PageHeader';
 import { Button, Card, Modal, IconBtn, Badge, Spinner, ErrorBox, EmptyState } from '../../../components/ui';
-import { brl, date } from '../../../utils/format';
+import { brl, date, proteinLabel } from '../../../utils/format';
 
 export function MarmitexInvoices() {
   const qc = useQueryClient();
@@ -134,7 +134,7 @@ function InvoiceDetail({ invoice, onClose }: { invoice: MarmitexInvoice; onClose
             {rows.map((r, i) => (
               <tr key={i} className="border-b border-slate-100 last:border-0">
                 <td className="py-2 font-medium text-slate-800">{r.size_name}</td>
-                <td className="py-2 text-slate-600">{r.protein_name || '—'}</td>
+                <td className="py-2 text-slate-600">{proteinLabel(r.protein_name, r.protein2_name) || '—'}</td>
                 <td className="py-2 text-right text-slate-700">{r.quantity}</td>
                 <td className="py-2 text-right text-slate-700">{brl(r.unit_price)}</td>
                 <td className="py-2 text-right font-medium text-slate-800">{brl(r.line_total)}</td>

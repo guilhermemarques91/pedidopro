@@ -1,10 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { Truck, Package, ClipboardList, ShoppingCart } from 'lucide-react';
+import { Truck, Package, ClipboardList, ShoppingCart, AlertTriangle, PackageCheck } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
 } from 'recharts';
-import { suppliersApi, itemsApi, quotationsApi, ordersApi } from '../../services/resources';
+import { suppliersApi, itemsApi, quotationsApi, ordersApi, productsApi, receiptsApi } from '../../services/resources';
 import { brl, date } from '../../utils/format';
 import { PageHeader } from '../../components/PageHeader';
 import { StatCard } from '../../components/StatCard';
@@ -24,12 +24,18 @@ export function Dashboard() {
   const items = useQuery({ queryKey: ['items', undefined], queryFn: () => itemsApi.list() });
   const quotations = useQuery({ queryKey: ['quotations'], queryFn: quotationsApi.list });
   const orders = useQuery({ queryKey: ['orders', ''], queryFn: () => ordersApi.list() });
+  // Mesma query que a tela Produtos já carrega inteira (sem paginação): reusar em vez
+  // de um endpoint novo, e o card de crítico bate exatamente com o que a tela mostra.
+  const products = useQuery({ queryKey: ['products', {}], queryFn: () => productsApi.list() });
+  const receipts = useQuery({ queryKey: ['stock-receipts', 'aguardando'], queryFn: () => receiptsApi.list('aguardando') });
 
   if (suppliers.isLoading || orders.isLoading) return <Spinner />;
 
   const orderList = orders.data ?? [];
   const pending = orderList.filter((o) => o.status === 'pending_approval').length;
   const openQuotations = (quotations.data ?? []).filter((q) => q.status !== 'closed').length;
+  const criticalProducts = (products.data ?? []).filter((p) => p.stock_status === 'critico').length;
+  const awaitingReceipts = receipts.data?.length ?? 0;
 
   const byStatus = Object.entries(
     orderList.reduce<Record<string, number>>((acc, o) => {
@@ -62,6 +68,23 @@ export function Dashboard() {
           value={pending}
           tone={pending > 0 ? 'danger' : 'success'}
           to="/orders"
+        />
+        {/* O lado do estoque não tinha nenhum sinal aqui — só fornecedor/item/cotação/
+            pedido. Estes dois fecham o buraco: o que está no vermelho agora, e o que já
+            foi comprado mas ainda não chegou. */}
+        <StatCard
+          icon={AlertTriangle}
+          label="Produtos críticos"
+          value={products.isLoading ? '—' : criticalProducts}
+          tone={criticalProducts > 0 ? 'danger' : 'success'}
+          to="/products?estoque=critico"
+        />
+        <StatCard
+          icon={PackageCheck}
+          label="Entradas aguardando nota"
+          value={receipts.isLoading ? '—' : awaitingReceipts}
+          tone={awaitingReceipts > 0 ? 'warn' : 'default'}
+          to="/estoque/entradas"
         />
       </div>
 

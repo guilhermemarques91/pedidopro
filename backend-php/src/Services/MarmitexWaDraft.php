@@ -65,7 +65,10 @@ final class MarmitexWaDraft
 
         try {
             $lines = MarmitexWaParser::parse($cfg, (string) $msg['body']);
-            $resolved = MarmitexResolver::resolve($lines, (int) $cfg['company_id'], MarmitexWaIngest::aliases($cfg));
+            // `true` = confere o nome contra o elenco da empresa. Aqui o nome foi extraído
+            // de texto livre (regra ou IA), então é o único campo que chegaria sem nada
+            // conferindo — e nome errado só aparece quando alguém fica sem almoço.
+            $resolved = MarmitexResolver::resolve($lines, (int) $cfg['company_id'], MarmitexWaIngest::aliases($cfg), true);
             $draftId = self::mergeMessage($cfg, $msg, $lines, $resolved);
         } catch (\Throwable $e) {
             $attempts = (int) $msg['attempts'] + 1;
@@ -131,9 +134,9 @@ final class MarmitexWaDraft
 
             $insert = $pdo->prepare(
                 'INSERT INTO marmitex_wa_draft_lines
-                    (draft_id, message_id, line_index, raw_text, person_name, size_id, protein_id,
+                    (draft_id, message_id, line_index, raw_text, person_name, size_id, protein_id, protein2_id,
                      side_ids_json, observation, status, issues_json, fingerprint)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
             );
 
             foreach ($lines as $i => $line) {
@@ -166,7 +169,7 @@ final class MarmitexWaDraft
                 $insert->execute([
                     $draftId, $messageId, $i,
                     mb_substr((string) ($line['raw'] ?? ''), 0, 500) ?: null,
-                    $r['person_name'], $r['size_id'], $r['protein_id'],
+                    $r['person_name'], $r['size_id'], $r['protein_id'], $r['protein2_id'],
                     json_encode($r['side_ids'], JSON_UNESCAPED_UNICODE),
                     $r['observation'], $status,
                     $issues ? json_encode(array_values($issues), JSON_UNESCAPED_UNICODE) : null,
@@ -214,7 +217,7 @@ final class MarmitexWaDraft
         $insert->execute([
             $draftId, $messageId, $index,
             mb_substr((string) ($line['raw'] ?? ''), 0, 500) ?: null,
-            $person !== '' ? $person : null, null, null, null, null,
+            $person !== '' ? $person : null, null, null, null, null, null,
             'doubt',
             json_encode(['cancelamento sem pedido correspondente'], JSON_UNESCAPED_UNICODE),
             null,
@@ -250,6 +253,7 @@ final class MarmitexWaDraft
             MarmitexResolver::norm((string) $r['person_name']),
             (string) $r['size_id'],
             (string) ($r['protein_id'] ?? ''),
+            (string) ($r['protein2_id'] ?? ''),
             implode(',', $sides),
             MarmitexResolver::norm((string) ($r['observation'] ?? '')),
         ]));
@@ -335,6 +339,7 @@ final class MarmitexWaDraft
                 'person_name' => $l['person_name'],
                 'size_id' => (int) $l['size_id'],
                 'protein_id' => $l['protein_id'] !== null ? (int) $l['protein_id'] : null,
+                'protein2_id' => $l['protein2_id'] !== null ? (int) $l['protein2_id'] : null,
                 'side_ids' => $l['side_ids_json'] ? (array) json_decode((string) $l['side_ids_json'], true) : [],
                 'observation' => $l['observation'],
             ];

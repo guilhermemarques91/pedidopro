@@ -1,10 +1,10 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { Plus, Trash2, Pencil, UploadCloud, DownloadCloud, ChevronDown, ChevronUp, ChevronRight, Play, Pause, Search, Layers, Image as ImageIcon } from 'lucide-react';
+import { Plus, Trash2, Pencil, UploadCloud, DownloadCloud, ChevronDown, ChevronUp, ChevronRight, Play, Pause, Search, Layers, Tag, Image as ImageIcon } from 'lucide-react';
 import { channelsApi, menuApi, optionGroupsApi, productsApi } from '../../services/resources';
 import { apiError } from '../../services/api';
-import type { MenuCategory, MenuItem, MenuItemInput, MenuOption, MenuOptionGroup } from '../../types';
+import type { MenuCategory, MenuCostSource, MenuItem, MenuItemInput, MenuOption, MenuOptionGroup } from '../../types';
 import { PageHeader } from '../../components/PageHeader';
 import { Button, Card, Field, Input, Select, Spinner, ErrorBox, EmptyState, Modal } from '../../components/ui';
 import { PhotoPicker } from '../../components/PhotoPicker';
@@ -257,6 +257,7 @@ function OptionRow({ option, onChanged }: { option: MenuOption; onChanged: () =>
     <div className={`flex items-center gap-3 px-3 py-2 ${active ? '' : 'opacity-55'}`}>
       <Thumb src={option.image_data} size={36} alt={option.name} />
       <span className="min-w-0 flex-1 truncate text-sm text-slate-700">{option.name}</span>
+      <CostChip cost={option.cost} source={option.cost_source} />
       <ErpChip name={option.erp_product_name} qty={option.erp_qty} unit={option.erp_product_unit} />
       <span className="w-24 shrink-0 text-right text-sm text-slate-500">{Number(option.price) > 0 ? brl(option.price) : 'Incluso'}</span>
       <PauseToggle active={active} busy={avail.isPending} onToggle={() => avail.mutate(!active)} title="Pausar complemento" />
@@ -335,8 +336,139 @@ function PdvCodeInput({ item, onChanged }: { item: MenuItem; onChanged: () => vo
   );
 }
 
+/**
+ * Custo da ficha técnica na linha do item. O custo vem do mesmo motor que baixa o estoque
+ * (Costing → Recipe), então o que a margem diz aqui é a comida que realmente saiu.
+ */
+function CostChip({ cost, source, missing }: { cost?: number | null; source?: MenuCostSource; missing?: string[] }) {
+  if (source === undefined) return null;
+  if (source !== 'ok' || cost === null || cost === undefined) {
+    return (
+      <span
+        className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500"
+        title={
+          source === 'sem_vinculo'
+            ? 'Sem produto do ERP vinculado — não dá para saber o custo nem baixar estoque'
+            : 'Produto vinculado, mas sem ficha técnica ou sem custo de compra nos insumos'
+        }
+      >
+        sem custo
+      </span>
+    );
+  }
+  const incomplete = (missing?.length ?? 0) > 0;
+  return (
+    <span
+      className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+        incomplete ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-600'
+      }`}
+      title={
+        incomplete
+          ? `Custo INCOMPLETO — sem custo cadastrado: ${missing!.join(', ')}`
+          : 'Custo da ficha técnica por unidade vendida'
+      }
+    >
+      custo {brl(cost)}{incomplete ? ' *' : ''}
+    </span>
+  );
+}
+
+/**
+ * Preço por canal + margem líquida. Um preço só para iFood e 99Food ignora que a comissão
+ * de cada um é diferente: é o líquido, não o preço de vitrine, que paga o insumo.
+ *
+ * Campo vazio = sem override, publica o preço base. É assim que se desfaz um preço de canal.
+ */
+function PricingPanel({ item, onChanged }: { item: MenuItem; onChanged: () => void }) {
+  const rows = item.pricing ?? [];
+  const [draft, setDraft] = useState<Record<number, string>>({});
+  const [err, setErr] = useState('');
+
+  // Reflete o que voltou do servidor quando a árvore recarrega.
+  useEffect(() => {
+    setDraft(Object.fromEntries(rows.map((p) => [p.channel_id, p.is_override ? numToInput(p.price) : ''])));
+  }, [item.id, item.pricing]);
+
+  const save = useMutation({
+    mutationFn: (channelId: number) => {
+      const raw = (draft[channelId] ?? '').trim();
+      return menuApi.setChannelPrices(channelId, [
+        { entity_type: 'item', local_id: item.id, price: raw === '' ? null : parseNum(raw) },
+      ]);
+    },
+    onSuccess: () => { setErr(''); onChanged(); },
+    onError: (e) => setErr(apiError(e)),
+  });
+
+  if (rows.length === 0) {
+    return <p className="px-3 py-2 text-xs text-slate-400">Nenhum canal ativo. Cadastre em Integrações.</p>;
+  }
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-slate-200">
+      <div className="flex items-center gap-2 bg-slate-50 px-3 py-2">
+        <span className="text-sm font-semibold text-slate-700">Preço por canal</span>
+        <span className="text-xs text-slate-400">
+          vazio = publica o preço base ({brl(item.price)})
+        </span>
+      </div>
+      {err && <p className="border-b border-rose-100 bg-rose-50 px-3 py-1.5 text-xs text-rose-700">{err}</p>}
+      <table className="w-full text-sm">
+        <thead className="border-b border-slate-200 text-left text-xs text-slate-500">
+          <tr>
+            <th className="px-3 py-2 font-medium">Canal</th>
+            <th className="px-3 py-2 text-right font-medium">Comissão</th>
+            <th className="px-3 py-2 text-right font-medium">Preço</th>
+            <th className="px-3 py-2 text-right font-medium">Líquido</th>
+            <th className="px-3 py-2 text-right font-medium">Margem</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((p) => {
+            const suggestion =
+              p.markup_pct !== null && item.cost != null ? item.cost * (1 + p.markup_pct / 100) : null;
+            return (
+              <tr key={p.channel_id} className="border-b border-slate-100 last:border-0">
+                <td className="px-3 py-2 text-slate-700">
+                  {p.channel_name}
+                  {!p.is_override && <span className="ml-2 text-[10px] text-slate-400">preço base</span>}
+                </td>
+                <td className="px-3 py-2 text-right text-slate-500">{p.commission_rate}%</td>
+                <td className="px-3 py-2 text-right">
+                  <input
+                    value={draft[p.channel_id] ?? ''}
+                    onChange={(e) => setDraft((d) => ({ ...d, [p.channel_id]: e.target.value }))}
+                    onBlur={() => {
+                      const raw = (draft[p.channel_id] ?? '').trim();
+                      const current = p.is_override ? numToInput(p.price) : '';
+                      if (raw === current) return;
+                      save.mutate(p.channel_id);
+                    }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                    placeholder={suggestion !== null ? numToInput(suggestion) : numToInput(item.price)}
+                    aria-label={`Preço de ${item.name} no canal ${p.channel_name}`}
+                    title={suggestion !== null ? `Sugestão pelo markup do canal: ${brl(suggestion)}` : undefined}
+                    className="w-24 rounded-lg border border-slate-200 px-2.5 py-1 text-right text-sm text-slate-700 focus:border-emerald-400 focus:outline-none"
+                  />
+                </td>
+                <td className="px-3 py-2 text-right text-slate-500">{brl(p.net_price)}</td>
+                <td className={`px-3 py-2 text-right font-medium ${
+                  p.margin === null ? 'text-slate-400' : p.margin < 0 ? 'text-rose-600' : 'text-emerald-700'
+                }`}>
+                  {p.margin === null ? '—' : `${brl(p.margin)}${p.margin_pct !== null ? ` · ${p.margin_pct}%` : ''}`}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function ItemRow({ item, onEdit, onChanged }: { item: MenuItem; onEdit: (item: MenuItem) => void; onChanged: () => void }) {
   const [open, setOpen] = useState(false);
+  const [pricing, setPricing] = useState(false);
   const active = isActive(item.active);
   const groups = item.groups ?? [];
   const avail = useMutation({ mutationFn: (a: boolean) => menuApi.setItemAvailability(item.id, a), onSuccess: onChanged });
@@ -350,6 +482,7 @@ function ItemRow({ item, onEdit, onChanged }: { item: MenuItem; onEdit: (item: M
           </button>
           {item.description && <p className="truncate text-xs text-slate-400">{item.description}</p>}
         </div>
+        <CostChip cost={item.cost} source={item.cost_source} missing={item.cost_missing} />
         <ErpChip name={item.erp_product_name} qty={item.erp_qty} />
         {groups.length > 0 && (
           <button
@@ -363,11 +496,25 @@ function ItemRow({ item, onEdit, onChanged }: { item: MenuItem; onEdit: (item: M
             <span className={`rounded-full px-1.5 text-[11px] ${open ? 'bg-white/20' : 'bg-slate-100'}`}>{groups.length}</span>
           </button>
         )}
+        <button
+          onClick={() => setPricing((v) => !v)}
+          className={`flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition ${
+            pricing ? 'bg-slate-800 text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-50'
+          }`}
+          title="Preço e margem por canal"
+        >
+          <Tag size={12} /> Margem
+        </button>
         <span className="w-20 shrink-0 text-right text-sm font-semibold text-slate-700">{brl(item.price)}</span>
         <button onClick={() => onEdit(item)} className="shrink-0 text-slate-300 hover:text-slate-600" title="Editar item"><Pencil size={15} /></button>
         <PauseToggle active={active} busy={avail.isPending} onToggle={() => avail.mutate(!active)} title="Pausar item" />
         <PdvCodeInput item={item} onChanged={onChanged} />
       </div>
+      {pricing && (
+        <div className="mb-3 ml-6 border-l-2 border-slate-100 pl-4">
+          <PricingPanel item={item} onChanged={onChanged} />
+        </div>
+      )}
       {open && groups.length > 0 && (
         <div className="mb-3 ml-6 space-y-2 border-l-2 border-slate-100 pl-4">
           {groups.map((g) => <GroupBlock key={g.id} group={g} onChanged={onChanged} />)}

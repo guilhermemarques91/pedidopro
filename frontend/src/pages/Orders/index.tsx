@@ -1,4 +1,4 @@
-import { FormEvent, KeyboardEvent, useState } from 'react';
+import { FormEvent, KeyboardEvent, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2 } from 'lucide-react';
@@ -136,6 +136,11 @@ function OrderForm({ onClose }: { onClose: () => void }) {
   const [lines, setLines] = useState<Line[]>([{ sel: '', quantity: '1', unit_price: '' }]);
   const [notes, setNotes] = useState('');
   const [error, setError] = useState('');
+  // Linha que deve nascer com o Combobox de item já aberto — sem isso, cada linha exigia
+  // um clique manual antes de poder digitar. Começa em 0 (a primeira linha também abre
+  // sozinha assim que o fornecedor é escolhido).
+  const [activeRow, setActiveRow] = useState(0);
+  const qtyRefs = useRef<Record<number, HTMLInputElement | null>>({});
 
   const create = useMutation({
     mutationFn: async () => {
@@ -159,7 +164,15 @@ function OrderForm({ onClose }: { onClose: () => void }) {
   const total = lines.reduce((sum, l) =>
     sum + (Number(String(l.quantity).replace(',', '.')) || 0) * (Number(String(l.unit_price).replace(',', '.')) || 0), 0);
 
-  const addLine = () => setLines((ls) => [...ls, { sel: '', quantity: '1', unit_price: '' }]);
+  // Abre com o Combobox da nova linha já pronto pra digitar — é a segunda metade do
+  // "sem depender de clique": a primeira metade é o `pickItem` abaixo, que foca a
+  // Quantidade assim que o item é escolhido.
+  const addLine = () => {
+    setLines((ls) => {
+      setActiveRow(ls.length);
+      return [...ls, { sel: '', quantity: '1', unit_price: '' }];
+    });
+  };
 
   /** Enter abre a próxima linha em vez de submeter — lançamento em sequência. */
   function onEnterNewLine(e: KeyboardEvent<HTMLInputElement>) {
@@ -172,10 +185,16 @@ function OrderForm({ onClose }: { onClose: () => void }) {
   function pickItem(i: number, value: string) {
     const price = priceByValue.get(value);
     setLine(i, { sel: value, unit_price: price != null ? numToInput(price) : '' });
+    // Item escolhido (clique ou Enter no Combobox) → foco já pula pra Quantidade,
+    // sem precisar clicar nela. select() deixa o "1" padrão pronto pra sobrescrever.
+    qtyRefs.current[i]?.focus();
+    qtyRefs.current[i]?.select();
   }
   function createItem(i: number, name: string) {
     const v = `new:${name}`;
     setCreated((c) => (c.some((o) => o.value === v) ? c : [...c, { value: v, label: name, hint: 'novo item' }]));
+    qtyRefs.current[i]?.focus();
+    qtyRefs.current[i]?.select();
     setLine(i, { sel: v });
   }
 
@@ -192,7 +211,7 @@ function OrderForm({ onClose }: { onClose: () => void }) {
       <form onSubmit={submit} className="space-y-4">
         {error && <ErrorBox message={error} />}
         <Field label="Fornecedor">
-          <Select value={supplierId} onChange={(e) => { setSupplierId(e.target.value); setCreated([]); setLines([{ sel: '', quantity: '1', unit_price: '' }]); }} required>
+          <Select value={supplierId} onChange={(e) => { setSupplierId(e.target.value); setCreated([]); setLines([{ sel: '', quantity: '1', unit_price: '' }]); setActiveRow(0); }} required>
             <option value="">— selecione —</option>
             {suppliers?.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </Select>
@@ -218,16 +237,24 @@ function OrderForm({ onClose }: { onClose: () => void }) {
               return (
                 <div key={i} className="grid grid-cols-12 items-center gap-2">
                   <div className="col-span-12 sm:col-span-5">
+                    {/* key troca com o fornecedor: a linha 0 nasce ANTES de o fornecedor
+                        ser escolhido (autoFocus lido no mount seria sempre false), então
+                        sem isso ela nunca reabriria sozinha ao escolher o fornecedor —
+                        `autoFocus` só é lido na primeira renderização de cada instância. */}
                     <Combobox
+                      key={`${supplierId}-${i}`}
                       options={itemOptions}
                       value={l.sel}
                       onChange={(v) => pickItem(i, v)}
                       onCreate={(name) => createItem(i, name)}
                       disabled={!supplierId}
                       placeholder="Buscar item ou criar…"
+                      autoFocus={i === activeRow && !!supplierId}
                     />
                   </div>
-                  <Input value={l.quantity} onChange={(e) => setLine(i, { quantity: e.target.value })} onKeyDown={onEnterNewLine} placeholder="Qtd" inputMode="decimal" aria-label="Quantidade" className="col-span-4 text-right sm:col-span-2" />
+                  <Input
+                    ref={(el) => { qtyRefs.current[i] = el; }}
+                    value={l.quantity} onChange={(e) => setLine(i, { quantity: e.target.value })} onKeyDown={onEnterNewLine} placeholder="Qtd" inputMode="decimal" aria-label="Quantidade" className="col-span-4 text-right sm:col-span-2" />
                   <Input value={l.unit_price} onChange={(e) => setLine(i, { unit_price: e.target.value })} onKeyDown={onEnterNewLine} placeholder="Preço" inputMode="decimal" aria-label="Preço unitário" className="col-span-4 text-right sm:col-span-2" />
                   {/* Subtotal por linha: confere o cálculo item a item sem calculadora. */}
                   <span className="col-span-3 text-right text-sm font-medium text-slate-700 sm:col-span-2">

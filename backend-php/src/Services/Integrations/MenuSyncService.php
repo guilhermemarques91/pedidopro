@@ -100,6 +100,31 @@ final class MenuSyncService
         }
     }
 
+    /**
+     * Preço que este canal deve publicar: o override de menu_channel_prices e, na falta
+     * dele, o preço base do cardápio.
+     *
+     * O fallback é o caso normal — sem nenhuma linha na tabela, a publicação sai byte a byte
+     * igual à de antes do preço por canal existir. Existe porque o iFood cobra comissão bem
+     * maior que o 99Food: o mesmo preço de vitrine entrega margens diferentes em cada um.
+     *
+     * @param string $type item|option
+     */
+    private static function priceFor(int $channelId, string $type, int $localId, float $base): float
+    {
+        if (!isset(self::$priceOverrides[$channelId])) {
+            $map = [];
+            foreach (Db::query('SELECT entity_type, local_id, price FROM menu_channel_prices WHERE channel_id = ?', [$channelId]) as $r) {
+                $map[$r['entity_type'] . ':' . $r['local_id']] = (float) $r['price'];
+            }
+            self::$priceOverrides[$channelId] = $map;
+        }
+        return self::$priceOverrides[$channelId][$type . ':' . $localId] ?? $base;
+    }
+
+    /** @var array<int,array<string,float>> overrides por canal, carregados uma vez por publicação. */
+    private static array $priceOverrides = [];
+
     /** 99Food: item/item/upload substitui o cardápio inteiro de uma vez. */
     private static function publishNineNine(array $channel, array $tree): array
     {
@@ -120,7 +145,7 @@ final class MenuSyncService
                 $struct = [
                     'app_item_id' => 'i' . $item['id'],
                     'item_name' => mb_substr((string) $item['name'], 0, 50),
-                    'price' => (int) round(((float) $item['price']) * 100),
+                    'price' => (int) round(self::priceFor((int) $channel['id'], 'item', (int) $item['id'], (float) $item['price']) * 100),
                 ];
                 if (!empty($item['description'])) {
                     $struct['short_desc'] = mb_substr((string) $item['description'], 0, 300);
@@ -156,7 +181,7 @@ final class MenuSyncService
                         'sub_item_list' => array_map(static fn ($o) => [
                             'app_sub_item_id' => $ns . 'o' . $o['id'],
                             'sub_item_name' => mb_substr((string) $o['name'], 0, 50),
-                            'price' => (int) round(((float) $o['price']) * 100),
+                            'price' => (int) round(self::priceFor((int) $channel['id'], 'option', (int) $o['id'], (float) $o['price']) * 100),
                         ], $activeOpts),
                     ];
                 }
@@ -296,7 +321,7 @@ final class MenuSyncService
                     'status' => 'AVAILABLE',
                     'index' => (int) $o['sort'],
                     'productId' => $optProductId,
-                    'price' => ['value' => (float) $o['price']],
+                    'price' => ['value' => self::priceFor($channelId, 'option', (int) $o['id'], (float) $o['price'])],
                     'externalCode' => 'option_' . $o['id'],
                 ];
                 $optionIds[] = $optionId;
@@ -319,8 +344,12 @@ final class MenuSyncService
             $products[0]['imagePath'] = (string) $item['image_url'];
         }
 
-        $price = ['value' => (float) $item['price']];
-        if (!empty($item['original_price']) && (float) $item['original_price'] > (float) $item['price']) {
+        // O preço "de" (riscado) só faz sentido acima do preço que ESTE canal vai cobrar —
+        // comparar com o preço base deixaria um risco menor que a venda quando o canal tem
+        // override para cima.
+        $effective = self::priceFor($channelId, 'item', (int) $item['id'], (float) $item['price']);
+        $price = ['value' => $effective];
+        if (!empty($item['original_price']) && (float) $item['original_price'] > $effective) {
             $price['originalValue'] = (float) $item['original_price'];
         }
         $payload = [

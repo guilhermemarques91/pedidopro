@@ -1,4 +1,5 @@
 import { FormEvent, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Pencil, Trash2, MessageCircle, Globe, ExternalLink, Eye } from 'lucide-react';
 import { suppliersApi, categoriesApi } from '../../services/resources';
@@ -15,7 +16,9 @@ export function Suppliers() {
   const [editing, setEditing] = useState<Supplier | null>(null);
   const [viewing, setViewing] = useState<Supplier | null>(null);
   const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState('');
+  // Semeado pela URL (?q=): a busca global (Ctrl+K) cai nesta tela já filtrada.
+  const [params] = useSearchParams();
+  const [search, setSearch] = useState(() => params.get('q') ?? '');
   const [categoryFilter, setCategoryFilter] = useState('');
 
   const { data, isLoading, error } = useQuery({ queryKey: ['suppliers'], queryFn: suppliersApi.list });

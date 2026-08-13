@@ -5,6 +5,8 @@ namespace App\Modules\Delivery;
 use App\Core\Db;
 use App\Core\Http;
 use App\Core\Request;
+use App\Services\Costing;
+use App\Services\DeliveryStock;
 
 /**
  * Relatórios operacionais de delivery (dados já capturados em delivery_orders).
@@ -437,6 +439,188 @@ final class ReportsController
             'total_min' => $min($row['total'] ?? null),
             'concluded' => (int) ($row['concluded'] ?? 0),
         ];
+    }
+
+    // ------------------------------------------------- engenharia de cardápio
+
+    /**
+     * Popularidade × margem: quais pratos sustentam a operação e quais só ocupam a cozinha.
+     *
+     * A aba "mais vendidos" agrupa por texto e para por aí — vê quanto vendeu, nunca quanto
+     * sobrou. Aqui o nome do item do pedido é resolvido até o item do cardápio (mesma
+     * normalização que a baixa de estoque usa, DeliveryStock::key) e daí até o custo da
+     * ficha técnica, então dá para comparar o que entra com o que a comida custou.
+     *
+     * A receita vem LÍQUIDA da comissão do canal, calculada linha a linha: cada pedido sabe
+     * de que canal veio, e é o líquido que paga o insumo. Um prato campeão de vendas no
+     * iFood pode perder do mesmo prato no 99Food só pela comissão.
+     *
+     * Classificação clássica, contra a MEDIANA do próprio período (não há régua absoluta —
+     * "vender bem" num restaurante é vender bem comparado ao resto do cardápio dele):
+     *   estrela        alta popularidade + alta margem  -> proteger, nunca mexer no preço à toa
+     *   cavalo         alta popularidade + baixa margem -> renegociar insumo ou subir preço
+     *   quebra_cabeca  baixa popularidade + alta margem -> vale empurrar (destaque, foto)
+     *   abacaxi        baixa popularidade + baixa margem -> candidato a sair do cardápio
+     */
+    public static function menuEngineering(Request $req): void
+    {
+        $f = self::filters($req);
+        $orgId = $f['orgId'];
+
+        // Líquido por linha: a comissão é do canal do pedido, não uma média do período.
+        $rows = Db::query(
+            "SELECT i.name,
+                    COALESCE(SUM(i.quantity), 0) AS qty,
+                    COALESCE(SUM(i.total), 0) AS revenue,
+                    COALESCE(SUM(i.total * (1 - COALESCE(ch.commission_rate, 0) / 100)), 0) AS net_revenue,
+                    COUNT(DISTINCT o.id) AS orders
+               FROM delivery_order_items i
+               JOIN delivery_orders o ON o.id = i.order_id
+               LEFT JOIN channels ch ON ch.id = o.channel_id
+              WHERE {$f['where']}
+              GROUP BY i.name",
+            $f['params']
+        );
+
+        $menu = self::menuByKey($orgId);
+        $pdo = Db::pdo();
+
+        $items = [];
+        $unmatched = [];
+        foreach ($rows as $r) {
+            $qty = (float) $r['qty'];
+            if ($qty <= 0) {
+                continue;
+            }
+            $name = (string) $r['name'];
+            $revenue = round((float) $r['revenue'], 2);
+            $net = round((float) $r['net_revenue'], 2);
+
+            $link = $menu[DeliveryStock::key($name)] ?? null;
+            if ($link === null) {
+                // Vendeu e o cardápio mestre não conhece: também não baixou estoque.
+                $unmatched[] = ['name' => $name, 'qty' => $qty, 'revenue' => $revenue];
+                continue;
+            }
+
+            $c = Costing::menuCost($pdo, $orgId, $link['erp_product_id'], $link['erp_qty']);
+            $costUnit = $c['cost'];
+            $costTotal = $costUnit !== null ? round($costUnit * $qty, 2) : null;
+            $marginTotal = $costTotal !== null ? round($net - $costTotal, 2) : null;
+
+            $items[] = [
+                'name' => $name,
+                'menu_item_id' => $link['id'],
+                'menu_item_name' => $link['name'],
+                'qty' => $qty,
+                'orders' => (int) $r['orders'],
+                'revenue' => $revenue,
+                'net_revenue' => $net,
+                'avg_price' => round($revenue / $qty, 2),
+                'cost_unit' => $costUnit !== null ? round($costUnit, 4) : null,
+                'cost_total' => $costTotal,
+                'cost_source' => $c['cost_source'],
+                'margin_total' => $marginTotal,
+                'margin_unit' => $marginTotal !== null ? round($marginTotal / $qty, 4) : null,
+                'margin_pct' => ($marginTotal !== null && $net > 0) ? round($marginTotal / $net * 100, 2) : null,
+                'quadrant' => null,
+            ];
+        }
+
+        // Medianas só entre quem TEM custo: incluir item sem ficha puxaria a régua para
+        // baixo e promoveria a estrela qualquer prato cujo custo ninguém cadastrou.
+        $costed = array_values(array_filter($items, static fn ($i) => $i['margin_unit'] !== null));
+        $medQty = self::median(array_column($costed, 'qty'));
+        $medMargin = self::median(array_column($costed, 'margin_unit'));
+
+        foreach ($items as &$i) {
+            if ($i['margin_unit'] === null) {
+                continue;
+            }
+            $popular = $i['qty'] >= $medQty;
+            $profitable = $i['margin_unit'] >= $medMargin;
+            $i['quadrant'] = $popular
+                ? ($profitable ? 'estrela' : 'cavalo')
+                : ($profitable ? 'quebra_cabeca' : 'abacaxi');
+        }
+        unset($i);
+
+        usort($items, static fn ($a, $b) => ($b['margin_total'] ?? -INF) <=> ($a['margin_total'] ?? -INF));
+        usort($unmatched, static fn ($a, $b) => $b['revenue'] <=> $a['revenue']);
+
+        // Os totais somam APENAS os itens com custo conhecido. Incluir os outros contaria a
+        // receita deles com custo zero e devolveria uma margem alta que não existe — o erro
+        // que a lista de "sem custo" existe justamente para não deixar passar. A receita que
+        // ficou de fora vai separada, para o número ser lido com a régua certa.
+        $totRevenue = round(array_sum(array_column($costed, 'revenue')), 2);
+        $totNet = round(array_sum(array_column($costed, 'net_revenue')), 2);
+        $totCost = round(array_sum(array_column($costed, 'cost_total')), 2);
+        $totMargin = round($totNet - $totCost, 2);
+        $outRevenue = round(
+            array_sum(array_column($items, 'revenue')) - $totRevenue + array_sum(array_column($unmatched, 'revenue')),
+            2
+        );
+
+        Http::json([
+            'from' => $f['from'],
+            'to' => $f['to'],
+            'median_qty' => $medQty,
+            'median_margin_unit' => $medMargin,
+            'items' => $items,
+            'unmatched' => $unmatched,
+            'totals' => [
+                'revenue' => $totRevenue,
+                'net_revenue' => $totNet,
+                'cost' => $totCost,
+                'margin' => $totMargin,
+                'margin_pct' => $totNet > 0 ? round($totMargin / $totNet * 100, 2) : null,
+                'costed_items' => count($costed),
+                'uncosted_items' => count($items) - count($costed),
+                'unmatched_items' => count($unmatched),
+                'uncovered_revenue' => $outRevenue,
+            ],
+        ]);
+    }
+
+    /**
+     * Cardápio indexado pela chave de casamento de nomes.
+     *
+     * Homônimos são resolvidos como em DeliveryStock::menuIndex — primeiro o que tem
+     * vínculo com o ERP, depois o ativo, depois o mais antigo — para que o relatório e a
+     * baixa de estoque escolham SEMPRE o mesmo item do cardápio.
+     *
+     * @return array<string,array{id:int,name:string,erp_product_id:?int,erp_qty:float}>
+     */
+    private static function menuByKey(int $orgId): array
+    {
+        $out = [];
+        $rows = Db::query(
+            'SELECT id, name, erp_product_id, erp_qty FROM menu_items WHERE org_id = ?
+              ORDER BY (erp_product_id IS NOT NULL) DESC, active DESC, id',
+            [$orgId]
+        );
+        foreach ($rows as $r) {
+            $qty = (float) ($r['erp_qty'] ?? 1);
+            $out[DeliveryStock::key((string) $r['name'])] ??= [
+                'id' => (int) $r['id'],
+                'name' => (string) $r['name'],
+                'erp_product_id' => $r['erp_product_id'] !== null ? (int) $r['erp_product_id'] : null,
+                'erp_qty' => $qty > 0 ? $qty : 1.0,
+            ];
+        }
+        return $out;
+    }
+
+    /** @param array<int,float> $values */
+    private static function median(array $values): float
+    {
+        if (!$values) {
+            return 0.0;
+        }
+        sort($values);
+        $n = count($values);
+        $mid = intdiv($n, 2);
+        return $n % 2 === 1 ? (float) $values[$mid] : (float) (($values[$mid - 1] + $values[$mid]) / 2);
     }
 
     // ---------------------------------------------------------------- helpers

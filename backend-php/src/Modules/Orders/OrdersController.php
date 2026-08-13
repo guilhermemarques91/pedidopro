@@ -8,6 +8,7 @@ use App\Core\HttpError;
 use App\Core\Request;
 use App\Services\Evolution;
 use App\Services\Outbox;
+use App\Services\Receiving;
 use App\Services\Stock;
 use PDO;
 
@@ -232,7 +233,13 @@ final class OrdersController
             // Offline-first: se a Evolution estiver fora, fica na outbox e é reenviado depois.
             $whatsappSent = Outbox::send($req->orgId(), $supplier['whatsapp_number'], self::buildMessage($o), "order:{$id}");
         }
-        Db::execute("UPDATE orders SET status = 'sent', sent_at = NOW() WHERE id = ?", [$id]);
+        // Pedido enviado passa a esperar mercadoria: nasce a ENTRADA aguardando, com o que
+        // esperamos receber. Nada de estoque ainda — quem movimenta é a nota, na conferência
+        // (ver Services\Receiving). Idempotente: reenviar não cria uma segunda entrada.
+        Db::transaction(function (PDO $pdo) use ($id, $req): void {
+            $pdo->prepare("UPDATE orders SET status = 'sent', sent_at = NOW() WHERE id = ?")->execute([$id]);
+            Receiving::fromOrder($pdo, $req->orgId(), $id, $req->userId());
+        });
         Http::json(['order' => self::row($id, $req->orgId()), 'whatsappSent' => $whatsappSent]);
     }
 

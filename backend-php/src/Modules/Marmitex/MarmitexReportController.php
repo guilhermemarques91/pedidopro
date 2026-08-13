@@ -43,7 +43,7 @@ final class MarmitexReportController
     {
         [$companyId, $start, $end, $clause, $params] = self::filter($req);
         $rows = Db::query(
-            "SELECT m.service_date, m.person_name, m.size_name, m.protein_name,
+            "SELECT m.service_date, m.person_name, m.size_name, m.protein_name, m.protein2_name,
                     m.sides_json, m.observation, m.unit_price
                FROM marmitex_marmitas m
               WHERE {$clause}
@@ -178,12 +178,15 @@ final class MarmitexReportController
     private static function aggregate(PDO $pdo, string $clause, array $params): array
     {
         $stmt = $pdo->prepare(
-            "SELECT m.size_name, m.protein_name, m.unit_price,
+            // A segunda proteína entra no agrupamento: a marmita mista é um item
+            // diferente para a cozinha e para a conferência da nota, não uma
+            // "costelinha" a mais.
+            "SELECT m.size_name, m.protein_name, m.protein2_name, m.unit_price,
                     COUNT(*) AS quantity, SUM(m.unit_price) AS line_total
                FROM marmitex_marmitas m
               WHERE {$clause}
-              GROUP BY m.size_name, m.protein_name, m.unit_price
-              ORDER BY m.size_name, m.protein_name"
+              GROUP BY m.size_name, m.protein_name, m.protein2_name, m.unit_price
+              ORDER BY m.size_name, m.protein_name, m.protein2_name"
         );
         $stmt->execute($params);
         return $stmt->fetchAll();

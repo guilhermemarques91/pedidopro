@@ -6,6 +6,7 @@ use App\Core\Db;
 use App\Core\Http;
 use App\Core\HttpError;
 use App\Core\Request;
+use App\Services\Costing;
 use App\Services\Integrations\MenuSyncService;
 
 /**
@@ -66,6 +67,13 @@ final class CatalogController
                 $erpById[(int) $r['id']] = $r;
             }
         }
+        // Custo (ficha técnica) e preço por canal. O custo vem do MESMO motor que baixa o
+        // estoque (Costing -> Recipe::explode), então margem e consumo não podem divergir.
+        $pdo = Db::pdo();
+        $orgId = $req->orgId();
+        $channels = self::pricingChannels($orgId);
+        $overrides = self::priceOverrides($orgId);
+
         foreach ($tree as &$cat) {
             foreach ($cat['items'] as &$item) {
                 $item['channels'] = $byItem[(int) $item['id']] ?? [];
@@ -74,11 +82,23 @@ final class CatalogController
                 if (empty($item['image_data']) && empty($item['image_url']) && !empty($prod['image_data'])) {
                     $item['image_data'] = $prod['image_data'];
                 }
+
+                $cost = Costing::menuCost($pdo, $orgId, self::intOrNull($item['erp_product_id'] ?? null), self::factor($item['erp_qty'] ?? null));
+                $item['cost'] = $cost['cost'];
+                $item['cost_source'] = $cost['cost_source'];
+                $item['cost_missing'] = $cost['missing'];
+                $item['pricing'] = self::pricingRows($channels, $overrides, 'item', (int) $item['id'], (float) $item['price'], $cost['cost']);
+
                 foreach ($item['groups'] as &$g) {
                     foreach ($g['options'] as &$o) {
                         $op = !empty($o['erp_product_id']) ? ($erpById[(int) $o['erp_product_id']] ?? null) : null;
                         $o['erp_product_name'] = $op['name'] ?? null;
                         $o['erp_product_unit'] = $op['unit'] ?? null;
+
+                        $oc = Costing::menuCost($pdo, $orgId, self::intOrNull($o['erp_product_id'] ?? null), self::factor($o['erp_qty'] ?? null));
+                        $o['cost'] = $oc['cost'];
+                        $o['cost_source'] = $oc['cost_source'];
+                        $o['pricing'] = self::pricingRows($channels, $overrides, 'option', (int) $o['id'], (float) $o['price'], $oc['cost']);
                     }
                     unset($o);
                 }
@@ -88,6 +108,158 @@ final class CatalogController
         }
         unset($cat);
         Http::json($tree);
+    }
+
+    // ---- preço por canal ----
+
+    /**
+     * PUT /delivery/menu/channel-prices — grava overrides em lote.
+     *
+     * Body: { channel_id, prices: [{ entity_type: item|option, local_id, price }] }.
+     * price nulo APAGA o override — o item volta a publicar o preço base. É a única forma
+     * de desfazer, e precisa ser explícita: omitir a linha do lote não mexe nela.
+     */
+    public static function setChannelPrices(Request $req): void
+    {
+        $orgId = $req->orgId();
+        $in = $req->input();
+        $channel = self::channel($in->integer('channel_id', true), $orgId);
+
+        $saved = 0;
+        $cleared = 0;
+        Db::transaction(static function () use ($in, $channel, $orgId, &$saved, &$cleared): void {
+            foreach ($in->array('prices', true) as $row) {
+                $type = (string) ($row['entity_type'] ?? '');
+                if (!in_array($type, ['item', 'option'], true)) {
+                    throw HttpError::badRequest('entity_type deve ser item ou option');
+                }
+                $localId = (int) ($row['local_id'] ?? 0);
+                if ($localId <= 0) {
+                    throw HttpError::badRequest('local_id inválido');
+                }
+                self::assertBelongs($type, $localId, $orgId);
+
+                $price = ($row['price'] === null || $row['price'] === '') ? null : (float) $row['price'];
+                if ($price === null) {
+                    $cleared += Db::execute(
+                        'DELETE FROM menu_channel_prices WHERE channel_id = ? AND entity_type = ? AND local_id = ?',
+                        [$channel['id'], $type, $localId]
+                    );
+                    continue;
+                }
+                if ($price < 0) {
+                    throw HttpError::badRequest('Preço não pode ser negativo');
+                }
+                Db::execute(
+                    'INSERT INTO menu_channel_prices (channel_id, entity_type, local_id, price) VALUES (?, ?, ?, ?)
+                     ON DUPLICATE KEY UPDATE price = VALUES(price)',
+                    [$channel['id'], $type, $localId, $price]
+                );
+                $saved++;
+            }
+        });
+
+        Http::json(['saved' => $saved, 'cleared' => $cleared]);
+    }
+
+    /**
+     * PUT /delivery/menu/channels/:id/markup — markup padrão do canal (só sugere preço na
+     * tela; não altera nada do que já está publicado). null limpa.
+     */
+    public static function setChannelMarkup(Request $req): void
+    {
+        $channel = self::channel($req->intParam('id'), $req->orgId());
+        $in = $req->input();
+        $markup = $in->has('price_markup_pct') ? $in->number('price_markup_pct') : null;
+        if ($markup !== null && ($markup < 0 || $markup > 999)) {
+            throw HttpError::badRequest('Markup fora da faixa (0 a 999%)');
+        }
+        Db::execute('UPDATE channels SET price_markup_pct = ? WHERE id = ?', [$markup, $channel['id']]);
+        Http::json(['channel_id' => (int) $channel['id'], 'price_markup_pct' => $markup]);
+    }
+
+    /** O override precisa apontar para uma entidade DESTA org — local_id sozinho não prova isso. */
+    private static function assertBelongs(string $type, int $localId, int $orgId): void
+    {
+        $sql = $type === 'item'
+            ? 'SELECT i.id FROM menu_items i WHERE i.id = ? AND i.org_id = ?'
+            : 'SELECT o.id FROM menu_options o JOIN menu_option_groups g ON g.id = o.group_id
+                 WHERE o.id = ? AND g.org_id = ?';
+        if (!Db::queryOne($sql, [$localId, $orgId])) {
+            throw HttpError::notFound($type === 'item' ? 'Item não encontrado' : 'Complemento não encontrado');
+        }
+    }
+
+    /** Canais ativos com o que decide preço: comissão cobrada e markup padrão sugerido. */
+    private static function pricingChannels(int $orgId): array
+    {
+        return Db::query(
+            'SELECT id, name, platform, COALESCE(commission_rate, 0) AS commission_rate, price_markup_pct
+               FROM channels WHERE org_id = ? AND active = 1 ORDER BY name',
+            [$orgId]
+        );
+    }
+
+    /**
+     * Overrides de preço indexados por "canal:tipo:id". Ausência = publica o preço base;
+     * é o caso normal, e é o que mantém o comportamento de antes desta tabela existir.
+     *
+     * @return array<string,float>
+     */
+    private static function priceOverrides(int $orgId): array
+    {
+        $rows = Db::query(
+            'SELECT p.channel_id, p.entity_type, p.local_id, p.price
+               FROM menu_channel_prices p JOIN channels c ON c.id = p.channel_id
+              WHERE c.org_id = ?',
+            [$orgId]
+        );
+        $out = [];
+        foreach ($rows as $r) {
+            $out[$r['channel_id'] . ':' . $r['entity_type'] . ':' . $r['local_id']] = (float) $r['price'];
+        }
+        return $out;
+    }
+
+    /**
+     * Uma linha por canal: quanto sai lá, e o que sobra depois da comissão.
+     *
+     * @param array<string,float> $overrides
+     */
+    private static function pricingRows(array $channels, array $overrides, string $type, int $localId, float $basePrice, ?float $cost): array
+    {
+        $out = [];
+        foreach ($channels as $c) {
+            $key = $c['id'] . ':' . $type . ':' . $localId;
+            $override = $overrides[$key] ?? null;
+            $price = $override ?? $basePrice;
+            $commission = (float) $c['commission_rate'];
+            $m = Costing::margin($price, $cost, $commission);
+            $out[] = [
+                'channel_id' => (int) $c['id'],
+                'channel_name' => $c['name'],
+                'platform' => $c['platform'],
+                'commission_rate' => $commission,
+                'markup_pct' => $c['price_markup_pct'] !== null ? (float) $c['price_markup_pct'] : null,
+                'price' => round($price, 2),
+                'is_override' => $override !== null,
+                'net_price' => $m['net_price'],
+                'margin' => $m['margin'],
+                'margin_pct' => $m['margin_pct'],
+            ];
+        }
+        return $out;
+    }
+
+    private static function intOrNull(mixed $v): ?int
+    {
+        return ($v === null || $v === '' || (int) $v <= 0) ? null : (int) $v;
+    }
+
+    private static function factor(mixed $v): float
+    {
+        $f = (float) ($v ?? 1);
+        return $f > 0 ? $f : 1.0;
     }
 
     /** GET /delivery/menu/remote/:channelId — cardápio cru da plataforma (conferência). */

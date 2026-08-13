@@ -145,6 +145,7 @@ final class MarmitexSheetController
                 'person_name' => $r['person_name'],
                 'size_id' => $r['size_id'],
                 'protein_id' => $r['protein_id'],
+                'protein2_id' => $r['protein2_id'],
                 'side_ids' => $r['side_ids'],
                 'observation' => $r['observation'],
             ];

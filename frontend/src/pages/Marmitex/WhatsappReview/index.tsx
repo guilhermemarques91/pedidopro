@@ -119,6 +119,7 @@ function DraftDetail({ id, onBack }: { id: number; onBack: () => void }) {
       person_name: line.person_name,
       size_id: Number(line.size_id),
       protein_id: line.protein_id ? Number(line.protein_id) : null,
+      protein2_id: line.protein2_id ? Number(line.protein2_id) : null,
       side_ids: line.side_ids,
       observation: line.observation,
     }),
@@ -134,7 +135,7 @@ function DraftDetail({ id, onBack }: { id: number; onBack: () => void }) {
 
   const addLine = useMutation({
     mutationFn: () => marmitexApi.whatsapp.addLine(id, {
-      person_name: 'Novo', size_id: sizes[0]?.id ?? 0, protein_id: null, side_ids: [], observation: null,
+      person_name: 'Novo', size_id: sizes[0]?.id ?? 0, protein_id: null, protein2_id: null, side_ids: [], observation: null,
     }),
     onSuccess: () => { setError(''); refresh(); },
     onError: (e) => setError(apiError(e)),
@@ -228,6 +229,23 @@ function DraftDetail({ id, onBack }: { id: number; onBack: () => void }) {
                   <div className="mt-2 flex items-center justify-between gap-2">
                     <span className="text-xs">falhou {m.attempts}x: {m.error}</span>
                     <Button variant="secondary" onClick={() => retry.mutate(m.id)}><RefreshCw size={14} /> Tentar</Button>
+                  </div>
+                )}
+                {/* Cadastrar um apelido não conserta o que já foi lido: a mensagem fica
+                    'parsed' e o worker não volta nela. Sem este botão, corrigir o
+                    dicionário só valia a partir da mensagem seguinte. */}
+                {(m.status === 'parsed' || m.status === 'ignored') && (
+                  <div className="mt-2 flex justify-end">
+                    <Button
+                      variant="secondary"
+                      onClick={() => {
+                        if (confirm('Reler esta mensagem? As linhas que vieram dela são refeitas — o que você editou nelas à mão se perde.')) {
+                          retry.mutate(m.id);
+                        }
+                      }}
+                    >
+                      <RefreshCw size={14} /> Reler
+                    </Button>
                   </div>
                 )}
               </div>
@@ -337,6 +355,18 @@ function LineCard({ line, sizes, proteins, sides, onSave, onRemove, saving }: {
           >
             <option value="">Sem proteína</option>
             {proteins.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </Select>
+        </Field>
+        <Field label="2ª proteína (opcional)">
+          <Select
+            value={draft.protein2_id ?? ''}
+            disabled={frozen}
+            onChange={(e) => setDraft({ ...draft, protein2_id: e.target.value ? Number(e.target.value) : null })}
+          >
+            <option value="">Nenhuma</option>
+            {proteins
+              .filter((p) => p.id !== draft.protein_id)
+              .map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </Select>
         </Field>
         <Field label="Observação">

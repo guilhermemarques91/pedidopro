@@ -76,6 +76,9 @@ services:
       # Marmitex/WhatsApp não interpreta mensagem nenhuma.
       OLLAMA_URL: ${OLLAMA_URL:-}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
+      # Visão: lê a foto da nota de entrega na conferência de recebimento. Vazio = só
+      # PDF com texto; a foto responde 422 pedindo para configurar o modelo.
+      OLLAMA_VISION_MODEL: ${OLLAMA_VISION_MODEL:-}
       OLLAMA_CF_ACCESS_CLIENT_ID: ${OLLAMA_CF_ACCESS_CLIENT_ID:-}
       OLLAMA_CF_ACCESS_CLIENT_SECRET: ${OLLAMA_CF_ACCESS_CLIENT_SECRET:-}
       # Pedidos empresariais lidos do grupo de WhatsApp.
@@ -86,6 +89,11 @@ services:
       MARMITEX_WA_SYNC_HOURS: ${MARMITEX_WA_SYNC_HOURS:-14}
       MARMITEX_WA_RULES_FIRST: ${MARMITEX_WA_RULES_FIRST:-1}
       MARMITEX_WA_MAX_AUTO_LINES: ${MARMITEX_WA_MAX_AUTO_LINES:-60}
+      # Caixa de entrada do WhatsApp (janela flutuante). A varredura é a garantia
+      # de não perder mensagem quando um webhook se perde.
+      WA_INBOX_SWEEP_MS: ${WA_INBOX_SWEEP_MS:-120000}
+      WA_INBOX_RETENTION_DAYS: ${WA_INBOX_RETENTION_DAYS:-90}
+      WA_INBOX_ORG_ID: ${WA_INBOX_ORG_ID:-1}
       APP_TZ: ${TZ:-America/Sao_Paulo}
     ports:
       # 8090 por padrão: a 8080 costuma estar ocupada pela Evolution API (WhatsApp) neste PC.

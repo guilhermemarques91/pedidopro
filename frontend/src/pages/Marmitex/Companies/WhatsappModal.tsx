@@ -143,6 +143,22 @@ export function WhatsappModal({ company, onClose }: { company: MarmitexCompany; 
               />
               Gravar automaticamente também depois do horário de corte
             </label>
+            <label className="flex items-start gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                className="mt-1"
+                checked={!!cfg.ai_first}
+                onChange={(e) => set('ai_first', e.target.checked)}
+              />
+              <span>
+                Usar a IA para ler as mensagens
+                <span className="block text-xs text-slate-500">
+                  Ligue quando cada pessoa escreve de um jeito — nome na primeira linha, na última, no meio
+                  do texto. Sem isso a leitura é por regra fixa, que depende da posição e é melhor só quando
+                  o grupo manda tudo no mesmo formato.
+                </span>
+              </span>
+            </label>
             {cfg.mode === 'list' && (
               <label className="flex items-center gap-2 text-sm text-slate-700">
                 <input type="checkbox" checked={!!cfg.list_replaces} onChange={(e) => set('list_replaces', e.target.checked)} />

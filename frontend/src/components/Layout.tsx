@@ -1,79 +1,20 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
-  LayoutDashboard, Tags, Truck, Package, FileSpreadsheet,
-  ClipboardList, ShoppingCart, LogOut, Inbox, ListChecks, Users, Menu, X,
-  Bike, Plug, Building2, BookOpen, FileText, Receipt, BarChart3, UtensilsCrossed, Store as StoreIcon, MapPin,
-  ChevronDown, ChevronRight, PanelLeftClose, PanelLeft, ScrollText, Palette, ShoppingBag, Armchair,
-  ClipboardCheck, SlidersHorizontal, Layers, MessageCircle, Wallet,
+  LogOut, Menu, X, Search,
+  ChevronDown, ChevronRight, PanelLeftClose, PanelLeft,
 } from 'lucide-react';
 import { useAuth } from '../store/auth.store';
 import { inboxApi, marmitexApi } from '../services/resources';
 import { AppName, Logo } from '../config/brand';
 import { AutoPrint } from './AutoPrint';
 import { VersionWatcher } from './VersionWatcher';
-
-type NavItem = {
-  to: string;
-  label: string;
-  icon: typeof LayoutDashboard;
-  end?: boolean;
-  perm?: string;
-  children?: NavItem[];
-};
-type NavGroup = { title?: string; items: NavItem[] };
-
-// `perm` ausente = visível a todos os autenticados. Cada item exige a permissão
-// que a tela realmente usa (ver App\Core\Permissions no backend). Menu agrupado por
-// área; grupos com título recolhem (accordion) e o menu pode virar trilho de ícones.
-const navGroups: NavGroup[] = [
-  { items: [{ to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true }] },
-  { title: 'Vendas', items: [
-    { to: '/vendas', label: 'Painel', icon: ShoppingBag, perm: 'vendas:operate', end: true },
-    { to: '/vendas/estacoes', label: 'Mesas & Comandas', icon: Armchair, perm: 'vendas:admin' },
-  ] },
-  { title: 'Delivery', items: [
-    { to: '/delivery', label: 'Painel de Pedidos', icon: Bike, perm: 'delivery:operate' },
-    { to: '/delivery/mapa', label: 'Mapa & Distâncias', icon: MapPin, perm: 'delivery:operate' },
-    { to: '/relatorios', label: 'Relatórios', icon: BarChart3, perm: 'delivery:operate' },
-    { to: '/cardapio', label: 'Cardápio', icon: BookOpen, perm: 'delivery:admin', end: true },
-    { to: '/cardapio/complementos', label: 'Complementos', icon: Layers, perm: 'delivery:admin' },
-    { to: '/loja', label: 'Loja (iFood)', icon: StoreIcon, perm: 'delivery:operate' },
-    { to: '/integrations', label: 'Integrações', icon: Plug, perm: 'delivery:admin' },
-  ] },
-  { title: 'Financeiro', items: [
-    { to: '/financeiro', label: 'Relatórios & DRE', icon: Wallet, perm: 'financeiro:read' },
-  ] },
-  { title: 'Compras', items: [
-    // A contagem abre o fluxo: conta a prateleira → sistema sugere → vira lista de compras.
-    { to: '/estoque/contagem', label: 'Contagem de estoque', icon: ClipboardCheck, perm: 'estoque:read' },
-    { to: '/estoque/parametros', label: 'Parâmetros de reposição', icon: SlidersHorizontal, perm: 'estoque:read' },
-    { to: '/inbox', label: 'Caixa de entrada', icon: Inbox, perm: 'compras:write' },
-    { to: '/quotations', label: 'Cotações', icon: ClipboardList, perm: 'compras:write' },
-    { to: '/requests', label: 'Lista de compras', icon: ListChecks, perm: 'compras:requests' },
-    { to: '/orders', label: 'Pedidos a fornecedores', icon: ShoppingCart, perm: 'compras:read' },
-  ] },
-  { title: 'Clientes Empresariais', items: [
-    { to: '/marmitex/companies', label: 'Empresas/Clientes', icon: Building2, perm: 'marmitex:admin' },
-    { to: '/marmitex/catalog', label: 'Cardápio', icon: BookOpen, perm: 'marmitex:admin' },
-    { to: '/marmitex', label: 'Pedidos do dia', icon: UtensilsCrossed, perm: 'marmitex:order', end: true },
-    { to: '/marmitex/whatsapp', label: 'WhatsApp (revisão)', icon: MessageCircle, perm: 'marmitex:order' },
-    { to: '/marmitex/report', label: 'Relatório / NF-e', icon: FileText, perm: 'marmitex:admin' },
-    { to: '/marmitex/invoices', label: 'Faturamentos', icon: Receipt, perm: 'marmitex:admin' },
-  ] },
-  { title: 'Cadastros', items: [
-    { to: '/suppliers', label: 'Fornecedores', icon: Truck, perm: 'compras:write' },
-    { to: '/categories', label: 'Categorias', icon: Tags, perm: 'compras:write' },
-    { to: '/products', label: 'Itens & Produtos', icon: Package, perm: 'compras:write' },
-    { to: '/import', label: 'Importação', icon: FileSpreadsheet, perm: 'compras:write' },
-  ] },
-  { title: 'Admin', items: [
-    { to: '/users', label: 'Usuários', icon: Users, perm: 'users:manage' },
-    { to: '/audit', label: 'Auditoria', icon: ScrollText, perm: 'system:audit' },
-    { to: '/personalizacao', label: 'Personalização', icon: Palette, perm: 'system:admin' },
-  ] },
-];
+import { AppDock } from './AppDock/AppDock';
+import { DockLauncher } from './AppDock/DockLauncher';
+import { CommandPalette } from './CommandPalette';
+import { BottomNav } from './BottomNav';
+import { navGroups, type NavItem } from '../config/nav';
 
 // --- Persistência simples em localStorage (mesmo padrão manual do auth.store) ---
 function loadJSON<T>(key: string, fallback: T): T {
@@ -112,6 +53,7 @@ export function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const [collapsed, setCollapsed] = useState<boolean>(() => loadJSON<boolean>(COLLAPSED_KEY, false));
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => loadJSON<Record<string, boolean>>(GROUPS_KEY, {}));
   const [openSubs, setOpenSubs] = useState<Record<string, boolean>>({});
@@ -146,6 +88,30 @@ export function Layout() {
     logout();
     navigate('/login');
   }
+
+  /**
+   * Atalho global da busca: Ctrl+K (Cmd+K no Mac) e também "/" — a tecla que a
+   * maioria dos apps usa e que sai barata num teclado físico.
+   *
+   * "/" só vale fora de campo de texto, senão não daria para digitar uma barra
+   * em lugar nenhum. Ctrl+K vale sempre, inclusive dentro de um campo.
+   */
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const k = e.key.toLowerCase();
+      const el = document.activeElement as HTMLElement | null;
+      const digitando = !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable);
+      if ((e.ctrlKey || e.metaKey) && k === 'k') {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+      } else if (k === '/' && !digitando && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        setPaletteOpen(true);
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   // Um grupo está aberto se salvo explicitamente; senão, abre por conter a rota ativa.
   function isGroupOpen(title: string, items: NavItem[]): boolean {
@@ -242,6 +208,9 @@ export function Layout() {
       <VersionWatcher />
       {/* Impressão automática de comandas: roda em qualquer página (não só no painel). */}
       {can('delivery:operate') && <AutoPrint />}
+      {/* Janelas flutuantes (iFood, 99). Montadas aqui para sobreviverem à troca
+          de rota — remontar recarregaria o iframe e derrubaria o login do portal. */}
+      <AppDock />
       {/* Backdrop no mobile quando o menu está aberto */}
       {menuOpen && (
         <div className="fixed inset-0 z-30 bg-black/40 md:hidden" onClick={() => setMenuOpen(false)} />
@@ -336,26 +305,57 @@ export function Layout() {
       {/* Painel de conteúdo: claro, com o canto arredondado recortando o trilho escuro.
           `overflow-hidden` garante que o conteúdo respeite o arredondado ao rolar. */}
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-[#F4F5FA] md:rounded-l-[1.75rem]">
-        {/* Barra superior — só no mobile */}
-        <header className="flex items-center gap-3 border-b border-slate-200 bg-white px-4 py-3 md:hidden">
-          <button onClick={() => setMenuOpen(true)} className="text-slate-600 hover:text-slate-900" aria-label="Abrir menu">
+        {/* Barra superior: faixa fina, presente em todas as telas. O menu e a marca
+            só aparecem no mobile (no desktop já estão no trilho lateral); no desktop
+            ela existe apenas para ancorar os botões dos apps à direita. */}
+        <header className="flex items-center gap-3 border-b border-slate-200 bg-white px-4 py-2">
+          <button onClick={() => setMenuOpen(true)} className="text-slate-600 hover:text-slate-900 md:hidden" aria-label="Abrir menu">
             <Menu size={24} />
           </button>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 md:hidden">
             <Logo size={22} />
             <span className="text-lg font-bold text-slate-800"><AppName /></span>
+          </div>
+
+          {/* Busca: no desktop vira um campo falso que anuncia o atalho (só assim
+              alguém descobre que Ctrl+K existe); no celular, um botão de ícone. */}
+          <button
+            type="button"
+            onClick={() => setPaletteOpen(true)}
+            aria-label="Buscar (Ctrl+K)"
+            className="ml-auto hidden min-h-9 w-72 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-400 transition-colors hover:border-slate-300 hover:text-slate-600 md:flex"
+          >
+            <Search size={15} />
+            <span className="flex-1 text-left">Buscar…</span>
+            <kbd className="rounded border border-slate-300 bg-white px-1.5 py-0.5 text-[11px] font-medium text-slate-500">Ctrl K</kbd>
+          </button>
+          <button
+            type="button"
+            onClick={() => setPaletteOpen(true)}
+            aria-label="Buscar"
+            className="ml-auto inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 md:hidden"
+          >
+            <Search size={20} />
+          </button>
+
+          <div className="md:ml-3">
+            <DockLauncher />
           </div>
         </header>
 
         <main className="flex-1 overflow-y-auto">
           {/* Largura fluida: o limite de 6xl (1152px) sobrava ~260px de margem morta de
               cada lado num monitor de 1920. O teto de 120rem só entra em tela gigante,
-              para a linha de texto não ficar absurda em 4K. */}
-          <div className="mx-auto w-full max-w-[120rem] p-4 sm:p-6 lg:p-8">
+              para a linha de texto não ficar absurda em 4K.
+              pb-24 no mobile: a barra de abas é fixa e comeria o fim da página. */}
+          <div className="mx-auto w-full max-w-[120rem] p-4 pb-24 sm:p-6 lg:p-8 md:pb-8">
             <Outlet />
           </div>
         </main>
       </div>
+
+      <BottomNav onOpenMenu={() => setMenuOpen(true)} />
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
     </div>
   );
 }

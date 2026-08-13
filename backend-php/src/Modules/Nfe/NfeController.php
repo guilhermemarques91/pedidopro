@@ -7,7 +7,7 @@ use App\Core\Http;
 use App\Core\HttpError;
 use App\Core\Request;
 use App\Services\NfeParser;
-use App\Services\Stock;
+use App\Services\Receiving;
 use PDO;
 
 /**
@@ -25,6 +25,16 @@ final class NfeController
         Http::json(self::enrich($nfe, $req->orgId()));
     }
 
+    /**
+     * A nota deixa de dar entrada direto: ela CONFIRMA uma entrada de mercadoria.
+     *
+     * Antes, importar aplicava estoque na hora e criava produto para toda descrição que não
+     * casasse por nome exato — com descrições de nota ("COXAO MOLE BOV RESF KG") isso
+     * duplicaria o cadastro em silêncio e espalharia o custo médio por produtos gêmeos. Agora
+     * a nota cai na entrada aguardando do fornecedor (ou cria uma avulsa, porque muita compra
+     * chega sem pedido), casa pelo código do fornecedor → GTIN → nome, e o que não casar
+     * espera uma pessoa. Ver App\Services\Receiving.
+     */
     public static function import(Request $req): void
     {
         $nfe = self::parseUpload($req);
@@ -38,7 +48,8 @@ final class NfeController
         $skip = array_flip(array_map('intval', $rawSkip));
 
         $result = Db::transaction(function (PDO $pdo) use ($nfe, $data, $orgId, $skip, $req) {
-            // Fornecedor: casa por CNPJ/nome; cria se não existir.
+            // Fornecedor: casa por CNPJ/nome; cria se não existir (fornecedor é cadastro de
+            // parceiro, não de produto — criar aqui não polui o catálogo).
             $supplierId = $data['supplier_match_id'];
             if ($supplierId === null) {
                 $pdo->prepare('INSERT INTO suppliers (org_id, name, cnpj, order_type) VALUES (?, ?, ?, ?)')
@@ -49,42 +60,14 @@ final class NfeController
                     ->execute([$nfe['supplier']['cnpj'], $supplierId]);
             }
 
-            $imported = 0;
-            $createdProducts = 0;
-            foreach ($data['items'] as $i => $it) {
-                if (isset($skip[$i])) {
-                    continue;
+            $lines = [];
+            foreach ($nfe['items'] as $i => $it) {
+                if (!isset($skip[$i])) {
+                    $lines[] = $it;
                 }
-                // Produto (saldo vive nele): casa por nome; cria se preciso.
-                $productId = $it['product_match_id'];
-                if ($productId === null) {
-                    $pdo->prepare('INSERT INTO products (org_id, name, supplier_id, unit, cost_price) VALUES (?, ?, ?, ?, ?)')
-                        ->execute([$orgId, $it['name'], $supplierId, $it['unit'], $it['unit_price']]);
-                    $productId = (int) $pdo->lastInsertId();
-                    $createdProducts++;
-                }
-                // Item (SKU do fornecedor): por código, senão por nome; atualiza preço.
-                $st = $pdo->prepare(
-                    'SELECT id, product_id FROM items
-                      WHERE org_id = ? AND supplier_id = ? AND (supplier_code = ? OR LOWER(TRIM(name)) = ?) LIMIT 1'
-                );
-                $st->execute([$orgId, $supplierId, $it['code'], mb_strtolower(trim($it['name']))]);
-                $item = $st->fetch();
-                if ($item) {
-                    $pdo->prepare('UPDATE items SET base_price = ?, supplier_code = COALESCE(supplier_code, ?), product_id = COALESCE(product_id, ?) WHERE id = ?')
-                        ->execute([$it['unit_price'], $it['code'], $productId, $item['id']]);
-                    $pdo->prepare('UPDATE item_suppliers SET base_price = ? WHERE item_id = ? AND supplier_id = ?')
-                        ->execute([$it['unit_price'], $item['id'], $supplierId]);
-                } else {
-                    $pdo->prepare('INSERT INTO items (org_id, supplier_id, product_id, name, supplier_code, unit, base_price) VALUES (?, ?, ?, ?, ?, ?, ?)')
-                        ->execute([$orgId, $supplierId, $productId, $it['name'], $it['code'], $it['unit'], $it['unit_price']]);
-                    $itemId = (int) $pdo->lastInsertId();
-                    $pdo->prepare('INSERT INTO item_suppliers (item_id, supplier_id, supplier_code, base_price) VALUES (?, ?, ?, ?)')
-                        ->execute([$itemId, $supplierId, $it['code'], $it['unit_price']]);
-                }
-                // ENTRADA no estoque com o custo da nota.
-                Stock::apply($pdo, $orgId, $productId, 'in', $it['quantity'], $it['unit_price'], "nfe:{$nfe['number']}", null, $req->userId());
-                $imported++;
+            }
+            if (!$lines) {
+                throw HttpError::badRequest('Nenhum item selecionado para lançar');
             }
 
             $pdo->prepare(
@@ -92,9 +75,31 @@ final class NfeController
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
             )->execute([
                 $orgId, $nfe['key'], $nfe['number'], $nfe['supplier']['cnpj'], $nfe['supplier']['name'],
-                $supplierId, $nfe['issued_at'], $nfe['total'], $imported, $req->userId(),
+                $supplierId, $nfe['issued_at'], $nfe['total'], count($lines), $req->userId(),
             ]);
-            return ['supplier_id' => $supplierId, 'items_imported' => $imported, 'products_created' => $createdProducts];
+            $nfeImportId = (int) $pdo->lastInsertId();
+
+            $receiptId = Receiving::fromDocument($pdo, $orgId, [
+                'supplier_id' => $supplierId,
+                'source' => 'nfe',
+                'number' => $nfe['number'],
+                'key' => $nfe['key'],
+                'date' => $nfe['issued_at'] !== null ? substr($nfe['issued_at'], 0, 10) : null,
+                'total' => $nfe['total'],
+                'nfe_import_id' => $nfeImportId,
+                'lines' => $lines,
+            ], $req->userId());
+
+            $pending = (int) $pdo->query(
+                "SELECT COUNT(*) FROM stock_receipt_items WHERE receipt_id = {$receiptId} AND status = '" . Receiving::LINE_PENDENTE . "'"
+            )->fetchColumn();
+
+            return [
+                'supplier_id' => $supplierId,
+                'receipt_id' => $receiptId,
+                'items' => count($lines),
+                'pending_links' => $pending,
+            ];
         });
 
         Http::json(['ok' => true] + $result, 201);
@@ -134,14 +139,16 @@ final class NfeController
             [$orgId, mb_strtolower(trim($nfe['supplier']['name']))]
         );
 
+        // Casamento pelo MESMO matcher da entrada de mercadoria (código do fornecedor →
+        // GTIN → nome). O preview mostra o que vai casar sozinho e o que vai precisar de
+        // uma pessoa; nada é criado aqui.
+        $supplierId = $sup ? (int) $sup['id'] : null;
+        $matches = Receiving::previewLines(Db::pdo(), $orgId, $supplierId, $nfe['items']);
         $items = [];
-        foreach ($nfe['items'] as $it) {
-            $p = Db::queryOne(
-                'SELECT id, name, stock_qty FROM products WHERE org_id = ? AND active = 1 AND LOWER(TRIM(name)) = ?',
-                [$orgId, mb_strtolower(trim($it['name']))]
-            );
-            $it['product_match_id'] = $p ? (int) $p['id'] : null;
-            $it['product_match_name'] = $p['name'] ?? null;
+        foreach ($nfe['items'] as $i => $it) {
+            $m = $matches[$i] ?? ['product_id' => null, 'product_name' => null];
+            $it['product_match_id'] = $m['product_id'];
+            $it['product_match_name'] = $m['product_name'];
             $items[] = $it;
         }
 

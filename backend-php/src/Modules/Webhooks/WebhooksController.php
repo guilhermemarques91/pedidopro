@@ -7,6 +7,7 @@ use App\Core\Http;
 use App\Core\Request;
 use App\Services\Integrations\IngestService;
 use App\Services\MarmitexWaIngest;
+use App\Services\WaInbox;
 
 /**
  * Recebe eventos de pedido das plataformas (rotas PÚBLICAS — sem JWT).
@@ -34,12 +35,16 @@ final class WebhooksController
     }
 
     /**
-     * Evolution API → mensagens dos grupos de WhatsApp das empresas (Marmitex).
+     * Evolution API → toda mensagem da instância. Daqui saem DOIS caminhos:
+     *  1. `WaInbox::ingest` — espelho da caixa de entrada (a janela de WhatsApp
+     *     dentro do app). Recebe tudo, inclusive o que você mandou pelo celular.
+     *  2. `MarmitexWaIngest::stageMessage` — só os grupos de empresa cadastrados,
+     *     que viram pedido.
      *
-     * Aqui NÃO se interpreta nada: o handler só identifica a empresa pelo JID do
-     * grupo e grava a mensagem crua. A IA local roda em CPU e leva minutos — se
-     * fosse chamada aqui, o túnel cortaria em 100s e a Evolution reentregaria a
-     * mensagem em loop. Quem interpreta é o worker `bin/marmitex-wa.php`.
+     * Aqui NÃO se interpreta nada: o handler só grava a mensagem crua. A IA local
+     * roda em CPU e leva minutos — se fosse chamada aqui, o túnel cortaria em 100s
+     * e a Evolution reentregaria a mensagem em loop. Quem interpreta é o worker
+     * `bin/marmitex-wa.php`.
      *
      * Responde 200 mesmo para grupo desconhecido: 4xx faz a Evolution reenviar.
      */
@@ -65,12 +70,23 @@ final class WebhooksController
         $data = $body['data'] ?? [];
         $records = isset($data['key']) ? [$data] : (is_array($data) ? $data : []);
 
-        $result = ['staged' => 0, 'duplicate' => 0, 'ignored' => 0];
+        $result = ['staged' => 0, 'duplicate' => 0, 'ignored' => 0, 'inbox' => 0];
         foreach ($records as $m) {
             if (!is_array($m) || !isset($m['key']['remoteJid'])) {
                 $result['ignored']++;
                 continue;
             }
+            // Espelho da caixa de entrada ANTES do funil do marmitex: aqui entra
+            // toda conversa, e os `continue` abaixo descartam o que não é de
+            // empresa cadastrada. Falhar no espelho não pode derrubar o pedido.
+            try {
+                if (WaInbox::ingest($m, 'webhook') === 'stored') {
+                    $result['inbox']++;
+                }
+            } catch (\Throwable $e) {
+                error_log('[wa-inbox] ingest falhou: ' . $e->getMessage());
+            }
+
             $cfg = MarmitexWaIngest::configByGroupJid((string) $m['key']['remoteJid']);
             if (!$cfg || (int) $cfg['enabled'] !== 1) {
                 $result['ignored']++;

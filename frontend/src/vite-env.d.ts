@@ -2,6 +2,9 @@
 
 interface ImportMetaEnv {
   readonly VITE_API_URL: string;
+  // Portais embutidos no dock. Vazio = usa o padrão de config/webapps.ts.
+  readonly VITE_IFOOD_URL?: string;
+  readonly VITE_99FOOD_URL?: string;
 }
 interface ImportMeta {
   readonly env: ImportMetaEnv;

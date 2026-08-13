@@ -80,12 +80,14 @@ interface Line {
   person_name: string;
   size_id: string;
   protein_id: string;
+  /** Segunda proteína ("costelinha e omelete"): vazia na maioria das marmitas. */
+  protein2_id: string;
   side_ids: number[];
   observation: string;
 }
 
 let keySeq = 1;
-const newLine = (): Line => ({ key: `l${keySeq++}`, person_name: '', size_id: '', protein_id: '', side_ids: [], observation: '' });
+const newLine = (): Line => ({ key: `l${keySeq++}`, person_name: '', size_id: '', protein_id: '', protein2_id: '', side_ids: [], observation: '' });
 const today = () => new Date().toISOString().slice(0, 10);
 
 export function CompanyOrder() {
@@ -133,6 +135,7 @@ export function CompanyOrder() {
         person_name: m.person_name ?? '',
         size_id: m.size_id ? String(m.size_id) : '',
         protein_id: m.protein_id ? String(m.protein_id) : '',
+        protein2_id: m.protein2_id ? String(m.protein2_id) : '',
         side_ids: parseSides(m.sides_json).map((s) => s.id),
         observation: m.observation ?? '',
       })));
@@ -182,6 +185,7 @@ export function CompanyOrder() {
         person_name: l.person_name.trim() || null,
         size_id: Number(l.size_id),
         protein_id: l.protein_id ? Number(l.protein_id) : null,
+        protein2_id: l.protein2_id ? Number(l.protein2_id) : null,
         side_ids: l.side_ids,
         observation: l.observation.trim() || null,
       }));
@@ -231,6 +235,7 @@ export function CompanyOrder() {
           person_name: m.person_name ?? '',
           size_id: String(m.size_id),
           protein_id: m.protein_id ? String(m.protein_id) : '',
+          protein2_id: m.protein2_id ? String(m.protein2_id) : '',
           side_ids: m.side_ids ?? [],
           observation: m.observation ?? '',
         })));
@@ -401,6 +406,14 @@ export function CompanyOrder() {
                   <Select value={line.protein_id} onChange={(e) => updateLine(line.key, { protein_id: e.target.value })} disabled={locked}>
                     <option value="">Sem proteína</option>
                     {activeProteins.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </Select>
+                </Field>
+                <Field label="2ª proteína (opcional)">
+                  <Select value={line.protein2_id} onChange={(e) => updateLine(line.key, { protein2_id: e.target.value })} disabled={locked}>
+                    <option value="">Nenhuma</option>
+                    {activeProteins
+                      .filter((p) => String(p.id) !== line.protein_id)
+                      .map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                   </Select>
                 </Field>
                 <Field label="Observação">

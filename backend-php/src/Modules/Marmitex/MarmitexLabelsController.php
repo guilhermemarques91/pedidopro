@@ -27,7 +27,7 @@ final class MarmitexLabelsController
         }
 
         $marmitas = Db::query(
-            'SELECT m.id, m.person_name, m.size_name, m.protein_name, m.sides_json, m.observation
+            'SELECT m.id, m.person_name, m.size_name, m.protein_name, m.protein2_name, m.sides_json, m.observation
                FROM marmitex_marmitas m
               WHERE m.company_id = ? AND m.service_date = ?
               ORDER BY COALESCE(m.person_name, ""), m.id',

@@ -44,8 +44,19 @@ final class Evolution
         return ['status' => $status, 'data' => $data];
     }
 
-    /** POST /message/sendText/{instance} */
-    public static function sendMessage(string $to, string $message): void
+    /**
+     * POST /message/sendText/{instance}
+     *
+     * Devolve o `key.id` da mensagem criada (quando a Evolution informa). Quem
+     * espelha a conversa PRECISA dele: a mensagem enviada volta pelo webhook
+     * `messages.upsert` com essa mesma chave, e gravar o eco local com ela é o
+     * que faz o UNIQUE descartar a segunda cópia. Sem isso, tudo que você
+     * mandasse pelo sistema apareceria duas vezes na tela.
+     *
+     * A maior parte dos chamadores (outbox, confirmação do marmitex) ignora o
+     * retorno — só o inbox precisa dele.
+     */
+    public static function sendMessage(string $to, string $message): ?string
     {
         $r = self::call('POST', '/message/sendText/' . self::instance(), [
             'number' => $to,
@@ -54,6 +65,8 @@ final class Evolution
         if ($r['status'] >= 400 || $r['status'] === 0) {
             throw new HttpError(502, 'Falha ao enviar mensagem pelo WhatsApp');
         }
+        $id = $r['data']['key']['id'] ?? null;
+        return is_string($id) && $id !== '' ? $id : null;
     }
 
     /**
@@ -84,12 +97,99 @@ final class Evolution
         return $merged;
     }
 
-    /** @param array<string,string> $keyWhere filtro aplicado em `key` */
-    private static function queryMessages(array $keyWhere): array
+    /**
+     * Como `fetchMessages`, mas limitado às N mais recentes — para carregar o
+     * histórico de uma conversa na caixa de entrada sem baixar os 361 registros
+     * que um grupo antigo tem. A Evolution devolve em ordem DECRESCENTE
+     * (a mais nova primeiro) num envelope `{messages:{total,pages,records}}`.
+     *
+     * @return array<int,array<string,mixed>>
+     */
+    public static function findMessagesPage(string $remoteJid, int $limit = 60): array
     {
-        $r = self::call('POST', '/chat/findMessages/' . self::instance(), [
-            'where' => ['key' => $keyWhere],
-        ]);
+        $merged = [];
+        $seen = [];
+        foreach (['remoteJid', 'remoteJidAlt'] as $field) {
+            foreach (self::queryMessages([$field => $remoteJid], $limit) as $m) {
+                $id = $m['key']['id'] ?? null;
+                if ($id !== null && isset($seen[$id])) {
+                    continue;
+                }
+                if ($id !== null) {
+                    $seen[$id] = true;
+                }
+                $merged[] = $m;
+            }
+        }
+        return $merged;
+    }
+
+    /**
+     * POST /chat/findChats/{instance} → lista crua de conversas.
+     *
+     * Atenção ao que NÃO vem: na instância real `pushName`, `unreadCount` e
+     * `profilePicUrl` voltam nulos em 100% dos chats. Serve para descobrir QUAIS
+     * conversas existem e quando cada uma mudou (`updatedAt`) — o nome e o
+     * "não lido" são responsabilidade nossa.
+     *
+     * @return array<int,array<string,mixed>>
+     */
+    public static function findChats(): array
+    {
+        $r = self::call('POST', '/chat/findChats/' . self::instance(), [], 40);
+        $data = $r['data'];
+        $records = $data['records'] ?? $data;
+        return is_array($records) ? $records : [];
+    }
+
+    /**
+     * GET /group/fetchAllGroups/{instance} → `id` (JID) + `subject` (nome).
+     * É a única fonte do nome do grupo: `findChats` não traz.
+     *
+     * @return array<string,string> jid => nome
+     */
+    public static function groupNames(): array
+    {
+        $r = self::call('GET', '/group/fetchAllGroups/' . self::instance() . '?getParticipants=false', null, 40);
+        $data = $r['data'];
+        $records = $data['records'] ?? $data;
+        $out = [];
+        foreach (is_array($records) ? $records : [] as $g) {
+            $jid = trim((string) ($g['id'] ?? ''));
+            $name = trim((string) ($g['subject'] ?? ''));
+            if ($jid !== '' && $name !== '') {
+                $out[$jid] = $name;
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * POST /chat/markMessageAsRead/{instance} — tira o "não lido" no celular também.
+     * Best-effort: falhar aqui não pode derrubar a leitura na tela.
+     *
+     * @param array<int,array{remoteJid:string,fromMe:bool,id:string}> $keys
+     */
+    public static function markAsRead(array $keys): void
+    {
+        if ($keys === []) {
+            return;
+        }
+        self::call('POST', '/chat/markMessageAsRead/' . self::instance(), ['readMessages' => $keys]);
+    }
+
+    /**
+     * @param array<string,string> $keyWhere filtro aplicado em `key`
+     * @param int|null $limit quando informado, vira o tamanho da página (`offset`)
+     */
+    private static function queryMessages(array $keyWhere, ?int $limit = null): array
+    {
+        $body = ['where' => ['key' => $keyWhere]];
+        if ($limit !== null) {
+            $body['page'] = 1;
+            $body['offset'] = $limit;
+        }
+        $r = self::call('POST', '/chat/findMessages/' . self::instance(), $body);
         $data = $r['data'];
         $records = $data['messages']['records'] ?? $data['records'] ?? $data;
         return is_array($records) ? $records : [];
@@ -113,6 +213,33 @@ final class Evolution
             ?? $msg['documentMessage']['caption']
             ?? '';
         return trim((string) $text);
+    }
+
+    /**
+     * Classifica o registro num punhado de tipos que a interface sabe desenhar.
+     * O registro traz `messageType`; a chave de `message` é o plano B (a varredura
+     * e o webhook nem sempre preenchem o campo).
+     *
+     * `reaction` e `protocol` (apagar, edição de chave) são ruído de painel: quem
+     * chama decide descartar, mas a classificação fica aqui, junto do resto do
+     * conhecimento sobre o formato da Evolution.
+     */
+    public static function messageKind(array $m): string
+    {
+        $raw = (string) ($m['messageType'] ?? array_key_first($m['message'] ?? []) ?? '');
+        return match (true) {
+            $raw === 'conversation', $raw === 'extendedTextMessage' => 'text',
+            $raw === 'imageMessage' => 'image',
+            $raw === 'videoMessage' => 'video',
+            $raw === 'audioMessage', $raw === 'pttMessage' => 'audio',
+            $raw === 'documentMessage', $raw === 'documentWithCaptionMessage' => 'document',
+            $raw === 'stickerMessage' => 'sticker',
+            $raw === 'locationMessage', $raw === 'liveLocationMessage' => 'location',
+            $raw === 'contactMessage', $raw === 'contactsArrayMessage' => 'contact',
+            $raw === 'reactionMessage' => 'reaction',
+            str_starts_with($raw, 'protocol') || $raw === 'senderKeyDistributionMessage' => 'protocol',
+            default => 'other',
+        };
     }
 
     /** Monta a mensagem de pedido formatada para WhatsApp (sem preços — só itens e quantidades). */

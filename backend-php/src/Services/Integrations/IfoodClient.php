@@ -348,37 +348,91 @@ final class IfoodClient
         if (self::mock()) {
             return;
         }
-        // Antes de "pronto", inicia o preparo (best-effort): alguns pedidos exigem
-        // PREPARATION_STARTED antes de READY_TO_PICKUP. Ignora se já iniciado/recusado.
+        // Antes de "pronto", inicia o preparo: alguns pedidos exigem
+        // PREPARATION_STARTED antes de READY_TO_PICKUP.
+        //
+        // Continua best-effort quanto ao RESULTADO (pedido já em preparo devolve 4xx,
+        // e isso não é problema), mas o resultado agora é REGISTRADO: quando os dois
+        // comandos falham juntos, o log é a única forma de saber se a causa foi do
+        // pedido ou da API — sem ele o motivo ia só para a tela e se perdia.
         if ($command === 'ready') {
-            HttpClient::request(
-                'POST',
-                self::base() . '/order/v1.0/orders/' . rawurlencode($orderId) . '/startPreparation',
-                self::auth($channel),
-                null,
-                10
-            );
+            $prep = self::post($channel, $orderId, 'startPreparation', null, 10);
+            if ($prep['status'] === 0 || $prep['status'] >= 400) {
+                self::logFailure('startPreparation', $orderId, $prep);
+            }
         }
         // requestCancellation EXIGE corpo { reason, cancellationCode } com um código
         // válido para AQUELE pedido (varia por pedido). Os demais comandos não têm corpo.
         $body = $command === 'cancel' ? self::cancellationBody($channel, $orderId) : null;
 
         // Timeout curto: falha rápido com erro legível em vez de estourar o gateway (502 cru).
-        $r = HttpClient::request(
+        $r = self::post($channel, $orderId, $action, $body, 12);
+
+        // Uma segunda chance para falha TRANSITÓRIA (timeout, 429 de limite de taxa,
+        // 5xx do iFood). Observado em produção: três cliques seguidos falharam e o
+        // mesmo comando passou dois minutos depois, sem nada ter mudado no pedido.
+        // Só re-tenta o que é seguro repetir — 4xx de regra de negócio (pedido já
+        // pronto, cancelado, estado inválido) não melhora com insistência.
+        if (self::transient($r)) {
+            self::logFailure($action, $orderId, $r, 'transitória, re-tentando');
+            usleep(1_200_000);
+            $r = self::post($channel, $orderId, $action, $body, 12);
+        }
+
+        if ($r['status'] === 0) {
+            // cURL falhou (timeout/conexão) — NÃO marca como sucesso.
+            self::logFailure($action, $orderId, $r);
+            throw new HttpError(502, "iFood não respondeu a tempo ('{$command}'): " . ($r['error'] ?: 'timeout/conexão'));
+        }
+        if ($r['status'] >= 400) {
+            self::logFailure($action, $orderId, $r);
+            throw new HttpError(502, "Falha ao enviar '{$command}' ao iFood (HTTP {$r['status']})" . (self::detail($r) !== '' ? ': ' . self::detail($r) : '.'));
+        }
+    }
+
+    /** @return array{status:int,data:mixed,raw:string,error:string} */
+    private static function post(array $channel, string $orderId, string $action, ?array $body, int $timeout): array
+    {
+        return HttpClient::request(
             'POST',
             self::base() . '/order/v1.0/orders/' . rawurlencode($orderId) . '/' . $action,
             self::auth($channel),
             $body,
-            12
+            $timeout
         );
-        if ($r['status'] === 0) {
-            // cURL falhou (timeout/conexão) — NÃO marca como sucesso.
-            throw new HttpError(502, "iFood não respondeu a tempo ('{$command}'): " . ($r['error'] ?: 'timeout/conexão'));
-        }
-        if ($r['status'] >= 400) {
-            $detail = $r['data']['error']['message'] ?? $r['data']['message'] ?? (is_string($r['raw'] ?? null) ? substr((string) $r['raw'], 0, 200) : '');
-            throw new HttpError(502, "Falha ao enviar '{$command}' ao iFood (HTTP {$r['status']})" . ($detail !== '' ? ": {$detail}" : '.'));
-        }
+    }
+
+    /** Falha que costuma passar na segunda tentativa (rede, limite de taxa, erro do iFood). */
+    private static function transient(array $r): bool
+    {
+        return $r['status'] === 0 || $r['status'] === 429 || $r['status'] >= 500;
+    }
+
+    private static function detail(array $r): string
+    {
+        return (string) ($r['data']['error']['message']
+            ?? $r['data']['message']
+            ?? (is_string($r['raw'] ?? null) ? substr((string) $r['raw'], 0, 200) : ''));
+    }
+
+    /**
+     * Registra a resposta CRUA do iFood no log do servidor.
+     *
+     * Sem isto o motivo da falha existia só na mensagem devolvida ao navegador: o
+     * operador via "deu erro", fechava o aviso, e não sobrava rastro nenhum para
+     * descobrir se foi limite de taxa, token ou estado inválido do pedido.
+     */
+    private static function logFailure(string $action, string $orderId, array $r, string $nota = ''): void
+    {
+        error_log(sprintf(
+            '[ifood] %s pedido=%s HTTP=%d%s erro=%s corpo=%s',
+            $action,
+            $orderId,
+            $r['status'],
+            $nota !== '' ? " ({$nota})" : '',
+            $r['error'] !== '' ? $r['error'] : '-',
+            substr((string) ($r['raw'] ?? ''), 0, 400) ?: '-'
+        ));
     }
 
     /** GET cancellationReasons → escolhe um código válido e monta o corpo do cancelamento. */

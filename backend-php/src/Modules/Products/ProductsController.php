@@ -8,6 +8,7 @@ use App\Core\Http;
 use App\Core\HttpError;
 use App\Core\Request;
 use App\Services\Ollama;
+use App\Services\Replenishment;
 
 final class ProductsController
 {
@@ -87,7 +88,45 @@ final class ProductsController
                  WHERE " . implode(' AND ', $where) . "
                  GROUP BY p.id, c.name, t.name, sc.name, s.name, pp.name
                  ORDER BY p.name" . self::pagination($req);
-        Http::json(Db::query($sql, $params));
+        $rows = Db::query($sql, $params);
+
+        // Situação do estoque ao lado de cada linha. A tela se chama "Produtos / Estoque" e
+        // não mostrava saldo nenhum: para saber quanto tinha de um item era preciso abrir o
+        // modal dele, um por um — e os produtos com saldo negativo ficavam invisíveis.
+        // Reusa o MESMO motor da contagem e da lista de compras (Replenishment), para as
+        // três telas não discordarem sobre o que é crítico.
+        $countable = [];
+        foreach ($rows as $r) {
+            if (in_array($r['tipo'] ?? '', Replenishment::COUNTABLE_TIPOS, true)) {
+                $countable[] = (int) $r['id'];
+            }
+        }
+        $usage = $countable ? Replenishment::dailyUsage($req->orgId(), $countable) : [];
+        $incoming = $countable ? Replenishment::incoming($req->orgId(), $countable) : [];
+        $countableSet = array_flip($countable);
+
+        foreach ($rows as &$r) {
+            $id = (int) $r['id'];
+            $onHand = (float) ($r['stock_qty'] ?? 0);
+            $r['incoming'] = $incoming[$id] ?? 0.0;
+            if (!isset($countableSet[$id])) {
+                // Prato/combo não se compra: o saldo dele é consequência da ficha técnica,
+                // e classificá-lo como "a repor" mandaria comprar o que se produz.
+                $r['stock_status'] = null;
+                $r['daily_usage'] = null;
+                continue;
+            }
+            $calc = Replenishment::suggest(
+                $r, $onHand, Replenishment::DEFAULT_COVERAGE_DAYS,
+                $usage[$id] ?? null, $r['incoming']
+            );
+            $r['stock_status'] = $calc['status'];
+            $r['daily_usage'] = $calc['daily_usage'];
+            $r['days_left'] = $calc['days_left'];
+        }
+        unset($r);
+
+        Http::json($rows);
     }
 
     public static function unmapped(Request $req): void

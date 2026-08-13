@@ -14,7 +14,10 @@ use PDO;
 final class Stock
 {
     /**
-     * @param string $type in|out|adjust  (adjust: $qty = novo saldo ABSOLUTO)
+     * @param string      $type   in|out|adjust  (adjust: $qty = novo saldo ABSOLUTO)
+     * @param string|null $reason Motivo estruturado do lançamento manual (perda, consumo
+     *                            interno, degustação…). Só os lançamentos manuais preenchem;
+     *                            movimento vindo de venda/produção se identifica pelo `ref`.
      * @return array{qty_delta: float, balance_after: float}
      */
     public static function apply(
@@ -26,7 +29,8 @@ final class Stock
         ?float $unitCost,
         ?string $ref,
         ?string $notes,
-        ?int $userId
+        ?int $userId,
+        ?string $reason = null
     ): array {
         // Trava a linha do produto p/ serializar movimentos concorrentes.
         $st = $pdo->prepare('SELECT stock_qty, avg_cost FROM products WHERE id = ? FOR UPDATE');
@@ -50,9 +54,9 @@ final class Stock
         }
 
         $pdo->prepare(
-            'INSERT INTO stock_moves (org_id, product_id, type, qty_delta, unit_cost, balance_after, ref, notes, created_by)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-        )->execute([$orgId, $productId, $type, $delta, $unitCost, $after, $ref, $notes, $userId]);
+            'INSERT INTO stock_moves (org_id, product_id, type, qty_delta, unit_cost, balance_after, ref, reason, notes, created_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        )->execute([$orgId, $productId, $type, $delta, $unitCost, $after, $ref, $reason, $notes, $userId]);
 
         $pdo->prepare('UPDATE products SET stock_qty = ?, avg_cost = ? WHERE id = ?')
             ->execute([$after, $avg, $productId]);

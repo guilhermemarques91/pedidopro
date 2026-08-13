@@ -18,6 +18,17 @@ use App\Core\Db;
  */
 final class Replenishment
 {
+    /**
+     * Tipos que se COMPRAM de fornecedor — os que entram em contagem e em reposição.
+     * Produto/Combo/Adicional são montados por ficha técnica (baixam pelos insumos) e
+     * Ativo imobilizado não se repõe.
+     *
+     * Fonte ÚNICA da lista: antes estava copiada em CountsController, ParamsController
+     * e em duas telas, então incluir um tipo novo exigia lembrar de quatro lugares.
+     * O espelho do frontend fica em frontend/src/config/compras.ts.
+     */
+    public const COUNTABLE_TIPOS = ['Mercadoria', 'Matéria-prima', 'Uso e consumo', 'Item intermediário'];
+
     /** Dias de cobertura padrão de uma folha de contagem (compra semanal). */
     public const DEFAULT_COVERAGE_DAYS = 7;
 
@@ -70,14 +81,55 @@ final class Replenishment
     }
 
     /**
+     * O que já foi comprado e ainda não chegou: soma das entradas de mercadoria AGUARDANDO.
+     *
+     * Sem isto, `suggest()` enxerga só o saldo físico e manda comprar de novo aquilo que já
+     * está a caminho — o erro que o "Projected Qty" do ERPNext e o "Forecast" do Odoo
+     * existem para evitar. Só conta o que ainda falta receber da linha (o parcial já entrou
+     * no saldo).
+     *
+     * @param  int[] $productIds
+     * @return array<int,float> product_id => quantidade a caminho
+     */
+    public static function incoming(int $orgId, array $productIds): array
+    {
+        if (!$productIds) {
+            return [];
+        }
+        $place = Db::inClause($productIds);
+        $rows = Db::query(
+            "SELECT ri.product_id,
+                    SUM(GREATEST(COALESCE(ri.qty_expected, 0) - COALESCE(ri.qty_received, 0), 0)) AS pendente
+               FROM stock_receipt_items ri
+               JOIN stock_receipts r ON r.id = ri.receipt_id
+              WHERE r.org_id = ? AND r.status = 'aguardando'
+                AND ri.product_id IN ({$place})
+              GROUP BY ri.product_id",
+            array_merge([$orgId], $productIds)
+        );
+        $out = [];
+        foreach ($rows as $r) {
+            $qty = (float) $r['pendente'];
+            if ($qty > 0) {
+                $out[(int) $r['product_id']] = $qty;
+            }
+        }
+        return $out;
+    }
+
+    /**
      * Calcula a linha de sugestão de um produto.
      *
-     * @param array $product     linha de products (min_stock, max_stock, pack_size)
-     * @param float $onHand      saldo em mãos (o contado, quando houver)
-     * @param float|null $daily  consumo médio diário; null/0 = sem histórico
-     * @return array{target:?float,reorder_point:?float,daily_usage:?float,days_left:?float,suggested:?float,status:string,basis:string}
+     * @param array $product      linha de products (min_stock, max_stock, pack_size)
+     * @param float $onHand       saldo em mãos (o contado, quando houver)
+     * @param float|null $daily   consumo médio diário; null/0 = sem histórico
+     * @param float $incoming     já comprado e ainda não recebido — desconta da sugestão,
+     *                            mas NÃO entra no saldo: a folha de contagem tem que
+     *                            continuar mostrando o físico, senão o conferente acha
+     *                            que o sistema errou a conta dele.
+     * @return array{target:?float,reorder_point:?float,daily_usage:?float,days_left:?float,suggested:?float,status:string,basis:string,incoming:float}
      */
-    public static function suggest(array $product, float $onHand, int $coverageDays, ?float $daily): array
+    public static function suggest(array $product, float $onHand, int $coverageDays, ?float $daily, float $incoming = 0.0): array
     {
         $max = self::num($product['max_stock'] ?? null);
         $min = self::num($product['min_stock'] ?? null);
@@ -96,23 +148,29 @@ final class Replenishment
             $basis = 'sem_parametro';
         }
 
+        $incoming = max(0.0, $incoming);
+
         if ($target === null) {
             // Sem alvo não dá para sugerir número, mas ainda vale avisar que zerou.
             return [
                 'target' => null, 'reorder_point' => $min, 'daily_usage' => $daily,
                 'days_left' => null, 'suggested' => null,
-                'status' => $onHand <= 0 ? 'critico' : 'sem_parametro',
-                'basis' => $basis,
+                'status' => ($onHand + $incoming) <= 0 ? 'critico' : 'sem_parametro',
+                'basis' => $basis, 'incoming' => round($incoming, 3),
             ];
         }
 
         $reorder = $min !== null ? $min : $target * self::CRITICAL_FRACTION;
-        $falta = $target - $onHand;
+        // A falta é contra o PREVISTO (o que tenho mais o que vem), não contra o físico.
+        $falta = $target - ($onHand + $incoming);
         $suggested = $falta > 0 ? self::roundToPack($falta, $pack) : 0.0;
 
-        if ($onHand <= $reorder) {
+        // O status também olha o previsto: item zerado com carga a caminho não é crítico,
+        // é só um item que ainda não chegou — e tratá-lo como crítico gera compra duplicada.
+        $projected = $onHand + $incoming;
+        if ($projected <= $reorder) {
             $status = 'critico';
-        } elseif ($onHand < $target) {
+        } elseif ($projected < $target) {
             $status = 'repor';
         } else {
             $status = 'ok';
@@ -122,10 +180,11 @@ final class Replenishment
             'target' => round($target, 3),
             'reorder_point' => round($reorder, 3),
             'daily_usage' => $daily !== null ? round($daily, 3) : null,
-            'days_left' => $daily !== null ? round($onHand / $daily, 1) : null,
+            'days_left' => $daily !== null ? round($projected / $daily, 1) : null,
             'suggested' => round($suggested, 3),
             'status' => $status,
             'basis' => $basis,
+            'incoming' => round($incoming, 3),
         ];
     }
 

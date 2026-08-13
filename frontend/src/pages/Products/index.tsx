@@ -3,11 +3,12 @@ import { useSearchParams } from 'react-router-dom';
 import { Items } from '../Items';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Pencil, Trash2, Sparkles, Check, Tags as TagsIcon, FolderTree, Layers, Filter, ArrowDownUp, Receipt, Printer,
-  LayoutGrid, ShoppingBag, Sandwich, Boxes, PlusCircle, Carrot, CookingPot, SprayCan, Building2, type LucideIcon } from 'lucide-react';
+  LayoutGrid, ShoppingBag, Sandwich, Boxes, PlusCircle, Carrot, CookingPot, SprayCan, Building2, AlertTriangle, type LucideIcon } from 'lucide-react';
 import { productsApi, productTypesApi, subclassesApi, printersApi, categoriesApi, suppliersApi, itemsApi, stockApi, ProductFilters, ProductInput, RecipeLineInput, SuggestedGroup } from '../../services/resources';
 import { apiError } from '../../services/api';
-import { brl } from '../../utils/format';
-import type { Product, ProductType, Subclass, ProductionPrinter, RecipeLine, StockMove } from '../../types';
+import { brl, fmtQty, numToInput } from '../../utils/format';
+import { REPLENISH_TONE, reasonsFor } from '../../config/estoque';
+import type { MoveReason, Product, ProductType, Subclass, ProductionPrinter, RecipeLine, StockMove } from '../../types';
 import { useAuth } from '../../store/auth.store';
 import { PageHeader } from '../../components/PageHeader';
 import { Button, Card, Input, Select, Textarea, Modal, IconBtn, Spinner, ErrorBox, EmptyState } from '../../components/ui';
@@ -42,7 +43,9 @@ export function Products() {
   const setView = (v: string) => setParams(v === 'itens' ? { view: 'itens' } : {}, { replace: true });
   const [tipo, setTipo] = useState('');                        // aba de topo (eixo Tipo)
   const [category, setCategory] = useState<number | ''>('');
-  const [q, setQ] = useState('');
+  // Semeado pela URL (?q=): é assim que a busca global cai já filtrada nesta tela.
+  // Depois vira estado local normal — quem digita no campo não mexe na URL.
+  const [q, setQ] = useState(() => params.get('q') ?? '');
   const [type, setType] = useState<number | ''>('');           // Classe de itens
   const [subClasse, setSubClasse] = useState<number | ''>('');
   const [supplier, setSupplier] = useState<number | ''>('');
@@ -86,12 +89,37 @@ export function Products() {
   };
   const products = useQuery({ queryKey: ['products', filters], queryFn: () => productsApi.list(filters) });
 
+  // Recorte de estoque. É filtro de TELA (não vai à API) porque a situação já vem calculada
+  // em cada linha — e porque "negativos" é justamente o que ninguém sabia procurar: a tela
+  // mostrava preço e custo, nunca saldo, então 32 produtos no vermelho ficavam invisíveis.
+  // Semeado por ?estoque= (mesmo padrão do ?q= acima): é o que faz o card "Produtos
+  // críticos" do Dashboard abrir esta tela JÁ filtrada, em vez de cair aqui sem nada.
+  const [stockView, setStockView] = useState<'' | 'negativo' | 'critico' | 'repor' | 'sem_parametro'>(() => {
+    const v = params.get('estoque');
+    return v === 'negativo' || v === 'critico' || v === 'repor' || v === 'sem_parametro' ? v : '';
+  });
+  const visible = useMemo(() => {
+    const all = products.data ?? [];
+    if (!stockView) return all;
+    if (stockView === 'negativo') return all.filter((p) => Number(p.stock_qty ?? 0) < 0);
+    return all.filter((p) => p.stock_status === stockView);
+  }, [products.data, stockView]);
+  const stockCounts = useMemo(() => {
+    const all = products.data ?? [];
+    return {
+      negativo: all.filter((p) => Number(p.stock_qty ?? 0) < 0).length,
+      critico: all.filter((p) => p.stock_status === 'critico').length,
+      repor: all.filter((p) => p.stock_status === 'repor').length,
+      sem_parametro: all.filter((p) => p.stock_status === 'sem_parametro').length,
+    };
+  }, [products.data]);
+
   // Sub-classes visíveis no filtro lateral: todas, ou as da Classe selecionada.
   const subOptions = (subclasses.data ?? []).filter((s) => !type || s.type_id === type);
-  const hasFilters = q || type || subClasse || category || supplier || from || to || costMin || costMax || saleMin || saleMax || showInactive;
+  const hasFilters = q || type || subClasse || category || supplier || from || to || costMin || costMax || saleMin || saleMax || showInactive || stockView;
   function clearFilters() {
     setQ(''); setType(''); setSubClasse(''); setCategory(''); setSupplier(''); setFrom(''); setTo('');
-    setCostMin(''); setCostMax(''); setSaleMin(''); setSaleMax(''); setShowInactive(false);
+    setCostMin(''); setCostMax(''); setSaleMin(''); setSaleMax(''); setShowInactive(false); setStockView('');
   }
   const remove = useMutation({
     mutationFn: (id: number) => productsApi.remove(id),
@@ -203,15 +231,41 @@ export function Products() {
 
         {/* Lista */}
         <div>
+          {/* Recortes de estoque: um clique para achar o que está no vermelho ou faltando. */}
+          {view === 'produtos' && (
+            <div className="mb-3 flex flex-wrap gap-2">
+              {([
+                ['negativo', 'Saldo negativo', 'text-rose-700 ring-rose-200 bg-rose-50'],
+                ['critico', 'Críticos', 'text-rose-700 ring-rose-200 bg-rose-50'],
+                ['repor', 'A repor', 'text-amber-700 ring-amber-200 bg-amber-50'],
+                ['sem_parametro', 'Sem parâmetro', 'text-slate-600 ring-slate-200 bg-slate-50'],
+              ] as const).map(([key, label, tone]) => {
+                const n = stockCounts[key];
+                if (n === 0 && stockView !== key) return null;
+                const active = stockView === key;
+                return (
+                  <button
+                    key={key}
+                    onClick={() => setStockView(active ? '' : key)}
+                    className={`rounded-full px-3 py-1 text-xs font-medium ring-1 transition ${
+                      active ? 'bg-slate-800 text-white ring-slate-800' : tone
+                    }`}
+                  >
+                    {label} · {n}
+                  </button>
+                );
+              })}
+            </div>
+          )}
           {products.isLoading && <Spinner />}
           {products.error && <ErrorBox message={apiError(products.error)} />}
-          {products.data && (products.data.length === 0 ? (
+          {products.data && (visible.length === 0 ? (
             <EmptyState message={hasFilters || tipo ? 'Nenhum cadastro com esses filtros.' : 'Nenhum cadastro ainda. Clique em “Novo cadastro”.'} />
           ) : (
             <>
               {/* Mobile: cartões compactos */}
               <div className="space-y-2 sm:hidden">
-                {products.data.map((p) => (
+                {visible.map((p) => (
                   <Card key={p.id} className="flex items-center justify-between gap-3 p-3">
                     <div className="flex min-w-0 items-center gap-3">
                       {p.image_data
@@ -221,6 +275,12 @@ export function Products() {
                       <p className="truncate font-medium text-slate-800"><span className="mr-1 text-xs text-slate-400">{p.id}</span>{p.name}</p>
                       <p className="mt-0.5 truncate text-xs text-slate-500">
                         {p.tipo ?? 'sem tipo'} · {p.type_name ?? 's/ classe'} · {p.unit ?? p.default_unit ?? 's/ un.'}
+                      </p>
+                      <p className="mt-0.5 truncate text-xs">
+                        <span className={Number(p.stock_qty ?? 0) < 0 ? 'font-semibold text-rose-600' : 'text-slate-500'}>
+                          saldo {fmtQty(p.stock_qty ?? 0)}
+                        </span>
+                        {(p.incoming ?? 0) > 0 && <span className="text-sky-600"> · a caminho {fmtQty(p.incoming)}</span>}
                       </p>
                       </div>
                     </div>
@@ -232,7 +292,7 @@ export function Products() {
                     </div>
                   </Card>
                 ))}
-                <p className="px-1 pt-1 text-right text-xs font-medium text-slate-500">Itens: {products.data.length}</p>
+                <p className="px-1 pt-1 text-right text-xs font-medium text-slate-500">Itens: {visible.length}</p>
               </div>
 
               {/* Desktop: tabela no padrão do PDV */}
@@ -247,13 +307,16 @@ export function Products() {
                       <th className="px-3 py-2.5 font-semibold">Sub-classe</th>
                       <th className="px-3 py-2.5 font-semibold">Un. venda</th>
                       <th className="px-3 py-2.5 font-semibold">Un. compra</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">Saldo</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">A caminho</th>
+                      <th className="px-3 py-2.5 font-semibold">Situação</th>
                       <th className="px-3 py-2.5 text-right font-semibold">Valor de venda</th>
                       <th className="px-3 py-2.5 text-right font-semibold">Custo médio</th>
                       <th className="px-3 py-2.5" />
                     </tr>
                   </thead>
                   <tbody>
-                    {products.data.map((p) => {
+                    {visible.map((p) => {
                       const custo = p.avg_cost ?? p.cost_price;
                       return (
                       <tr key={p.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
@@ -273,6 +336,21 @@ export function Products() {
                         <td className="px-3 py-2.5 text-slate-600">{p.sub_classe_name ?? <span className="text-slate-300">—</span>}</td>
                         <td className="px-3 py-2.5 text-emerald-600">{p.unit ?? p.default_unit ?? <span className="text-slate-300">***</span>}</td>
                         <td className="px-3 py-2.5 text-slate-500">{p.purchase_unit ?? <span className="text-slate-300">***</span>}</td>
+                        <td className={`px-3 py-2.5 text-right font-medium ${Number(p.stock_qty ?? 0) < 0 ? 'text-rose-600' : 'text-slate-700'}`}>
+                          {fmtQty(p.stock_qty ?? 0)}
+                        </td>
+                        <td className="px-3 py-2.5 text-right text-sky-700">
+                          {(p.incoming ?? 0) > 0 ? fmtQty(p.incoming) : <span className="text-slate-300">—</span>}
+                        </td>
+                        <td className="px-3 py-2.5">
+                          {p.stock_status ? (
+                            <span className={`rounded-full px-2 py-0.5 text-xs font-medium ring-1 ${REPLENISH_TONE[p.stock_status].chip}`}>
+                              {REPLENISH_TONE[p.stock_status].label}
+                            </span>
+                          ) : (
+                            <span className="text-slate-300">—</span>
+                          )}
+                        </td>
                         <td className="px-3 py-2.5 text-right font-medium text-slate-800">{p.sale_price != null ? brl(p.sale_price) : <span className="text-slate-300">—</span>}</td>
                         <td className="px-3 py-2.5 text-right text-amber-700">{custo != null ? brl(custo) : <span className="text-slate-300">***</span>}</td>
                         {/* IconBtn (em vez de <button> cru): traz aria-label, anel de foco e
@@ -289,7 +367,7 @@ export function Products() {
                     ); })}
                   </tbody>
                 </table>
-                <div className="border-t border-slate-200 bg-slate-50 px-4 py-2 text-right text-xs font-semibold text-slate-600">Itens: {products.data.length}</div>
+                <div className="border-t border-slate-200 bg-slate-50 px-4 py-2 text-right text-xs font-semibold text-slate-600">Itens: {visible.length}</div>
               </Card>
             </>
           ))}
@@ -322,11 +400,6 @@ export function Products() {
   );
 }
 
-const fmtQty = (v?: string | null) => {
-  const n = Number(v ?? 0);
-  return Number.isInteger(n) ? String(n) : n.toFixed(3).replace('.', ',');
-};
-
 const MOVE_LABEL: Record<string, string> = { in: 'Entrada', out: 'Saída', adjust: 'Ajuste' };
 
 /** Movimentação de estoque de um produto: form + últimas movimentações. */
@@ -336,6 +409,7 @@ function StockModal({ product, onClose }: { product: Product; onClose: () => voi
   const [qty, setQty] = useState('');
   const [cost, setCost] = useState('');
   const [notes, setNotes] = useState('');
+  const [reason, setReason] = useState<MoveReason | ''>('');
   const [error, setError] = useState('');
   const [saldo, setSaldo] = useState(product.stock_qty ?? '0');
 
@@ -345,6 +419,7 @@ function StockModal({ product, onClose }: { product: Product; onClose: () => voi
       product_id: product.id, type, quantity: Number(qty.replace(',', '.')),
       unit_cost: type === 'in' && cost ? Number(cost.replace(',', '.')) : null,
       notes: notes.trim() || null,
+      reason: reason || null,
     }),
     onSuccess: (r: { stock_qty: string }) => {
       setSaldo(r.stock_qty); setQty(''); setCost(''); setNotes(''); setError('');
@@ -373,10 +448,26 @@ function StockModal({ product, onClose }: { product: Product; onClose: () => voi
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-slate-500">Tipo</span>
-            <Select value={type} onChange={(e) => setType(e.target.value as 'in' | 'out' | 'adjust')}>
+            <Select
+              value={type}
+              onChange={(e) => {
+                const t = e.target.value as 'in' | 'out' | 'adjust';
+                setType(t);
+                if (!reasonsFor(t).some((r) => r.value === reason)) setReason('');
+              }}
+            >
               <option value="in">Entrada</option>
               <option value="out">Saída</option>
               <option value="adjust">Ajuste (saldo final)</option>
+            </Select>
+          </label>
+          {/* Motivo estruturado: sem ele "venceu", "quebrou" e "a equipe comeu" viravam a
+              mesma saída anônima, e não havia como somar perda depois. */}
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-slate-500">Motivo</span>
+            <Select value={reason} onChange={(e) => setReason(e.target.value as MoveReason | '')}>
+              <option value="">Sem motivo</option>
+              {reasonsFor(type).map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
             </Select>
           </label>
           <label className="block">
@@ -574,6 +665,33 @@ function ProductForm({ product, defaultTipo, types, subclasses, printers, catego
   const unitCostOf = (r: RecipeRow): number => r.item_id
     ? Number(itemById.get(r.item_id)?.base_price ?? 0)
     : (r.component_id ? costById.get(Number(r.component_id)) ?? 0 : 0);
+  const productNameById = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const p of allProducts.data ?? []) m.set(p.id, p.name);
+    return m;
+  }, [allProducts.data]);
+  // Nome do insumo da linha, para identificar quem está sem custo no aviso abaixo.
+  const insumoLabel = (r: RecipeRow): string => {
+    if (r.item_id) return itemById.get(r.item_id)?.name ?? `item #${r.item_id}`;
+    if (r.component_id) return productNameById.get(Number(r.component_id)) ?? `produto #${r.component_id}`;
+    if (r.free && r.component_name) return r.component_name;
+    return '';
+  };
+  // Insumo escolhido, com quantidade lançada, mas sem custo cadastrado: hoje ele entra
+  // como grátis na soma (unitCostOf devolve 0) e a ficha parece completa quando não está.
+  const isRowMissingCost = (r: RecipeRow): boolean => {
+    const label = insumoLabel(r);
+    const qty = Number(String(r.quantity).replace(',', '.')) || 0;
+    return label !== '' && qty > 0 && unitCostOf(r) <= 0;
+  };
+  const missingCostNames = useMemo(() => {
+    const names = new Set<string>();
+    for (const r of recipe) {
+      if (isRowMissingCost(r)) names.add(insumoLabel(r));
+    }
+    return Array.from(names);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recipe, costById, itemById, productNameById]);
   // Unidade padrão de cada produto: usada para preencher a coluna "un" automaticamente
   // ao escolher o insumo (deixa de ser digitada à mão).
   const unitByProduct = useMemo(() => {
@@ -611,10 +729,19 @@ function ProductForm({ product, defaultTipo, types, subclasses, printers, catego
     }
   }, [detail.data]);
 
-  const recipeCost = useMemo(() => recipe.reduce((sum, r) => {
+  // Custo do LOTE que a ficha produz (soma crua dos insumos).
+  const recipeBatchCost = useMemo(() => recipe.reduce((sum, r) => {
     const q = Number(String(r.quantity).replace(',', '.')) || 0;
     return sum + unitCostOf(r) * q;
   }, 0), [recipe, costById, itemById]); // eslint-disable-line react-hooks/exhaustive-deps
+  /**
+   * Custo por UNIDADE — é ele que vai para cost_price, porque o preço de venda é por
+   * unidade. Somar o lote contra um preço unitário inflava o custo pelo rendimento
+   * inteiro (uma ficha que rende 10 porções mentia 10× na margem), e divergia da baixa
+   * de estoque, que sempre dividiu pelo rendimento (ver Recipe::explode no backend).
+   */
+  const recipeYield = Number(String(yieldQty).replace(',', '.')) || 0;
+  const recipeCost = recipeYield > 0 ? recipeBatchCost / recipeYield : recipeBatchCost;
 
   const emptyRow = (): RecipeRow => ({ component_id: '', component_name: '', free: false, quantity: '', unit: '' });
   const addRow = () => setRecipe((rs) => [...rs, emptyRow()]);
@@ -799,7 +926,7 @@ function ProductForm({ product, defaultTipo, types, subclasses, printers, catego
               )}
               {usesRecipe && (
                 <Field label="Preço de custo (ficha técnica)">
-                  <Input readOnly value={recipeCost > 0 ? brl(recipeCost) : '—'} className="bg-slate-50 text-slate-600" title="Calculado pela ficha técnica (custo médio dos insumos)" />
+                  <Input readOnly value={recipeCost > 0 ? brl(recipeCost) : '—'} className="bg-slate-50 text-slate-600" title="Custo de UMA unidade: insumos da ficha ÷ rendimento (custo médio de compra)" />
                 </Field>
               )}
               <Field label="Preço de venda (R$)"><Input type="number" step="0.01" value={sale} onChange={(e) => setSale(e.target.value)} placeholder="0,00" /></Field>
@@ -843,6 +970,7 @@ function ProductForm({ product, defaultTipo, types, subclasses, printers, catego
                 <div className="space-y-2">
                   {recipe.map((r, i) => {
                     const lineCost = unitCostOf(r) * (Number(String(r.quantity).replace(',', '.')) || 0);
+                    const missingCost = isRowMissingCost(r);
                     return (
                       <div key={i} className="grid grid-cols-[1fr_5rem_4rem_auto] items-center gap-2">
                         {r.free ? (
@@ -882,15 +1010,45 @@ function ProductForm({ product, defaultTipo, types, subclasses, printers, catego
                         )}
                         <Input value={r.quantity} onChange={(e) => setRow(i, { quantity: e.target.value })} placeholder="qtd" inputMode="decimal" className="text-right" />
                         <Input value={r.unit} onChange={(e) => setRow(i, { unit: e.target.value })} placeholder="un" />
-                        <div className="flex w-16 items-center justify-end gap-1">
-                          {lineCost > 0 && <span className="text-xs text-slate-400">{brl(lineCost)}</span>}
+                        <div className="flex w-20 items-center justify-end gap-1">
+                          {missingCost ? (
+                            <span
+                              className="whitespace-nowrap text-xs font-medium text-amber-600"
+                              title="Sem custo cadastrado — este insumo está entrando como grátis no cálculo da ficha"
+                            >
+                              sem custo
+                            </span>
+                          ) : (
+                            lineCost > 0 && <span className="text-xs text-slate-400">{brl(lineCost)}</span>
+                          )}
                           <button type="button" onClick={() => delRow(i)} className="text-slate-300 hover:text-red-600" title="Remover"><Trash2 size={15} /></button>
                         </div>
                       </div>
                     );
                   })}
-                  {recipeCost > 0 && (
-                    <p className="pt-1 text-right text-sm text-slate-600">Custo total da ficha técnica <span className="text-xs text-slate-400">(custo médio de compra)</span>: <strong className="text-slate-800">{brl(recipeCost)}</strong></p>
+                  {missingCostNames.length > 0 && (
+                    <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                      <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+                      <p>
+                        <strong>Custo incompleto:</strong> sem preço cadastrado para {missingCostNames.join(', ')}.
+                        {' '}Esses insumos estão entrando como grátis no custo calculado abaixo — cadastre o preço deles
+                        (compra ou custo médio) para a ficha ficar completa.
+                      </p>
+                    </div>
+                  )}
+                  {recipeBatchCost > 0 && (
+                    <div className="pt-1 text-right text-sm text-slate-600">
+                      <p>
+                        Custo total da ficha técnica <span className="text-xs text-slate-400">(custo médio de compra)</span>:{' '}
+                        <strong className="text-slate-800">{brl(recipeBatchCost)}</strong>
+                      </p>
+                      {recipeYield > 1 && (
+                        <p className="text-xs text-slate-500">
+                          Rende {numToInput(recipeYield)}{yieldUnit ? ` ${yieldUnit}` : ''} · custo por unidade:{' '}
+                          <strong className="text-slate-700">{brl(recipeCost)}</strong>
+                        </p>
+                      )}
+                    </div>
                   )}
                 </div>
               )}

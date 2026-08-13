@@ -64,6 +64,12 @@ final class Permissions
                 'financeiro:admin' => 'Importar planilhas e configurar o plano de contas',
             ],
         ],
+        'whatsapp' => [
+            'label' => 'WhatsApp',
+            'items' => [
+                'whatsapp:chat' => 'Ver e responder conversas pela janela do sistema',
+            ],
+        ],
         'sistema' => [
             'label' => 'Administração',
             'items' => [

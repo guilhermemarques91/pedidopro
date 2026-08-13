@@ -24,12 +24,45 @@ use PDO;
  */
 final class CountsController
 {
+    /** Tipos que entram na folha — lista única em App\Services\Replenishment. */
+    private const COUNTABLE_TIPOS = Replenishment::COUNTABLE_TIPOS;
+
     /**
-     * Tipos que entram na folha: o que se COMPRA de fornecedor. Produto/Combo/
-     * Adicional são montados por ficha técnica (baixam pelos insumos) e Ativo
-     * imobilizado não é reposição — nenhum dos dois se conta para comprar.
+     * GET /stock/counts/scopes
+     *
+     * Os recortes possíveis para abrir uma folha, com quantos itens cada um traz e
+     * há quantos dias foi contado. É o que substitui os três selects genéricos da
+     * criação: em vez de adivinhar, o usuário vê "EMBALAGENS · 22 itens · contado
+     * há 2 dias" e escolhe.
+     *
+     * Sub-classe com 0 itens compráveis continua na lista (desabilitada na tela) —
+     * sumir daria a entender que o grupo não existe.
      */
-    private const COUNTABLE_TIPOS = ['Mercadoria', 'Matéria-prima', 'Uso e consumo', 'Item intermediário'];
+    public static function scopes(Request $req): void
+    {
+        $place = Db::inClause(self::COUNTABLE_TIPOS);
+        Http::json(Db::query(
+            "SELECT sub.id   AS sub_classe_id,
+                    sub.name AS sub_classe_name,
+                    t.id     AS type_id,
+                    t.name   AS type_name,
+                    COUNT(p.id) AS product_count,
+                    (SELECT MAX(sc.created_at)
+                       FROM stock_counts sc
+                      WHERE sc.org_id = sub.org_id AND sc.scope_sub_classe_id = sub.id) AS last_counted_at
+               FROM product_subclasses sub
+               LEFT JOIN product_types t ON t.id = sub.type_id
+               LEFT JOIN products p
+                      ON p.sub_classe_id = sub.id
+                     AND p.org_id = sub.org_id
+                     AND p.active = 1
+                     AND p.tipo IN ({$place})
+              WHERE sub.org_id = ? AND sub.active = 1
+              GROUP BY sub.id, sub.name, t.id, t.name, sub.sort_order, sub.org_id
+              ORDER BY sub.sort_order, sub.name",
+            array_merge(self::COUNTABLE_TIPOS, [$req->orgId()])
+        ));
+    }
 
     /** GET /stock/counts */
     public static function list(Request $req): void
@@ -81,6 +114,13 @@ final class CountsController
             $where[] = 'p.type_id = ?';
             $params[] = $typeId;
         }
+        // Sub-classe é o recorte que corresponde à prateleira (EMBALAGENS, LIMPEZA…)
+        // e é o único eixo preenchido em 100% do cadastro — sem ele a folha nascia
+        // com o catálogo inteiro.
+        if (($subId = $in->integer('sub_classe_id')) !== null) {
+            $where[] = 'p.sub_classe_id = ?';
+            $params[] = $subId;
+        }
 
         $products = Db::query(
             'SELECT p.id, p.stock_qty, p.unit, p.purchase_unit
@@ -93,9 +133,20 @@ final class CountsController
             throw HttpError::badRequest('Nenhum produto de compra encontrado com esses filtros');
         }
 
-        $id = Db::transaction(function (PDO $pdo) use ($req, $title, $coverage, $notes, $products) {
-            $pdo->prepare('INSERT INTO stock_counts (org_id, title, coverage_days, notes, created_by) VALUES (?, ?, ?, ?, ?)')
-                ->execute([$req->orgId(), $title, $coverage, $notes, $req->userId()]);
+        // Escopo pedido, guardado para a lista de contagens poder filtrar e para o
+        // histórico dizer o que foi contado mesmo que a sub-classe mude depois.
+        $scope = ['sub' => $subId, 'type' => $typeId, 'cat' => $cat, 'tipo' => $tipo];
+
+        $id = Db::transaction(function (PDO $pdo) use ($req, $title, $coverage, $notes, $products, $scope) {
+            $pdo->prepare(
+                'INSERT INTO stock_counts
+                    (org_id, title, coverage_days, notes, created_by,
+                     scope_sub_classe_id, scope_type_id, scope_category_id, scope_tipo)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            )->execute([
+                $req->orgId(), $title, $coverage, $notes, $req->userId(),
+                $scope['sub'], $scope['type'], $scope['cat'], $scope['tipo'],
+            ]);
             $cid = (int) $pdo->lastInsertId();
             $stmt = $pdo->prepare('INSERT INTO stock_count_items (count_id, product_id, system_qty, unit) VALUES (?, ?, ?, ?)');
             foreach ($products as $p) {
@@ -321,23 +372,33 @@ final class CountsController
         $rows = Db::query(
             'SELECT sci.*, p.name AS product_name, p.min_stock, p.max_stock, p.pack_size,
                     p.avg_cost, p.cost_price, p.stock_qty AS current_qty,
-                    c.name AS category_name, s.name AS supplier_name
+                    c.name AS category_name, s.name AS supplier_name,
+                    sub.id AS sub_classe_id, sub.name AS sub_classe_name
                FROM stock_count_items sci
                JOIN products p ON p.id = sci.product_id
                LEFT JOIN categories c ON c.id = p.category_id
+               LEFT JOIN product_subclasses sub ON sub.id = p.sub_classe_id
                LEFT JOIN suppliers s ON s.id = p.supplier_id
               WHERE sci.count_id = ?
-              ORDER BY COALESCE(c.name, \'zzz\'), p.name',
+              ORDER BY COALESCE(sub.sort_order, 9999), COALESCE(sub.name, \'zzz\'), p.name',
             [$id]
         );
         if (!$rows) {
             return [];
         }
-        $usage = Replenishment::dailyUsage($orgId, array_map(static fn ($r) => (int) $r['product_id'], $rows));
+        $ids = array_map(static fn ($r) => (int) $r['product_id'], $rows);
+        $usage = Replenishment::dailyUsage($orgId, $ids);
+        // O que já foi comprado e ainda não chegou desconta da sugestão — senão a folha
+        // manda comprar de novo o que está na doca do fornecedor.
+        $incoming = Replenishment::incoming($orgId, $ids);
 
         foreach ($rows as &$r) {
             $onHand = $r['counted_qty'] !== null ? (float) $r['counted_qty'] : (float) $r['system_qty'];
-            $calc = Replenishment::suggest($r, $onHand, $coverageDays, $usage[(int) $r['product_id']] ?? null);
+            $calc = Replenishment::suggest(
+                $r, $onHand, $coverageDays,
+                $usage[(int) $r['product_id']] ?? null,
+                $incoming[(int) $r['product_id']] ?? 0.0
+            );
             $r = array_merge($r, $calc);
             $r['on_hand'] = $onHand;
             // Custo de referência da linha (custo médio de compra, com queda para o preço cadastrado).

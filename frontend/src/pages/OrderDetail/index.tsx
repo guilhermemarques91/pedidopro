@@ -38,15 +38,14 @@ export function OrderDetailPage() {
     if (send.isError && !msgBox && !fetchMsg.isPending) fetchMsg.mutate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [send.isError]);
-  const receive = useMutation({ mutationFn: () => ordersApi.receive(oid), onSuccess: invalidate });
   const cancel = useMutation({ mutationFn: () => ordersApi.cancel(oid), onSuccess: invalidate });
 
   if (isLoading) return <Spinner />;
   if (error) return <ErrorBox message={apiError(error)} />;
   if (!data) return null;
 
-  const busy = [submit, approve, reject, send, receive, cancel].some((m) => m.isPending);
-  const mutError = [submit, approve, reject, send, receive, cancel].find((m) => m.error)?.error;
+  const busy = [submit, approve, reject, send, cancel].some((m) => m.isPending);
+  const mutError = [submit, approve, reject, send, cancel].find((m) => m.error)?.error;
 
   // Edição liberada apenas em rascunho (o backend bloqueia após submissão).
   const editable = data.status === 'draft' && isBuyer;
@@ -77,7 +76,14 @@ export function OrderDetailPage() {
               <Copy size={16} /> Gerar mensagem
             </Button>
           )}
-          {isBuyer && data.status === 'sent' && <Button onClick={() => receive.mutate()} disabled={busy}><PackageCheck size={16} /> Marcar recebido</Button>}
+          {/* O recebimento deixou de ser um botão de tudo-ou-nada: o pedido enviado gera uma
+              entrada de mercadoria, e é lá — com a nota do fornecedor na mão — que se
+              confere quantidade e preço antes de mexer no estoque. */}
+          {isBuyer && ['sent', 'partially_received'].includes(data.status) && (
+            <Link to={`/estoque/entradas?pedido=${oid}`}>
+              <Button disabled={busy}><PackageCheck size={16} /> Conferir entrada</Button>
+            </Link>
+          )}
           {isBuyer && !['received', 'cancelled'].includes(data.status) && <Button variant="ghost" onClick={() => confirm('Cancelar pedido?') && cancel.mutate()} disabled={busy}><Ban size={16} /> Cancelar</Button>}
         </div>
       </div>
@@ -166,6 +172,16 @@ export function OrderDetailPage() {
             <h3 className="mb-3 text-sm font-semibold text-slate-800">Informações</h3>
             <dl className="space-y-2 text-sm">
               <Row label="Fornecedor" value={data.supplier_name} />
+              {data.purchase_request_id && (
+                <div className="flex justify-between gap-2">
+                  <dt className="text-slate-500">Gerado da lista</dt>
+                  <dd className="text-right font-medium">
+                    <Link to={`/requests/${data.purchase_request_id}`} className="text-emerald-700 hover:underline">
+                      Lista #{data.purchase_request_id}
+                    </Link>
+                  </dd>
+                </div>
+              )}
               <Row label="Tipo" value={data.order_type === 'whatsapp' ? 'WhatsApp' : 'Portal'} />
               <Row label="Criado por" value={data.created_by_name} />
               <Row label="Aprovado por" value={data.approved_by_name ?? '—'} />

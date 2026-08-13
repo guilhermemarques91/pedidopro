@@ -1,7 +1,7 @@
-import { KeyboardEvent, useRef, useState } from 'react';
+import { KeyboardEvent, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2, ListChecks, Pencil } from 'lucide-react';
+import { Plus, Trash2, ListChecks, Pencil, ClipboardCheck } from 'lucide-react';
 import { requestsApi, productsApi, RequestItemInput } from '../../services/resources';
 import { apiError } from '../../services/api';
 import { useAuth } from '../../store/auth.store';
@@ -56,6 +56,18 @@ export function Requests() {
                 </div>
               </Link>
               <div className="flex items-center gap-3">
+                {/* Espelha o chip "Lista #N" que Contagens.tsx já mostra, no sentido
+                    contrário — fecha o vínculo de onde essa lista veio. */}
+                {r.stock_count_id && (
+                  <Link
+                    to={`/estoque/contagem/${r.stock_count_id}`}
+                    onClick={(e) => e.stopPropagation()}
+                    className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 hover:underline"
+                    title="Abrir a contagem de estoque que gerou esta lista"
+                  >
+                    <ClipboardCheck size={14} /> Contagem #{r.stock_count_id}
+                  </Link>
+                )}
                 <Badge status={r.status} />
                 {canEdit(r.status, isAdmin) && (
                   <button
@@ -97,8 +109,11 @@ function RequestForm({ onClose, editId }: { onClose: () => void; editId?: number
   const [title, setTitle] = useState('');
   const [lines, setLines] = useState<Draft[]>([]);
   const [error, setError] = useState('');
-  const searchRef = useRef<HTMLDivElement>(null);
   const [loaded, setLoaded] = useState(false);
+  // Força o Combobox de "adicionar item" a remontar a cada linha lançada — é o que faz
+  // `autoFocus` valer de novo (só é lido no primeiro render de cada instância) sem
+  // precisar de nenhum foco/clique manual entre um item e o próximo.
+  const [comboKey, setComboKey] = useState(0);
 
   // Pré-carrega título e linhas ao editar uma lista existente.
   if (editing && !loaded) {
@@ -176,9 +191,10 @@ function RequestForm({ onClose, editId }: { onClose: () => void; editId?: number
       quantity, unit,
     }]);
     setCatalogSel(''); setQuantity('1'); setUnit('un');
-    // Devolve o foco ao campo de busca: lançar 20 itens não pode exigir voltar o mouse
-    // ao campo a cada um. O Combobox é um <button>, então miramos ele dentro do wrapper.
-    requestAnimationFrame(() => searchRef.current?.querySelector('button')?.focus());
+    // Lançar 20 itens não pode exigir voltar o mouse ao campo a cada um: remonta o
+    // Combobox (autoFocus só vale no primeiro render de cada instância) pronto pro
+    // próximo item, sem clique nem Enter extra pra abrir.
+    setComboKey((k) => k + 1);
   }
 
   /** Enter em Qtd/Unidade lança a linha (sem submeter o formulário). */
@@ -201,8 +217,9 @@ function RequestForm({ onClose, editId }: { onClose: () => void; editId?: number
             sairia da tela e obrigaria a rolar a cada item. */}
         <Card className="space-y-3 border-emerald-100 bg-emerald-50/40">
           <div className="grid gap-2 sm:grid-cols-[1fr_6rem_7rem_auto]">
-            <div ref={searchRef}>
+            <div>
               <Combobox
+                key={comboKey}
                 options={catalogWithCreated}
                 value={catalogSel}
                 onChange={(v) => { setCatalogSel(v); setUnit(unitByValue.get(v) || 'un'); }}
@@ -212,6 +229,7 @@ function RequestForm({ onClose, editId }: { onClose: () => void; editId?: number
                   setCatalogSel(v); setUnit('un');
                 }}
                 placeholder="Buscar item ou criar novo…"
+                autoFocus
               />
             </div>
             {/* Enter lança a linha: dá para cadastrar a lista inteira sem soltar o teclado. */}

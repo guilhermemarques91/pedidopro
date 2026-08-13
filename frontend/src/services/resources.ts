@@ -3,7 +3,8 @@ import type {
   Category, Supplier, Item, Product, Quotation, QuotationDetail, ComparisonRow,
   Order, OrderDetail, User, UserRole, Role, PermissionCatalog, AuditEntry, ProductType, Subclass, ProductionPrinter, RecipeLine, StockMove, StockCount, StockCountDetail, ReplenishRow, PurchaseRequest, RequestDetail,
   DeliveryOrder, DeliveryOrderDetail, DeliveryStatus, DeliveryPlatform, Channel, DeliveryAlert, ReportSummary,
-  DeliveryMode, ReportCustomer, ReportItem, ReportPerformance,
+  DeliveryMode, ReportCustomer, ReportItem, ReportPerformance, MenuEngineeringReport,
+  MoveReason, StockMovesPage, StockReceipt, ScannedLine,
   Interruption, OpeningShift, StoreSettings, DeliveryMapResponse, GeocodeBackfillResult,
   MarmitexCompany, MarmitexCatalog, CatalogType, MarmitexOrder, MarmitexOrderDetail, ProductionSummary,
   MarmitexReport, MarmitexReportDetail, MarmitexInvoice, MarmitexLabelData,
@@ -14,6 +15,7 @@ import type {
   FinSource, FinImport, FinImportPreview, FinImportResult, FinAccount, FinAccountsResponse,
   FinSettings, FinDreResponse, FinChannelsResponse, FinProductsResponse, FinCmvResponse,
   FinBreakevenResponse, FinOverviewResponse,
+  WaChat, WaMessage, WaUpdates,
 } from '../types';
 
 // ---- Categories ----
@@ -121,20 +123,79 @@ export const productsApi = {
 };
 
 // ---- Estoque: movimentações ----
+export interface MoveFilters {
+  product_id?: number; type?: 'in' | 'out' | 'adjust'; reason?: string;
+  ref?: string; from?: string; to?: string; q?: string; limit?: number; offset?: number;
+}
+
 export const stockApi = {
   moves: (productId?: number, limit = 30) =>
     api.get<StockMove[]>('/stock/moves', { params: { product_id: productId, limit } }).then((r) => r.data),
-  move: (body: { product_id: number; type: 'in' | 'out' | 'adjust'; quantity: number; unit_cost?: number | null; notes?: string | null }) =>
-    api.post('/stock/moves', body).then((r) => r.data),
+  /** Extrato: mesma rota, com filtros e totais (o modal do produto segue usando `moves`). */
+  ledger: (f: MoveFilters = {}) =>
+    api.get<StockMovesPage>('/stock/moves', { params: { ...f, totals: '1' } }).then((r) => r.data),
+  move: (body: {
+    product_id: number; type: 'in' | 'out' | 'adjust'; quantity: number;
+    unit_cost?: number | null; notes?: string | null; reason?: MoveReason | null;
+  }) => api.post('/stock/moves', body).then((r) => r.data),
+  /** Lançamento em lote: uma transação só — meia perda lançada parece conferida. */
+  batch: (body: {
+    type: 'in' | 'out' | 'adjust'; reason?: MoveReason | null; notes?: string | null;
+    lines: { product_id: number; quantity: number; unit_cost?: number | null }[];
+  }) => api.post<{ ok: boolean; moves: unknown[] }>('/stock/moves/batch', body).then((r) => r.data),
+};
+
+// ---- Entradas de mercadoria (pedido enviado → nota confirma → estoque) ----
+export const receiptsApi = {
+  list: (status?: string) =>
+    api.get<StockReceipt[]>('/stock/receipts', { params: status ? { status } : {} }).then((r) => r.data),
+  get: (id: number) => api.get<StockReceipt>(`/stock/receipts/${id}`).then((r) => r.data),
+  updateLine: (id: number, lineId: number, body: { qty_received?: number | null; price_received?: number | null }) =>
+    api.put(`/stock/receipts/${id}/items/${lineId}`, body).then((r) => r.data),
+  linkLine: (id: number, lineId: number, productId: number) =>
+    api.post(`/stock/receipts/${id}/items/${lineId}/link`, { product_id: productId }).then((r) => r.data),
+  confirm: (id: number) =>
+    api.post<{ ok: boolean; moved: number; skipped: string[]; order_status: string | null }>(
+      `/stock/receipts/${id}/confirm`,
+    ).then((r) => r.data),
+  cancel: (id: number) => api.post(`/stock/receipts/${id}/cancel`).then((r) => r.data),
+  /** Foto/PDF da nota → linhas de rascunho pela IA local. Nada é gravado aqui. */
+  scan: (id: number, file: File) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return api
+      .post<{ receipt_id: number; lines: ScannedLine[] }>(`/stock/receipts/${id}/scan`, fd, { timeout: 600000 })
+      .then((r) => r.data);
+  },
+  applyScan: (id: number, lines: { name: string; unit?: string; quantity: number; unit_price?: number }[], docNumber?: string) =>
+    api.post(`/stock/receipts/${id}/apply-scan`, { lines, doc_number: docNumber ?? null }).then((r) => r.data),
+};
+
+// ---- Busca global (Ctrl+K) ----
+export interface SearchHit { type: string; label: string; hint: string | null; to: string }
+
+export const searchApi = {
+  query: (q: string) => api.get<{ results: SearchHit[] }>('/search', { params: { q } }).then((r) => r.data),
 };
 
 // ---- Estoque: contagem (inventário) → compra sugerida ----
 export interface CountLineInput { product_id: number; counted_qty?: number | null; order_qty?: number | null }
 
+/** Recorte possível para abrir uma folha (sub-classe + quantos itens traz). */
+export interface CountScope {
+  sub_classe_id: number;
+  sub_classe_name: string;
+  type_id: number | null;
+  type_name: string | null;
+  product_count: string;
+  last_counted_at: string | null;
+}
+
 export const stockCountsApi = {
+  scopes: () => api.get<CountScope[]>('/stock/counts/scopes').then((r) => r.data),
   list: () => api.get<StockCount[]>('/stock/counts').then((r) => r.data),
   get: (id: number) => api.get<StockCountDetail>(`/stock/counts/${id}`).then((r) => r.data),
-  create: (body: { title?: string; coverage_days?: number; tipo?: string; category_id?: number; type_id?: number }) =>
+  create: (body: { title?: string; coverage_days?: number; tipo?: string; category_id?: number; type_id?: number; sub_classe_id?: number }) =>
     api.post<StockCountDetail>('/stock/counts', body).then((r) => r.data),
   update: (id: number, body: { title?: string; notes?: string | null; coverage_days?: number; items?: CountLineInput[] }) =>
     api.put<StockCountDetail>(`/stock/counts/${id}`, body).then((r) => r.data),
@@ -153,7 +214,7 @@ export interface ReplenishParamInput {
   pack_size?: number | null;
 }
 export interface ReplenishFilters {
-  q?: string; tipo?: string; category_id?: number; type_id?: number; only_missing?: 1;
+  q?: string; tipo?: string; category_id?: number; type_id?: number; sub_classe_id?: number; only_missing?: 1;
 }
 
 export const replenishmentApi = {
@@ -401,6 +462,8 @@ export const reportsApi = {
     api.get<{ items: ReportItem[] }>('/delivery/reports/items', { params: f }).then((r) => r.data.items),
   performance: (f: ReportFilters = {}) =>
     api.get<ReportPerformance>('/delivery/reports/performance', { params: f }).then((r) => r.data),
+  menuEngineering: (f: ReportFilters = {}) =>
+    api.get<MenuEngineeringReport>('/delivery/reports/menu-engineering', { params: f }).then((r) => r.data),
 };
 
 // ---- Mapa de pedidos Delivery + relatório de distância ----
@@ -489,6 +552,23 @@ export const menuApi = {
     api.post<Record<string, unknown>>(`/delivery/menu/publish/${channelId}`, undefined, { timeout: 120000 }).then((r) => r.data),
   import: (channelId: number) =>
     api.post<Record<string, unknown>>(`/delivery/menu/import/${channelId}`, undefined, { timeout: 120000 }).then((r) => r.data),
+  /**
+   * Preço por canal. `price: null` APAGA o override e devolve o item ao preço base —
+   * omitir a linha do lote não mexe nela, então limpar precisa ser explícito.
+   */
+  setChannelPrices: (
+    channelId: number,
+    prices: { entity_type: 'item' | 'option'; local_id: number; price: number | null }[],
+  ) =>
+    api
+      .put<{ saved: number; cleared: number }>('/delivery/menu/channel-prices', { channel_id: channelId, prices })
+      .then((r) => r.data),
+  setChannelMarkup: (channelId: number, markupPct: number | null) =>
+    api
+      .put<{ channel_id: number; price_markup_pct: number | null }>(`/delivery/menu/channels/${channelId}/markup`, {
+        price_markup_pct: markupPct,
+      })
+      .then((r) => r.data),
 };
 
 /**
@@ -552,6 +632,8 @@ export interface MarmitaInput {
   person_name?: string | null;
   size_id: number;
   protein_id?: number | null;
+  /** Segunda proteína da mesma marmita ("costelinha e omelete"). */
+  protein2_id?: number | null;
   side_ids?: number[];
   observation?: string | null;
 }
@@ -736,4 +818,24 @@ export const financeiroApi = {
   breakeven: (params: { month?: string }) =>
     api.get<FinBreakevenResponse>('/financeiro/breakeven', { params }).then((r) => r.data),
   overview: () => api.get<FinOverviewResponse>('/financeiro/overview').then((r) => r.data),
+};
+
+/**
+ * Caixa de entrada do WhatsApp (janela flutuante da barra superior).
+ * Tudo lê do espelho local do backend; a Evolution só entra em `send`,
+ * `read` e `backfill`. Ver App\Services\WaInbox.
+ */
+export const waInboxApi = {
+  /** Endpoint quente do polling: devolve só o delta. */
+  updates: (since: number) =>
+    api.get<WaUpdates>('/whatsapp/inbox/updates', { params: { since } }).then((r) => r.data),
+  chats: () => api.get<WaChat[]>('/whatsapp/inbox/chats').then((r) => r.data),
+  messages: (chatId: number, before?: number) =>
+    api.get<WaMessage[]>(`/whatsapp/inbox/chats/${chatId}/messages`, { params: { before } }).then((r) => r.data),
+  read: (chatId: number) => api.post(`/whatsapp/inbox/chats/${chatId}/read`).then((r) => r.data),
+  send: (chatId: number, text: string) =>
+    api.post<{ id: number; message_ts: string }>(`/whatsapp/inbox/chats/${chatId}/send`, { text }).then((r) => r.data),
+  /** Puxa o histórico da Evolution na primeira vez que a conversa é aberta. */
+  backfill: (chatId: number) =>
+    api.post<{ fetched: number; stored: number }>(`/whatsapp/inbox/chats/${chatId}/backfill`).then((r) => r.data),
 };

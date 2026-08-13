@@ -17,6 +17,9 @@ import { Requests } from './pages/Requests';
 import { Contagens } from './pages/Estoque/Contagens';
 import { ContagemDetail } from './pages/Estoque/ContagemDetail';
 import { Parametros } from './pages/Estoque/Parametros';
+import { Entradas } from './pages/Estoque/Entradas';
+import { EntradaDetail } from './pages/Estoque/EntradaDetail';
+import { Movimentacoes } from './pages/Estoque/Movimentacoes';
 import { RequestDetailPage } from './pages/RequestDetail';
 import { UsersPage } from './pages/Users';
 import { ChangePassword } from './pages/ChangePassword';
@@ -114,6 +117,9 @@ export default function App() {
         <Route path="loja" element={<Store />} />
         <Route path="integrations" element={<Integrations />} />
         <Route path="estoque/parametros" element={<Parametros />} />
+        <Route path="estoque/entradas" element={<Entradas />} />
+        <Route path="estoque/entradas/:id" element={<EntradaDetail />} />
+        <Route path="estoque/movimentacoes" element={<Movimentacoes />} />
         <Route path="estoque/contagem" element={<Contagens />} />
         <Route path="estoque/contagem/:id" element={<ContagemDetail />} />
         <Route path="requests" element={<Requests />} />

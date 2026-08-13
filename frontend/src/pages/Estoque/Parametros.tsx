@@ -8,9 +8,9 @@ import type { ReplenishRow } from '../../types';
 import { useAuth } from '../../store/auth.store';
 import { PageHeader } from '../../components/PageHeader';
 import { Button, Card, Input, Select, Spinner, ErrorBox, EmptyState } from '../../components/ui';
+import { COUNTABLE_TIPOS } from '../../config/compras';
 
-// Espelha CountsController::COUNTABLE_TIPOS.
-const TIPOS = ['Mercadoria', 'Matéria-prima', 'Uso e consumo', 'Item intermediário'];
+const TIPOS = COUNTABLE_TIPOS;
 
 interface Draft { min: string; max: string; pack: string }
 
@@ -218,6 +218,7 @@ export function Parametros() {
                 <th className="px-3 py-2.5 font-semibold">Item</th>
                 <th className="px-3 py-2.5 text-right font-semibold">Saldo</th>
                 <th className="px-3 py-2.5 text-right font-semibold">Consumo/dia</th>
+                <th className="px-3 py-2.5 text-right font-semibold">A caminho</th>
                 <th className="px-3 py-2.5 text-right font-semibold">Mínimo</th>
                 <th className="px-3 py-2.5 text-right font-semibold">Máximo (alvo)</th>
                 <th className="px-3 py-2.5 text-right font-semibold">Múltiplo</th>
@@ -238,6 +239,12 @@ export function Parametros() {
                     <td className="px-3 py-2 text-right tabular-nums text-slate-600">{fmt(Number(r.stock_qty))}</td>
                     <td className="px-3 py-2 text-right tabular-nums text-slate-500">
                       {r.daily_usage ? fmt(r.daily_usage) : <span className="text-slate-300">sem histórico</span>}
+                    </td>
+                    <td
+                      className="px-3 py-2 text-right tabular-nums text-sky-700"
+                      title="Já comprado e ainda não recebido (entradas aguardando nota)"
+                    >
+                      {r.incoming ? fmt(r.incoming) : <span className="text-slate-300">—</span>}
                     </td>
                     <td className="w-28 px-2 py-2">
                       <Input

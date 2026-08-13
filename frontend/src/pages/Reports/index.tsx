@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid,
+  ScatterChart, Scatter, ZAxis, ReferenceLine,
 } from 'recharts';
-import { Bike, Search, Store, Users, X, XCircle } from 'lucide-react';
+import { AlertTriangle, Bike, Search, Store, Users, X, XCircle } from 'lucide-react';
 import { reportsApi } from '../../services/resources';
 import { apiError } from '../../services/api';
-import type { DeliveryMode, DeliveryPlatform } from '../../types';
+import type { DeliveryMode, DeliveryPlatform, MenuEngineeringItem, MenuQuadrant } from '../../types';
 import { PageHeader } from '../../components/PageHeader';
 import { Card, Select, Spinner, ErrorBox, EmptyState } from '../../components/ui';
 import { brl } from '../../utils/format';
@@ -18,6 +19,7 @@ const TABS = [
   { key: 'customers', label: 'Clientes' },
   { key: 'items', label: 'Itens vendidos' },
   { key: 'performance', label: 'Desempenho' },
+  { key: 'menu', label: 'Engenharia de cardápio' },
 ] as const;
 type TabKey = (typeof TABS)[number]['key'];
 
@@ -87,6 +89,7 @@ export function Reports() {
       {tab === 'customers' && <Customers filters={filters} />}
       {tab === 'items' && <Items filters={filters} />}
       {tab === 'performance' && <Performance filters={filters} />}
+      {tab === 'menu' && <MenuEngineering filters={filters} />}
     </div>
   );
 }
@@ -377,6 +380,261 @@ function Customers({ filters }: { filters: Filters }) {
 }
 
 // ------------------------------------------------------------------------ itens
+
+// ------------------------------------------------- engenharia de cardápio
+
+/**
+ * Cada prato posicionado por popularidade × margem. O nome de cada quadrante é o do método
+ * clássico de engenharia de cardápio; o que importa na tela é a AÇÃO, então ela vem junto.
+ */
+const QUADRANT: Record<MenuQuadrant, { label: string; action: string; color: string; chip: string }> = {
+  estrela: {
+    label: 'Estrela',
+    action: 'Vende muito e dá margem. Proteja: não mexa no preço nem na ficha sem motivo forte.',
+    color: '#059669',
+    chip: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+  },
+  cavalo: {
+    label: 'Cavalo de batalha',
+    action: 'Vende muito e sobra pouco. Renegocie o insumo ou suba o preço aos poucos.',
+    color: '#d97706',
+    chip: 'bg-amber-50 text-amber-700 ring-amber-200',
+  },
+  quebra_cabeca: {
+    label: 'Quebra-cabeça',
+    action: 'Dá margem mas quase ninguém pede. Vale empurrar: foto, destaque, combo.',
+    color: '#0284c7',
+    chip: 'bg-sky-50 text-sky-700 ring-sky-200',
+  },
+  abacaxi: {
+    label: 'Abacaxi',
+    action: 'Vende pouco e sobra pouco. Candidato a sair do cardápio.',
+    color: '#e11d48',
+    chip: 'bg-rose-50 text-rose-700 ring-rose-200',
+  },
+};
+
+function MenuEngineering({ filters }: { filters: Filters }) {
+  const [only, setOnly] = useState<MenuQuadrant | ''>('');
+
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['delivery-report-menu-engineering', filters],
+    queryFn: () => reportsApi.menuEngineering(filters),
+  });
+
+  if (isLoading) return <Spinner />;
+  if (error) return <ErrorBox message={apiError(error)} />;
+  if (!data) return null;
+  if (data.items.length === 0 && data.unmatched.length === 0) {
+    return <EmptyState message="Nenhum item vendido no período selecionado." />;
+  }
+
+  const t = data.totals;
+  const rows = only ? data.items.filter((i) => i.quadrant === only) : data.items;
+  const plotted = data.items.filter((i) => i.quadrant !== null);
+
+  return (
+    <div className="space-y-6">
+      {/* Todos os totais contam só os itens com custo conhecido — misturar os outros
+          devolveria uma margem alta que não existe. */}
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <Kpi label="Receita líquida" value={brl(t.net_revenue)} hint={`Sem a comissão do canal · ${t.costed_items} item(ns) com custo`} />
+        <Kpi label="Custo da comida" value={brl(t.cost)} hint="Ficha técnica dos itens acima" />
+        <Kpi label="Margem de contribuição" value={brl(t.margin)} />
+        <Kpi label="Margem %" value={t.margin_pct === null ? '—' : `${t.margin_pct}%`} />
+      </div>
+
+      {(t.uncosted_items > 0 || t.unmatched_items > 0) && (
+        <Card className="border-amber-200 bg-amber-50/60">
+          <div className="flex gap-3">
+            <AlertTriangle size={18} className="mt-0.5 shrink-0 text-amber-600" />
+            <div className="text-sm text-amber-900">
+              <p className="font-medium">A conta está incompleta.</p>
+              <ul className="mt-1 list-disc space-y-0.5 pl-5 text-amber-800">
+                {t.uncosted_items > 0 && (
+                  <li>
+                    <strong>{t.uncosted_items}</strong> item(ns) vendidos sem custo conhecido — falta ficha técnica ou
+                    custo do insumo. Eles aparecem na tabela, mas ficam fora dos quadrantes.
+                  </li>
+                )}
+                {t.unmatched_items > 0 && (
+                  <li>
+                    <strong>{t.unmatched_items}</strong> item(ns) vendidos que o cardápio mestre não reconhece. Esses
+                    também <strong>não baixam estoque</strong> — vale conferir o nome no cardápio.
+                  </li>
+                )}
+                {t.uncovered_revenue > 0 && (
+                  <li>
+                    <strong>{brl(t.uncovered_revenue)}</strong> de receita ficou fora dos totais acima. Os números só
+                    contam o que tem custo — somar o resto com custo zero mostraria uma margem que não existe.
+                  </li>
+                )}
+              </ul>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {plotted.length > 0 && (
+        <Card>
+          <h3 className="mb-1 text-sm font-semibold text-slate-700">Popularidade × margem</h3>
+          <p className="mb-3 text-xs text-slate-500">
+            As linhas são a mediana do período: {data.median_qty} unidade(s) vendidas e {brl(data.median_margin_unit)} de
+            margem por unidade. Não há régua absoluta — cada prato é comparado com o resto do seu cardápio.
+          </p>
+          <ResponsiveContainer width="100%" height={340}>
+            <ScatterChart margin={{ top: 8, right: 16, bottom: 24, left: 8 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+              <XAxis
+                type="number" dataKey="qty" name="Vendidos" tick={{ fontSize: 12 }}
+                label={{ value: 'Unidades vendidas', position: 'insideBottom', offset: -12, fontSize: 12 }}
+              />
+              <YAxis
+                type="number" dataKey="margin_unit" name="Margem un." tick={{ fontSize: 12 }}
+                tickFormatter={(v: number) => brl(v)} width={80}
+              />
+              <ZAxis type="number" dataKey="margin_total" range={[60, 400]} name="Margem total" />
+              <ReferenceLine x={data.median_qty} stroke="#94a3b8" strokeDasharray="4 4" />
+              <ReferenceLine y={data.median_margin_unit} stroke="#94a3b8" strokeDasharray="4 4" />
+              <Tooltip
+                cursor={{ strokeDasharray: '3 3' }}
+                content={({ active, payload }) => {
+                  if (!active || !payload?.length) return null;
+                  const i = payload[0].payload as MenuEngineeringItem;
+                  const q = i.quadrant ? QUADRANT[i.quadrant] : null;
+                  return (
+                    <div className="rounded-lg border border-slate-200 bg-white p-3 text-xs shadow-lg">
+                      <p className="font-semibold text-slate-800">{i.menu_item_name}</p>
+                      {q && <p className="mt-0.5" style={{ color: q.color }}>{q.label}</p>}
+                      <p className="mt-1 text-slate-600">{i.qty} vendidos · {i.orders} pedido(s)</p>
+                      <p className="text-slate-600">Margem un.: {brl(i.margin_unit ?? 0)}</p>
+                      <p className="text-slate-600">Margem total: {brl(i.margin_total ?? 0)}</p>
+                    </div>
+                  );
+                }}
+              />
+              <Scatter data={plotted} fill="#059669">
+                {plotted.map((i) => (
+                  <Cell key={i.menu_item_id} fill={i.quadrant ? QUADRANT[i.quadrant].color : '#94a3b8'} />
+                ))}
+              </Scatter>
+            </ScatterChart>
+          </ResponsiveContainer>
+        </Card>
+      )}
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {(Object.keys(QUADRANT) as MenuQuadrant[]).map((k) => {
+          const list = data.items.filter((i) => i.quadrant === k);
+          const total = list.reduce((s, i) => s + (i.margin_total ?? 0), 0);
+          return (
+            <button
+              key={k}
+              onClick={() => setOnly(only === k ? '' : k)}
+              className={`rounded-xl border p-4 text-left transition ${
+                only === k ? 'border-slate-400 bg-slate-50' : 'border-slate-200 bg-white hover:border-slate-300'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <span className="h-2.5 w-2.5 rounded-full" style={{ background: QUADRANT[k].color }} />
+                <span className="text-sm font-semibold text-slate-700">{QUADRANT[k].label}</span>
+              </div>
+              <p className="mt-1 text-2xl font-semibold text-slate-800">{list.length}</p>
+              <p className="text-xs text-slate-500">{brl(total)} de margem no período</p>
+              <p className="mt-2 text-xs leading-snug text-slate-500">{QUADRANT[k].action}</p>
+            </button>
+          );
+        })}
+      </div>
+
+      <Card className="overflow-x-auto p-0">
+        <div className="flex items-center justify-between px-4 py-3">
+          <h3 className="text-sm font-semibold text-slate-700">
+            {only ? QUADRANT[only].label : 'Todos os itens'} · {rows.length}
+          </h3>
+          {only && (
+            <button onClick={() => setOnly('')} className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700">
+              <X size={14} /> limpar filtro
+            </button>
+          )}
+        </div>
+        <table className="w-full min-w-[52rem] text-sm">
+          <thead className="border-y border-slate-200 text-left text-slate-500">
+            <tr>
+              <th className="px-4 py-3 font-medium">Item</th>
+              <th className="px-4 py-3 text-right font-medium">Vendidos</th>
+              <th className="px-4 py-3 text-right font-medium">Preço médio</th>
+              <th className="px-4 py-3 text-right font-medium">Custo un.</th>
+              <th className="px-4 py-3 text-right font-medium">Margem un.</th>
+              <th className="px-4 py-3 text-right font-medium">Margem total</th>
+              <th className="px-4 py-3 font-medium">Classificação</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((i) => (
+              <tr key={i.menu_item_id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
+                <td className="px-4 py-3 text-slate-700">
+                  {i.menu_item_name}
+                  {i.name !== i.menu_item_name && (
+                    <span className="ml-2 text-xs text-slate-400">vendido como “{i.name}”</span>
+                  )}
+                </td>
+                <td className="px-4 py-3 text-right font-medium text-slate-700">{i.qty}</td>
+                <td className="px-4 py-3 text-right text-slate-600">{brl(i.avg_price)}</td>
+                <td className="px-4 py-3 text-right text-slate-600">
+                  {i.cost_unit === null ? <span className="text-amber-600">sem custo</span> : brl(i.cost_unit)}
+                </td>
+                <td className="px-4 py-3 text-right text-slate-600">
+                  {i.margin_unit === null ? '—' : brl(i.margin_unit)}
+                </td>
+                <td className={`px-4 py-3 text-right font-medium ${(i.margin_total ?? 0) < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>
+                  {i.margin_total === null ? '—' : brl(i.margin_total)}
+                </td>
+                <td className="px-4 py-3">
+                  {i.quadrant ? (
+                    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ring-1 ${QUADRANT[i.quadrant].chip}`}>
+                      {QUADRANT[i.quadrant].label}
+                    </span>
+                  ) : (
+                    <span className="text-xs text-slate-400">
+                      {i.cost_source === 'sem_vinculo' ? 'sem vínculo com o ERP' : 'sem ficha técnica'}
+                    </span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Card>
+
+      {data.unmatched.length > 0 && (
+        <Card className="overflow-x-auto p-0">
+          <h3 className="px-4 py-3 text-sm font-semibold text-slate-700">
+            Vendidos mas fora do cardápio mestre · {data.unmatched.length}
+          </h3>
+          <table className="w-full min-w-[28rem] text-sm">
+            <thead className="border-y border-slate-200 text-left text-slate-500">
+              <tr>
+                <th className="px-4 py-3 font-medium">Nome no pedido</th>
+                <th className="px-4 py-3 text-right font-medium">Vendidos</th>
+                <th className="px-4 py-3 text-right font-medium">Receita</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.unmatched.map((u) => (
+                <tr key={u.name} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
+                  <td className="px-4 py-3 text-slate-700">{u.name}</td>
+                  <td className="px-4 py-3 text-right text-slate-600">{u.qty}</td>
+                  <td className="px-4 py-3 text-right text-slate-600">{brl(u.revenue)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
+      )}
+    </div>
+  );
+}
 
 function Items({ filters }: { filters: Filters }) {
   const [sort, setSort] = useState<'qty' | 'revenue' | 'name'>('qty');
