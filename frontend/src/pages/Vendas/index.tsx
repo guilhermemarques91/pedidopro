@@ -2,7 +2,7 @@ import { useState, type MouseEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { Plus, ExternalLink, Users } from 'lucide-react';
-import { vendasApi } from '../../services/resources';
+import { vendasApi, deliveryApi } from '../../services/resources';
 import { apiError } from '../../services/api';
 import { useAuth } from '../../store/auth.store';
 import type { VendasBoardCard, BoardColumn, BoardOrigin } from '../../types';
@@ -34,6 +34,10 @@ const FILTERS: { value: BoardOrigin | ''; label: string }[] = [
 export function Vendas() {
   const qc = useQueryClient();
   const isAdmin = useAuth((s) => s.can('vendas:admin'));
+  // Ações de delivery (confirmar/despachar/cancelar) tocam a API real do canal
+  // (IngestService) — só entram no card de quem tem a permissão do módulo Delivery,
+  // igual à tela dedicada. Sem ela, o card de delivery aqui continua só-leitura.
+  const canDeliveryOperate = useAuth((s) => s.can('delivery:operate'));
   const [origin, setOrigin] = useState<BoardOrigin | ''>('');
   const [newOrderOpen, setNewOrderOpen] = useState(false);
   const [paying, setPaying] = useState<{ id: number; total: number } | null>(null);
@@ -55,8 +59,19 @@ export function Vendas() {
     mutationFn: vendasApi.cancel,
     onSuccess: () => { invalidate(); qc.invalidateQueries({ queryKey: ['vendas-stations'] }); },
   });
-  const busy = ready.isPending || close.isPending || complete.isPending || cancel.isPending;
-  const mutationError = ready.error || close.error || complete.error || cancel.error;
+  // Mesmos comandos da tela de Delivery (deliveryApi), disparados a partir do card
+  // mesclado aqui — evita duplicar a lógica de status em dois lugares.
+  const confirmDelivery = useMutation({ mutationFn: deliveryApi.confirm, onSuccess: invalidate });
+  const readyDelivery = useMutation({ mutationFn: deliveryApi.ready, onSuccess: invalidate });
+  const dispatchDelivery = useMutation({ mutationFn: deliveryApi.dispatch, onSuccess: invalidate });
+  const concludeDelivery = useMutation({ mutationFn: deliveryApi.conclude, onSuccess: invalidate });
+  const cancelDelivery = useMutation({ mutationFn: deliveryApi.cancel, onSuccess: invalidate });
+  const busy = ready.isPending || close.isPending || complete.isPending || cancel.isPending
+    || confirmDelivery.isPending || readyDelivery.isPending || dispatchDelivery.isPending
+    || concludeDelivery.isPending || cancelDelivery.isPending;
+  const mutationError = ready.error || close.error || complete.error || cancel.error
+    || confirmDelivery.error || readyDelivery.error || dispatchDelivery.error
+    || concludeDelivery.error || cancelDelivery.error;
 
   const all = data ?? [];
   const activeCount = (o: BoardOrigin | '') => all.filter((c) =>
@@ -122,12 +137,18 @@ export function Vendas() {
                       card={c}
                       busy={busy}
                       isAdmin={isAdmin}
+                      canDeliveryOperate={canDeliveryOperate}
                       onOpen={() => { if (c.source === 'vendas') setViewingId(c.id); }}
                       onReady={() => ready.mutate(c.id)}
                       onClose={() => close.mutate(c.id)}
                       onComplete={() => complete.mutate(c.id)}
                       onPay={() => setPaying({ id: c.id, total: c.total_amount })}
                       onCancel={() => { if (window.confirm('Cancelar este pedido? O estoque baixado será estornado.')) cancel.mutate(c.id); }}
+                      onDeliveryConfirm={() => confirmDelivery.mutate(c.id)}
+                      onDeliveryReady={() => readyDelivery.mutate(c.id)}
+                      onDeliveryDispatch={() => dispatchDelivery.mutate(c.id)}
+                      onDeliveryConclude={() => concludeDelivery.mutate(c.id)}
+                      onDeliveryCancel={() => { if (window.confirm(`Cancelar o pedido ${cardTitle(c)}?`)) cancelDelivery.mutate(c.id); }}
                     />
                   ))}
                 </div>
@@ -165,17 +186,24 @@ export function Vendas() {
 }
 
 function BoardCardView({
-  card, busy, isAdmin, onOpen, onReady, onClose, onComplete, onPay, onCancel,
+  card, busy, isAdmin, canDeliveryOperate, onOpen, onReady, onClose, onComplete, onPay, onCancel,
+  onDeliveryConfirm, onDeliveryReady, onDeliveryDispatch, onDeliveryConclude, onDeliveryCancel,
 }: {
   card: VendasBoardCard;
   busy: boolean;
   isAdmin: boolean;
+  canDeliveryOperate: boolean;
   onOpen: () => void;
   onReady: () => void;
   onClose: () => void;
   onComplete: () => void;
   onPay: () => void;
   onCancel: () => void;
+  onDeliveryConfirm: () => void;
+  onDeliveryReady: () => void;
+  onDeliveryDispatch: () => void;
+  onDeliveryConclude: () => void;
+  onDeliveryCancel: () => void;
 }) {
   const meta = ORIGIN_META[card.origin];
   const isMesaOrComanda = card.origin === 'mesa' || card.origin === 'comanda';
@@ -240,6 +268,28 @@ function BoardCardView({
           )}
           {isAdmin && !['completed', 'cancelled'].includes(card.status) && (
             <Button variant="ghost" className="px-3 py-1.5 text-xs" disabled={busy} onClick={stop(onCancel)}>Cancelar</Button>
+          )}
+        </div>
+      )}
+
+      {/* Mesmos botões e transições da tela dedicada de Delivery (OrderCard) — só o
+          comando muda de tabela (delivery_orders via IngestService, não sales). */}
+      {card.source === 'delivery' && canDeliveryOperate && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {card.status === 'placed' && (
+            <Button className="flex-1 justify-center px-3 py-1.5 text-xs" disabled={busy} onClick={stop(onDeliveryConfirm)}>Confirmar</Button>
+          )}
+          {(card.status === 'confirmed' || card.status === 'preparing') && (
+            <Button className="flex-1 justify-center px-3 py-1.5 text-xs" disabled={busy} onClick={stop(onDeliveryReady)}>Pronto</Button>
+          )}
+          {card.status === 'ready' && (
+            <Button className="flex-1 justify-center px-3 py-1.5 text-xs" disabled={busy} onClick={stop(onDeliveryDispatch)}>Despachar</Button>
+          )}
+          {card.status === 'dispatched' && (
+            <Button className="flex-1 justify-center px-3 py-1.5 text-xs" disabled={busy} onClick={stop(onDeliveryConclude)}>Concluir</Button>
+          )}
+          {['placed', 'confirmed', 'preparing', 'ready'].includes(card.status) && (
+            <Button variant="ghost" className="px-3 py-1.5 text-xs" disabled={busy} onClick={stop(onDeliveryCancel)}>Cancelar</Button>
           )}
         </div>
       )}
