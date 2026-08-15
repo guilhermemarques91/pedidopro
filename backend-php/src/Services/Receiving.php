@@ -125,6 +125,96 @@ final class Receiving
         return $receiptId;
     }
 
+    /**
+     * Entrada avulsa: o operador escolhe o fornecedor e lança linhas na mão, sem pedido nem
+     * documento — a compra que chegou sem passar pelo sistema antes.
+     */
+    public static function createManual(PDO $pdo, int $orgId, int $supplierId, ?int $userId): int
+    {
+        $pdo->prepare(
+            'INSERT INTO stock_receipts (org_id, supplier_id, status, source, created_by)
+             VALUES (?, ?, ?, ?, ?)'
+        )->execute([$orgId, $supplierId, self::STATUS_AGUARDANDO, 'manual', $userId]);
+        return (int) $pdo->lastInsertId();
+    }
+
+    /**
+     * Acrescenta uma linha lançada na mão a uma entrada aguardando — tanto para montar uma
+     * entrada avulsa do zero quanto para lançar um item que o fornecedor mandou a mais e não
+     * estava no pedido nem no documento original.
+     *
+     * Ao contrário das linhas que vêm de pedido/documento, aqui o produto já chega escolhido
+     * pelo operador: não existe estado "pendente_vinculo" para uma linha manual.
+     */
+    public static function addLine(
+        PDO $pdo, int $orgId, int $receiptId, int $productId,
+        string $docName, ?string $docUnit, float $qty, ?float $price
+    ): int {
+        $st = $pdo->prepare('SELECT status, supplier_id FROM stock_receipts WHERE id = ? AND org_id = ?');
+        $st->execute([$receiptId, $orgId]);
+        $receipt = $st->fetch();
+        if (!$receipt) {
+            throw HttpError::notFound('Entrada não encontrada');
+        }
+        if ($receipt['status'] !== self::STATUS_AGUARDANDO) {
+            throw HttpError::badRequest('Esta entrada já foi conferida ou cancelada');
+        }
+        $st = $pdo->prepare('SELECT id FROM products WHERE id = ? AND org_id = ?');
+        $st->execute([$productId, $orgId]);
+        if (!$st->fetch()) {
+            throw HttpError::notFound('Produto não encontrado');
+        }
+
+        // SKU do fornecedor desta entrada para este produto, se existir — é dele que a
+        // conversão de unidade (package_size/package_unit) vem, quando cadastrado.
+        $itemId = null;
+        if ($receipt['supplier_id'] !== null) {
+            $st = $pdo->prepare(
+                'SELECT id FROM items WHERE org_id = ? AND supplier_id = ? AND product_id = ? AND active = 1 LIMIT 1'
+            );
+            $st->execute([$orgId, $receipt['supplier_id'], $productId]);
+            $row = $st->fetch();
+            $itemId = $row ? (int) $row['id'] : null;
+        }
+
+        $st = $pdo->prepare('SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM stock_receipt_items WHERE receipt_id = ?');
+        $st->execute([$receiptId]);
+        $sort = (int) $st->fetch()['n'];
+
+        $pdo->prepare(
+            'INSERT INTO stock_receipt_items
+               (receipt_id, item_id, product_id, doc_name, doc_unit, qty_received, price_received, status, sort_order)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        )->execute([$receiptId, $itemId, $productId, $docName, $docUnit, $qty, $price, self::LINE_OK, $sort]);
+
+        return (int) $pdo->lastInsertId();
+    }
+
+    /**
+     * Conversão entre a unidade da nota (`doc_unit`) e a unidade de estoque: quando o SKU do
+     * fornecedor tem `package_size`/`package_unit` cadastrados (ex.: "caixa de 12 un") e a
+     * nota veio na mesma unidade da embalagem, a quantidade recebida multiplica pelo tamanho
+     * da embalagem — e o preço, que na nota é da EMBALAGEM (o preço da caixa, não da unidade),
+     * divide pelo mesmo fator, senão o custo médio do produto ficaria inflado 12x. Sem
+     * cadastro ou sem bater a unidade, quantidade e preço valem exatamente como vieram — nada
+     * de conversão às cegas.
+     *
+     * @return array{qty: float, price: ?float}
+     */
+    public static function convert(float $qtyReceived, ?float $priceReceived, ?string $docUnit, ?float $packageSize, ?string $packageUnit): array
+    {
+        if ($packageSize === null || $packageSize <= 0 || $docUnit === null || $packageUnit === null) {
+            return ['qty' => $qtyReceived, 'price' => $priceReceived];
+        }
+        if (mb_strtolower(trim($packageUnit)) !== mb_strtolower(trim($docUnit))) {
+            return ['qty' => $qtyReceived, 'price' => $priceReceived];
+        }
+        return [
+            'qty' => $qtyReceived * $packageSize,
+            'price' => $priceReceived !== null ? $priceReceived / $packageSize : null,
+        ];
+    }
+
     /** Entrada aguardando mais antiga deste fornecedor — a que a nota vem fechar. */
     private static function openForSupplier(PDO $pdo, int $orgId, ?int $supplierId): ?int
     {
@@ -462,7 +552,13 @@ final class Receiving
             throw HttpError::badRequest('Entrada cancelada');
         }
 
-        $st = $pdo->prepare('SELECT * FROM stock_receipt_items WHERE receipt_id = ? ORDER BY sort_order, id');
+        $st = $pdo->prepare(
+            'SELECT ri.*, it.package_size, it.package_unit
+               FROM stock_receipt_items ri
+               LEFT JOIN items it ON it.id = ri.item_id
+              WHERE ri.receipt_id = ?
+              ORDER BY ri.sort_order, ri.id'
+        );
         $st->execute([$receiptId]);
         $lines = $st->fetchAll();
 
@@ -489,7 +585,9 @@ final class Receiving
             }
 
             $price = $l['price_received'] !== null ? (float) $l['price_received'] : null;
-            Stock::apply($pdo, $orgId, (int) $l['product_id'], 'in', $qty, $price, "receipt:{$receiptId}", null, $userId);
+            $packageSize = $l['package_size'] !== null ? (float) $l['package_size'] : null;
+            $converted = self::convert($qty, $price, $l['doc_unit'], $packageSize, $l['package_unit']);
+            Stock::apply($pdo, $orgId, (int) $l['product_id'], 'in', $converted['qty'], $converted['price'], "receipt:{$receiptId}", null, $userId);
             $moved++;
 
             // O preço da nota é o preço mais recente que temos deste SKU.

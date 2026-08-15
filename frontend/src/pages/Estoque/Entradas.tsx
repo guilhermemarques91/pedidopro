@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Link, useSearchParams } from 'react-router-dom';
-import { PackageCheck, AlertTriangle, FileText } from 'lucide-react';
-import { receiptsApi } from '../../services/resources';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { PackageCheck, AlertTriangle, FileText, Plus } from 'lucide-react';
+import { receiptsApi, suppliersApi } from '../../services/resources';
 import { apiError } from '../../services/api';
+import { useAuth } from '../../store/auth.store';
 import { PageHeader } from '../../components/PageHeader';
-import { Card, Select, Spinner, ErrorBox, EmptyState } from '../../components/ui';
+import { Button, Card, Modal, Select, Spinner, ErrorBox, EmptyState } from '../../components/ui';
 import { RECEIPT_TONE, RECEIPT_SOURCE_LABEL } from '../../config/estoque';
 import { brl } from '../../utils/format';
 import type { ReceiptStatus } from '../../types';
@@ -18,6 +19,8 @@ import type { ReceiptStatus } from '../../types';
  */
 export function Entradas() {
   const [params] = useSearchParams();
+  const canMove = useAuth((s) => s.can('estoque:mover'));
+  const [newOpen, setNewOpen] = useState(false);
   // Vindo de "Conferir entrada" no pedido: mostra todas as situações e destaca a do pedido,
   // senão uma entrada já conferida sumiria e pareceria que o botão não fez nada.
   const fromOrder = Number(params.get('pedido')) || null;
@@ -38,7 +41,11 @@ export function Entradas() {
       <PageHeader
         title="Entradas de mercadoria"
         subtitle="O pedido enviado espera aqui; a nota do fornecedor confirma e dá entrada no estoque"
+        action={canMove && (
+          <Button onClick={() => setNewOpen(true)}><Plus size={16} /> Nova entrada</Button>
+        )}
       />
+      {newOpen && <NewReceiptModal onClose={() => setNewOpen(false)} />}
 
       <div className="mb-4 flex flex-wrap items-end gap-3">
         <label className="w-56 text-sm">
@@ -116,5 +123,42 @@ export function Entradas() {
         })}
       </div>
     </div>
+  );
+}
+
+/** Entrada avulsa: só escolhe o fornecedor pra começar — as linhas se lançam na tela seguinte. */
+function NewReceiptModal({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const [supplierId, setSupplierId] = useState('');
+  const { data: suppliers } = useQuery({ queryKey: ['suppliers'], queryFn: suppliersApi.list });
+
+  const create = useMutation({
+    mutationFn: () => receiptsApi.create(Number(supplierId)),
+    onSuccess: (r) => {
+      qc.invalidateQueries({ queryKey: ['stock-receipts'] });
+      navigate(`/estoque/entradas/${r.id}`);
+    },
+  });
+
+  return (
+    <Modal title="Nova entrada" onClose={onClose}>
+      <div className="space-y-4">
+        <label className="block text-sm">
+          <span className="mb-1 block font-medium text-slate-600">Fornecedor</span>
+          <Select value={supplierId} onChange={(e) => setSupplierId(e.target.value)} autoFocus>
+            <option value="">— escolher fornecedor —</option>
+            {(suppliers ?? []).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </Select>
+        </label>
+        {create.isError && <ErrorBox message={apiError(create.error)} />}
+        <div className="flex justify-end gap-2">
+          <Button variant="secondary" onClick={onClose}>Cancelar</Button>
+          <Button disabled={!supplierId || create.isPending} onClick={() => create.mutate()}>
+            Criar e lançar itens
+          </Button>
+        </div>
+      </div>
+    </Modal>
   );
 }

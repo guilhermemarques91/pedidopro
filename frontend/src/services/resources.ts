@@ -150,6 +150,13 @@ export const receiptsApi = {
   list: (status?: string) =>
     api.get<StockReceipt[]>('/stock/receipts', { params: status ? { status } : {} }).then((r) => r.data),
   get: (id: number) => api.get<StockReceipt>(`/stock/receipts/${id}`).then((r) => r.data),
+  /** Entrada avulsa: sem pedido, sem documento — só o fornecedor pra começar a lançar. */
+  create: (supplierId: number) =>
+    api.post<StockReceipt>('/stock/receipts', { supplier_id: supplierId }).then((r) => r.data),
+  update: (id: number, body: { supplier_id?: number; doc_number?: string; doc_date?: string; doc_total?: number }) =>
+    api.put<StockReceipt>(`/stock/receipts/${id}`, body).then((r) => r.data),
+  addLine: (id: number, body: { product_id: number; doc_name?: string; doc_unit?: string; qty_received: number; price_received?: number | null }) =>
+    api.post<StockReceipt>(`/stock/receipts/${id}/items`, body).then((r) => r.data),
   updateLine: (id: number, lineId: number, body: { qty_received?: number | null; price_received?: number | null }) =>
     api.put(`/stock/receipts/${id}/items/${lineId}`, body).then((r) => r.data),
   linkLine: (id: number, lineId: number, productId: number) =>
@@ -348,7 +355,6 @@ export const ordersApi = {
   send: (id: number) => api.post<{ order: Order; whatsappSent: boolean }>(`/orders/${id}/send`).then((r) => r.data),
   message: (id: number) =>
     api.get<{ message: string; whatsapp_number: string | null; order_type: string }>(`/orders/${id}/message`).then((r) => r.data),
-  receive: (id: number) => api.post(`/orders/${id}/receive`).then((r) => r.data),
   cancel: (id: number) => api.post(`/orders/${id}/cancel`).then((r) => r.data),
 };
 

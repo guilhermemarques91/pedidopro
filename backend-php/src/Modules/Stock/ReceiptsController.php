@@ -48,15 +48,108 @@ final class ReceiptsController
     public static function getById(Request $req): void
     {
         $receipt = self::find($req->intParam('id'), $req->orgId());
-        $receipt['items'] = Db::query(
-            'SELECT ri.*, p.name AS product_name, p.unit AS product_unit, p.stock_qty
+        $items = Db::query(
+            'SELECT ri.*, p.name AS product_name, p.unit AS product_unit, p.stock_qty,
+                    it.package_size, it.package_unit
                FROM stock_receipt_items ri
                LEFT JOIN products p ON p.id = ri.product_id
+               LEFT JOIN items it ON it.id = ri.item_id
               WHERE ri.receipt_id = ?
               ORDER BY ri.sort_order, ri.id',
             [$receipt['id']]
         );
+        // Prévia de quanto vai de fato entrar no estoque — a tela mostra isso ANTES de
+        // confirmar, pra conversão de unidade não ser uma surpresa depois do fato.
+        foreach ($items as &$it) {
+            $qty = $it['qty_received'] !== null ? (float) $it['qty_received'] : null;
+            $it['stock_qty_preview'] = $qty === null ? null : Receiving::convert(
+                $qty, null, $it['doc_unit'],
+                $it['package_size'] !== null ? (float) $it['package_size'] : null,
+                $it['package_unit']
+            )['qty'];
+        }
+        unset($it);
+        $receipt['items'] = $items;
         Http::json($receipt);
+    }
+
+    /** POST /stock/receipts { supplier_id } — entrada avulsa: sem pedido, sem documento. */
+    public static function create(Request $req): void
+    {
+        $supplierId = $req->input()->integer('supplier_id', true);
+        $supplier = Db::queryOne('SELECT id FROM suppliers WHERE id = ? AND org_id = ?', [$supplierId, $req->orgId()]);
+        if (!$supplier) {
+            throw HttpError::badRequest('Fornecedor informado não existe');
+        }
+        $id = Db::transaction(
+            fn (PDO $pdo) => Receiving::createManual($pdo, $req->orgId(), $supplierId, $req->userId())
+        );
+        Http::json(self::find($id, $req->orgId()), 201);
+    }
+
+    /**
+     * POST /stock/receipts/:id/items — lança uma linha na mão (entrada avulsa, ou item que o
+     * fornecedor mandou a mais e não estava no pedido/documento original).
+     * Body: { product_id, doc_name?, doc_unit?, qty_received, price_received? }.
+     */
+    public static function addLine(Request $req): void
+    {
+        $receipt = self::find($req->intParam('id'), $req->orgId());
+        self::assertOpen($receipt);
+        $in = $req->input();
+        $productId = $in->integer('product_id', true);
+        $qty = (float) $in->number('qty_received', true);
+        if ($qty <= 0) {
+            throw HttpError::badRequest('Quantidade deve ser maior que zero');
+        }
+        $product = Db::queryOne('SELECT name FROM products WHERE id = ? AND org_id = ?', [$productId, $req->orgId()]);
+        if (!$product) {
+            throw HttpError::notFound('Produto não encontrado');
+        }
+        $docName = $in->string('doc_name') ?: $product['name'];
+        $price = $in->number('price_received');
+
+        Db::transaction(fn (PDO $pdo) => Receiving::addLine(
+            $pdo, $req->orgId(), (int) $receipt['id'], $productId,
+            $docName, $in->string('doc_unit'), $qty, $price !== null ? (float) $price : null
+        ));
+        Http::json(self::find($receipt['id'], $req->orgId()), 201);
+    }
+
+    /**
+     * PUT /stock/receipts/:id — edita o cabeçalho (fornecedor, dados da nota). Só em
+     * aguardando: depois de conferida, o vínculo com o que já baixou estoque tem que parar quieto.
+     * Body: { supplier_id?, doc_number?, doc_date?, doc_total? }.
+     */
+    public static function update(Request $req): void
+    {
+        $receipt = self::find($req->intParam('id'), $req->orgId());
+        self::assertOpen($receipt);
+        $in = $req->input();
+
+        $fields = [];
+        $values = [];
+        if ($in->has('supplier_id')) {
+            $supplierId = $in->integer('supplier_id', true);
+            $supplier = Db::queryOne('SELECT id FROM suppliers WHERE id = ? AND org_id = ?', [$supplierId, $req->orgId()]);
+            if (!$supplier) {
+                throw HttpError::badRequest('Fornecedor informado não existe');
+            }
+            $fields[] = 'supplier_id = ?';
+            $values[] = $supplierId;
+        }
+        foreach (['doc_number' => 'string', 'doc_date' => 'string', 'doc_total' => 'number'] as $col => $kind) {
+            if ($in->has($col)) {
+                $fields[] = "{$col} = ?";
+                $values[] = $kind === 'number' ? $in->number($col) : $in->string($col);
+            }
+        }
+        if (!$fields) {
+            throw HttpError::badRequest('Nada para atualizar');
+        }
+        $values[] = $receipt['id'];
+        Db::execute('UPDATE stock_receipts SET ' . implode(', ', $fields) . ' WHERE id = ?', $values);
+        Http::json(self::find($receipt['id'], $req->orgId()));
     }
 
     /**

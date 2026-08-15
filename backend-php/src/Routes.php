@@ -161,6 +161,9 @@ final class Routes
         // Entradas de mercadoria: o pedido enviado vira entrada aguardando e a NOTA confirma.
         $r->get('/stock/receipts', [ReceiptsController::class, 'list'], self::ESTOQUE_READ);
         $r->get('/stock/receipts/:id', [ReceiptsController::class, 'getById'], self::ESTOQUE_READ);
+        $r->post('/stock/receipts', [ReceiptsController::class, 'create'], self::ESTOQUE_MOVE);
+        $r->put('/stock/receipts/:id', [ReceiptsController::class, 'update'], self::ESTOQUE_MOVE);
+        $r->post('/stock/receipts/:id/items', [ReceiptsController::class, 'addLine'], self::ESTOQUE_MOVE);
         $r->post('/stock/receipts/:id/confirm', [ReceiptsController::class, 'confirm'], self::ESTOQUE_MOVE);
         $r->post('/stock/receipts/:id/cancel', [ReceiptsController::class, 'cancel'], self::ESTOQUE_MOVE);
         $r->post('/stock/receipts/:id/scan', [ReceiptsController::class, 'scan'], self::ESTOQUE_MOVE);
@@ -215,7 +218,6 @@ final class Routes
         $r->post('/orders/:id/approve', [OrdersController::class, 'approve'], self::APPROVE);
         $r->post('/orders/:id/reject', [OrdersController::class, 'reject'], self::APPROVE);
         $r->post('/orders/:id/send', [OrdersController::class, 'send'], self::WRITE);
-        $r->post('/orders/:id/receive', [OrdersController::class, 'receive'], self::WRITE);
         $r->post('/orders/:id/cancel', [OrdersController::class, 'cancel'], self::WRITE);
 
         // Requests (listas de compra)

@@ -9,7 +9,6 @@ use App\Core\Request;
 use App\Services\Evolution;
 use App\Services\Outbox;
 use App\Services\Receiving;
-use App\Services\Stock;
 use PDO;
 
 final class OrdersController
@@ -279,34 +278,6 @@ final class OrdersController
                 'unit_price' => $it['unit_price'],
             ], $items)
         );
-    }
-
-    public static function receive(Request $req): void
-    {
-        $id = $req->intParam('id');
-        $o = self::row($id, $req->orgId());
-        if ($o['status'] !== 'sent') {
-            throw HttpError::badRequest('Apenas pedidos enviados podem ser marcados como recebidos');
-        }
-        // Recebimento dá ENTRADA no estoque dos itens vinculados a um produto
-        // (custo = preço unitário do pedido). Itens sem produto ficam de fora.
-        $lines = Db::query(
-            'SELECT i.product_id, oi.quantity, oi.unit_price
-               FROM order_items oi JOIN items i ON i.id = oi.item_id
-              WHERE oi.order_id = ? AND i.product_id IS NOT NULL',
-            [$id]
-        );
-        Db::transaction(function (PDO $pdo) use ($id, $lines, $req): void {
-            $pdo->prepare("UPDATE orders SET status = 'received', received_at = NOW() WHERE id = ?")->execute([$id]);
-            foreach ($lines as $l) {
-                Stock::apply(
-                    $pdo, $req->orgId(), (int) $l['product_id'], 'in',
-                    (float) $l['quantity'], (float) $l['unit_price'],
-                    "order:{$id}", null, $req->userId()
-                );
-            }
-        });
-        Http::json(self::row($id, $req->orgId()));
     }
 
     public static function cancel(Request $req): void

@@ -2,10 +2,10 @@ import { useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Ban, Camera, Check, PackageCheck } from 'lucide-react';
-import { productsApi, receiptsApi } from '../../services/resources';
+import { productsApi, receiptsApi, suppliersApi } from '../../services/resources';
 import { apiError } from '../../services/api';
 import { PageHeader } from '../../components/PageHeader';
-import { Button, Card, Combobox, Input, Spinner, ErrorBox, EmptyState } from '../../components/ui';
+import { Button, Card, Combobox, Input, Select, Spinner, ErrorBox, EmptyState } from '../../components/ui';
 import { LINE_TONE, RECEIPT_TONE, RECEIPT_SOURCE_LABEL } from '../../config/estoque';
 import { brl, fmtQty, numToInput, parseNum } from '../../utils/format';
 import { useAuth } from '../../store/auth.store';
@@ -33,6 +33,8 @@ export function EntradaDetail() {
 
   const receipt = useQuery({ queryKey: ['stock-receipt', rid], queryFn: () => receiptsApi.get(rid), enabled: rid > 0 });
   const products = useQuery({ queryKey: ['products'], queryFn: () => productsApi.list() });
+  const suppliers = useQuery({ queryKey: ['suppliers'], queryFn: suppliersApi.list });
+  const [editingSupplier, setEditingSupplier] = useState(false);
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['stock-receipt', rid] });
@@ -72,6 +74,17 @@ export function EntradaDetail() {
           .map((l) => ({ name: l.name, unit: l.unit, quantity: l.quantity as number, unit_price: l.price ?? 0 })),
       ),
     onSuccess: () => { setErr(''); setScanned(null); setMsg('Linhas da nota lançadas na conferência.'); invalidate(); },
+    onError: fail,
+  });
+  const updateSupplier = useMutation({
+    mutationFn: (supplierId: number) => receiptsApi.update(rid, { supplier_id: supplierId }),
+    onSuccess: () => { setErr(''); setEditingSupplier(false); invalidate(); },
+    onError: fail,
+  });
+  const addLine = useMutation({
+    mutationFn: (body: { product_id: number; doc_name?: string; doc_unit?: string; qty_received: number; price_received?: number | null }) =>
+      receiptsApi.addLine(rid, body),
+    onSuccess: () => { setErr(''); invalidate(); },
     onError: fail,
   });
 
@@ -117,6 +130,35 @@ export function EntradaDetail() {
 
       <Card className="mb-4 flex flex-wrap items-center gap-3">
         <span className={`rounded-full px-2 py-0.5 text-xs font-medium ring-1 ${tone.chip}`}>{tone.label}</span>
+        {open && canMove && editingSupplier ? (
+          <label className="flex items-center gap-2 text-sm">
+            <span className="font-medium text-slate-600">Fornecedor</span>
+            <Select
+              defaultValue={r.supplier_id ?? ''}
+              autoFocus
+              onChange={(e) => { if (e.target.value) updateSupplier.mutate(Number(e.target.value)); }}
+              disabled={updateSupplier.isPending}
+              className="w-56"
+            >
+              <option value="" disabled>— escolher fornecedor —</option>
+              {(suppliers.data ?? []).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </Select>
+            <button type="button" onClick={() => setEditingSupplier(false)} className="text-xs text-slate-400 hover:text-slate-600">
+              cancelar
+            </button>
+          </label>
+        ) : (
+          open && canMove && (
+            <button
+              type="button"
+              onClick={() => setEditingSupplier(true)}
+              className="text-sm text-slate-600 underline decoration-dotted hover:text-emerald-700"
+              title="Trocar o fornecedor desta entrada"
+            >
+              {r.supplier_name ?? 'sem fornecedor'} <span className="text-xs text-slate-400">(trocar)</span>
+            </button>
+          )
+        )}
         {r.doc_total != null && <span className="text-sm text-slate-600">Total da nota: <strong>{brl(r.doc_total)}</strong></span>}
         {r.order_id && (
           <Link to={`/orders/${r.order_id}`} className="text-sm text-emerald-700 hover:underline">Ver pedido #{r.order_id}</Link>
@@ -164,6 +206,14 @@ export function EntradaDetail() {
         />
       )}
 
+      {open && canMove && (
+        <AddLineForm
+          productOptions={productOptions}
+          busy={addLine.isPending}
+          onAdd={(body) => addLine.mutate(body)}
+        />
+      )}
+
       {items.length === 0 ? (
         <EmptyState message="Esta entrada não tem linhas." />
       ) : (
@@ -204,6 +254,51 @@ function confirm2(m: { mutate: () => void }) {
   if (window.confirm('Cancelar esta entrada? O estoque não será alterado.')) m.mutate();
 }
 
+/**
+ * Lança um item na mão — a entrada avulsa nasce sem nenhuma linha, e mesmo entradas de
+ * pedido/NF-e às vezes precisam de um item extra que o documento original não trouxe.
+ */
+function AddLineForm({
+  productOptions, busy, onAdd,
+}: {
+  productOptions: { value: string; label: string; hint?: string }[];
+  busy: boolean;
+  onAdd: (body: { product_id: number; doc_unit?: string; qty_received: number; price_received?: number | null }) => void;
+}) {
+  const [productId, setProductId] = useState('');
+  const [unit, setUnit] = useState('');
+  const [qty, setQty] = useState('');
+  const [price, setPrice] = useState('');
+
+  const canAdd = productId !== '' && parseNum(qty) !== null && (parseNum(qty) as number) > 0;
+
+  function add() {
+    if (!canAdd) return;
+    onAdd({
+      product_id: Number(productId),
+      doc_unit: unit.trim() || undefined,
+      qty_received: parseNum(qty) as number,
+      price_received: price.trim() === '' ? null : parseNum(price),
+    });
+    setProductId(''); setUnit(''); setQty(''); setPrice('');
+  }
+
+  return (
+    <Card className="mb-4">
+      <p className="mb-2 text-sm font-semibold text-slate-700">Adicionar item</p>
+      <div className="flex flex-wrap items-end gap-2">
+        <div className="min-w-[14rem] flex-1">
+          <Combobox options={productOptions} value={productId} placeholder="Produto…" onChange={setProductId} />
+        </div>
+        <Input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="un" className="w-16" aria-label="Unidade" />
+        <Input value={qty} onChange={(e) => setQty(e.target.value)} inputMode="decimal" placeholder="qtd" className="w-20 text-right" aria-label="Quantidade" />
+        <Input value={price} onChange={(e) => setPrice(e.target.value)} inputMode="decimal" placeholder="preço un." className="w-24 text-right" aria-label="Preço unitário" />
+        <Button type="button" onClick={add} disabled={!canAdd || busy}>Adicionar</Button>
+      </div>
+    </Card>
+  );
+}
+
 function LineRow({
   receiptId, line, editable, productOptions, onChanged, onError,
 }: {
@@ -232,6 +327,7 @@ function LineRow({
   const tone = LINE_TONE[line.status];
   const expQty = line.qty_expected != null ? Number(line.qty_expected) : null;
   const gotQty = line.qty_received != null ? Number(line.qty_received) : null;
+  const previewQty = line.stock_qty_preview != null ? Number(line.stock_qty_preview) : null;
   const short = expQty != null && gotQty != null && gotQty < expQty;
 
   return (
@@ -274,6 +370,11 @@ function LineRow({
           <span className={short ? 'font-medium text-amber-700' : 'text-slate-700'}>
             {gotQty != null ? fmtQty(gotQty) : '—'}
           </span>
+        )}
+        {previewQty != null && gotQty != null && Math.abs(previewQty - gotQty) > 0.0005 && (
+          <p className="mt-0.5 text-xs text-slate-400" title="Embalagem de compra cadastrada no item convertendo pra unidade de estoque">
+            = {fmtQty(previewQty)} {line.product_unit ?? ''} no estoque
+          </p>
         )}
       </td>
       <td className="px-4 py-3 text-right text-slate-500">

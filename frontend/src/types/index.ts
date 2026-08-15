@@ -190,6 +190,11 @@ export interface StockReceiptItem {
   price_received: string | null;
   status: ReceiptLineStatus;
   sort_order: number;
+  /** Embalagem de compra do SKU (ex.: 12/"CX"), quando cadastrada — base da conversão de unidade. */
+  package_size?: string | null;
+  package_unit?: string | null;
+  /** Quanto entra de fato no estoque após a conversão — null quando não há qty_received ainda. */
+  stock_qty_preview?: string | null;
 }
 
 export interface StockReceipt {
