@@ -47,6 +47,7 @@ final class DreCalculator
     {
         $lines = self::lines($orgId, $month);
         $platform = self::platformMonth($orgId, $month);
+        $byPlatform = PlatformTotals::byPlatformForMonth($orgId, $month);
         $mode = self::mode($orgId);
 
         if (!$lines) {
@@ -62,7 +63,7 @@ final class DreCalculator
         }
 
         $groups = self::groupTotals($lines, $byCode, $managerial);
-        $totals = self::statement($groups, $platform, $mode);
+        $totals = self::statement($groups, $platform, $mode, $byPlatform);
         $warnings = self::warnings($lines, $byCode, $totals, $managerial, $platform, $mode);
 
         $excluded = [];
@@ -272,9 +273,10 @@ final class DreCalculator
      * Estrutura do demonstrativo a partir dos totais por bucket. Os subtotais são
      * RECALCULADOS aqui (e não lidos das linhas "(=)" do arquivo) — é isso que
      * faz o modo gerencial refletir as exclusões.
+     * @param array<string,array<string,float|null>> $byPlatform de PlatformTotals::byPlatformForMonth
      * @return array<string,float>
      */
-    private static function statement(array $g, array $platform, string $mode): array
+    private static function statement(array $g, array $platform, string $mode, array $byPlatform = []): array
     {
         $get = static fn (string $k): float => round($g[$k] ?? 0.0, 2);
 
@@ -336,6 +338,10 @@ final class DreCalculator
         return [
             'receita_dre' => $receitaDre,
             'receita_plataformas' => round($receitaPlataformas, 2),
+            // iFood x 99Food separados dentro da mesma origem (planilhas das
+            // plataformas) — só no modo 'planilhas', que é o único onde o dado
+            // chega por plataforma; 'recebimentos' e 'off' não têm essa granularidade.
+            'receita_por_canal' => $mode === 'planilhas' ? self::platformBreakdown($byPlatform) : [],
             'receita_bruta' => $receitaBruta,
             'deducoes' => $deducoes,
             'receita_liquida' => $receitaLiquida,
@@ -366,6 +372,17 @@ final class DreCalculator
             'margem_liquida' => $pct($resultadoLiquido),
             'cmv_pct' => $receitaLiquida > 0 ? round($cmv / $receitaLiquida, 6) : null,
         ];
+    }
+
+    /** Faturamento (venda + taxa de entrega própria) por plataforma, arredondado. @return array<string,float> */
+    private static function platformBreakdown(array $byPlatform): array
+    {
+        $out = [];
+        foreach ($byPlatform as $platform => $row) {
+            $out[$platform] = round((float) ($row['revenue_total'] ?? 0), 2);
+        }
+        ksort($out);
+        return $out;
     }
 
     /**
@@ -535,7 +552,7 @@ final class DreCalculator
 
     private static function emptyTotals(): array
     {
-        return array_fill_keys([
+        $totals = array_fill_keys([
             'receita_dre', 'receita_plataformas', 'receita_bruta', 'deducoes', 'receita_liquida',
             'cmv', 'custo_direto', 'custo_indireto', 'custo_plataformas', 'custos_dre', 'custos',
             'recebimentos', 'lucro_bruto', 'desp_comercial', 'desp_financeira', 'rec_financeira',
@@ -543,5 +560,7 @@ final class DreCalculator
             'rec_nao_op', 'resultado_antes_impostos', 'imposto', 'resultado_liquido',
             'margem_bruta', 'margem_operacional', 'margem_liquida', 'cmv_pct',
         ], 0.0);
+        $totals['receita_por_canal'] = [];
+        return $totals;
     }
 }

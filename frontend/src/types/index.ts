@@ -1464,6 +1464,8 @@ export interface FinDreTotals {
   receita_dre: number;
   /** Faturamento de iFood/99Food no mês, pelas planilhas das plataformas. */
   receita_plataformas: number;
+  /** receita_plataformas separada por canal (chave 'ifood'/'99food') — só no modo 'planilhas'. */
+  receita_por_canal: Record<string, number>;
   receita_bruta: number; deducoes: number; receita_liquida: number;
   cmv: number; custo_direto: number; custo_indireto: number;
   custo_plataformas: number; custos_dre: number; custos: number;

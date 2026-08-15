@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { BarChart, Bar, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { EyeOff, TrendingDown, TrendingUp } from 'lucide-react';
@@ -16,6 +16,9 @@ import { WarningList, MonthSelect, ExportButton, exportCsv, NoData } from './sha
  * diferentes: o balcão do DRE do AllFood e o delivery das planilhas das
  * plataformas (que o AllFood não registra como venda).
  */
+const PLATFORM_LABEL: Record<string, string> = { ifood: 'iFood', '99food': '99Food' };
+const platformLabel = (p: string) => PLATFORM_LABEL[p] ?? p;
+
 const STATEMENT: { key: keyof FinDreTotals; label: string; sign: '+' | '-' | '='; strong?: boolean; sub?: boolean }[] = [
   { key: 'receita_dre', label: 'Balcão e comanda (DRE)', sign: '+', sub: true },
   { key: 'receita_plataformas', label: 'iFood e 99Food (planilhas)', sign: '+', sub: true },
@@ -148,7 +151,7 @@ export function Dre() {
               const value = t[row.key] as number;
               const before = prev ? (prev[row.key] as number) : null;
               const delta = before !== null && Math.abs(before) > 0.005 ? (value - before) / Math.abs(before) : null;
-              return (
+              const mainRow = (
                 <tr key={row.key} className={`border-b border-slate-100 last:border-0 ${row.strong ? 'bg-slate-50 font-semibold' : ''}`}>
                   <td className="w-10 px-4 py-2 text-center text-slate-400">{row.sign}</td>
                   <td className={`px-2 py-2 ${row.sub ? 'pl-6 text-slate-600' : ''}`}>{row.label}</td>
@@ -160,6 +163,36 @@ export function Dre() {
                     {delta === null ? <span className="text-slate-400">—</span> : <Delta value={delta} />}
                   </td>
                 </tr>
+              );
+              // iFood e 99Food entram separados aqui em cima do subtotal combinado —
+              // só quando há mais de uma plataforma no mês (com uma só, a quebra
+              // repetiria o mesmo número da linha combinada).
+              const channels = Object.keys(t.receita_por_canal ?? {});
+              if (row.key !== 'receita_plataformas' || channels.length < 2) {
+                return mainRow;
+              }
+              return (
+                <Fragment key={row.key}>
+                  {channels.map((p) => {
+                    const v = t.receita_por_canal[p] ?? 0;
+                    const pv = prev?.receita_por_canal?.[p] ?? null;
+                    const d = pv !== null && Math.abs(pv) > 0.005 ? (v - pv) / Math.abs(pv) : null;
+                    return (
+                      <tr key={`canal-${p}`} className="border-b border-slate-100 last:border-0">
+                        <td className="w-10 px-4 py-2 text-center text-slate-400">+</td>
+                        <td className="px-2 py-2 pl-9 text-xs text-slate-500">{platformLabel(p)}</td>
+                        <td className="px-4 py-2 text-right text-xs tabular-nums text-slate-500">{brl(v)}</td>
+                        <td className="w-24 px-4 py-2 text-right text-xs text-slate-400 tabular-nums">
+                          {t.receita_bruta > 0 ? pct(v / t.receita_bruta) : '—'}
+                        </td>
+                        <td className="w-28 px-4 py-2 text-right text-xs tabular-nums">
+                          {d === null ? <span className="text-slate-400">—</span> : <Delta value={d} />}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {mainRow}
+                </Fragment>
               );
             })}
           </tbody>
