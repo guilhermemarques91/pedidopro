@@ -1,6 +1,6 @@
 import { FormEvent, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Pencil, Trash2, Eye } from 'lucide-react';
+import { Plus, Pencil, Trash2, Eye, TrendingUp } from 'lucide-react';
 import { itemsApi, suppliersApi, productsApi, productTypesApi, categoriesApi, ItemFilters } from '../../services/resources';
 import { apiError } from '../../services/api';
 import { useAuth } from '../../store/auth.store';
@@ -8,6 +8,7 @@ import type { Item } from '../../types';
 import { brl, parseNum } from '../../utils/format';
 import { PageHeader } from '../../components/PageHeader';
 import { Button, Card, Field, Input, Select, Modal, ViewModal, Spinner, ErrorBox, EmptyState, ActionMenu, type MenuAction } from '../../components/ui';
+import { PriceHistoryModal } from './PriceHistoryModal';
 
 export function Items({ embedded = false }: { embedded?: boolean } = {}) {
   const qc = useQueryClient();
@@ -19,6 +20,7 @@ export function Items({ embedded = false }: { embedded?: boolean } = {}) {
   const [search, setSearch] = useState('');
   const [editing, setEditing] = useState<Item | null>(null);
   const [viewing, setViewing] = useState<Item | null>(null);
+  const [historyItem, setHistoryItem] = useState<Item | null>(null);
   const [open, setOpen] = useState(false);
 
   const { data: suppliers } = useQuery({ queryKey: ['suppliers'], queryFn: suppliersApi.list });
@@ -43,7 +45,10 @@ export function Items({ embedded = false }: { embedded?: boolean } = {}) {
   const filtered = (data ?? []).filter((i) => !q || i.name.toLowerCase().includes(q));
 
   function actionsFor(it: Item): MenuAction[] {
-    const out: MenuAction[] = [{ label: 'Ver detalhes', icon: <Eye size={16} />, onClick: () => setViewing(it) }];
+    const out: MenuAction[] = [
+      { label: 'Ver detalhes', icon: <Eye size={16} />, onClick: () => setViewing(it) },
+      { label: 'Histórico de preço', icon: <TrendingUp size={16} />, onClick: () => setHistoryItem(it) },
+    ];
     if (canWrite) out.push({ label: 'Editar', icon: <Pencil size={16} />, onClick: () => { setEditing(it); setOpen(true); } });
     if (isAdmin) out.push({ label: 'Excluir', icon: <Trash2 size={16} />, danger: true, onClick: () => confirm(`Excluir "${it.name}"?`) && remove.mutate(it.id) });
     return out;
@@ -170,6 +175,9 @@ export function Items({ embedded = false }: { embedded?: boolean } = {}) {
             { label: 'GTIN/EAN', value: viewing.gtin },
           ]}
         />
+      )}
+      {historyItem && (
+        <PriceHistoryModal itemId={historyItem.id} itemName={historyItem.name} onClose={() => setHistoryItem(null)} />
       )}
     </div>
   );

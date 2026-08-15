@@ -396,8 +396,50 @@ export interface ComparisonOffer {
 export interface ComparisonRow {
   item: string;
   unit: string;
+  item_id: number;
+  product_id: number | null;
   bestPrice: number;
   offers: ComparisonOffer[];
+}
+
+/** Ponto do histórico de preço de um item (GET /items/:id/price-history). */
+export interface PriceHistoryPoint {
+  supplier_id: number;
+  supplier_name: string;
+  price: string;
+  recorded_at: string;
+  quotation_id: number | null;
+  item_id: number;
+  item_name: string;
+}
+export interface PriceHistoryResponse {
+  item_id: number;
+  product_id: number | null;
+  product_name: string | null;
+  item_name: string;
+  points: PriceHistoryPoint[];
+}
+
+// ---- Curva ABC de compras (GET /purchases/abc) ----
+export type AbcClass = 'A' | 'B' | 'C';
+export type AbcDimension = 'product' | 'supplier';
+export interface AbcRow {
+  id: number | null;
+  name: string;
+  spend: number;
+  qty: number;
+  pct: number;
+  cum_pct: number;
+  class: AbcClass;
+  /** receipt = preço da nota confirmada; order = preço do pedido; mixed = as duas no período. */
+  source: 'receipt' | 'order' | 'mixed';
+}
+export interface AbcResponse {
+  from: string;
+  to: string;
+  dimension: AbcDimension;
+  total_spend: number;
+  rows: AbcRow[];
 }
 
 export type OrderStatus =

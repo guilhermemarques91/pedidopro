@@ -16,6 +16,7 @@ import type {
   FinSettings, FinDreResponse, FinChannelsResponse, FinProductsResponse, FinCmvResponse,
   FinBreakevenResponse, FinOverviewResponse,
   WaChat, WaMessage, WaUpdates,
+  PriceHistoryResponse, AbcResponse,
 } from '../types';
 
 // ---- Categories ----
@@ -48,6 +49,7 @@ export const itemsApi = {
     api.post<Item>(`/items/${id}/suppliers`, body).then((r) => r.data),
   unlinkSupplier: (id: number, supplierId: number) =>
     api.delete<Item>(`/items/${id}/suppliers/${supplierId}`).then((r) => r.data),
+  priceHistory: (id: number) => api.get<PriceHistoryResponse>(`/items/${id}/price-history`).then((r) => r.data),
 };
 
 export interface ItemFilters { supplier_id?: number; type_id?: number; category_id?: number }
@@ -176,6 +178,12 @@ export const receiptsApi = {
   },
   applyScan: (id: number, lines: { name: string; unit?: string; quantity: number; unit_price?: number }[], docNumber?: string) =>
     api.post(`/stock/receipts/${id}/apply-scan`, { lines, doc_number: docNumber ?? null }).then((r) => r.data),
+};
+
+// ---- Curva ABC de compras ----
+export const purchasesApi = {
+  abc: (params: { from?: string; to?: string; dimension?: 'product' | 'supplier' }) =>
+    api.get<AbcResponse>('/purchases/abc', { params }).then((r) => r.data),
 };
 
 // ---- Busca global (Ctrl+K) ----

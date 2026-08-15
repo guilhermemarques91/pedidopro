@@ -79,6 +79,52 @@ final class ItemsController
         Http::json($item);
     }
 
+    /**
+     * GET /items/:id/price-history — evolução de preço por fornecedor, a partir do que
+     * price_history acumula a cada cotação fechada (QuotationsController::close). Ninguém lia
+     * isso até agora; os dados já existiam.
+     *
+     * Quando o item tem produto vinculado, o histórico junta TODOS os itens (SKUs de
+     * fornecedores diferentes) com o mesmo product_id — é o mesmo agrupamento que o
+     * comparativo de cotação já usa, então "histórico do produto" e "comparativo da cotação"
+     * nunca discordam sobre o que é o mesmo insumo.
+     */
+    public static function priceHistory(Request $req): void
+    {
+        $item = self::find($req->intParam('id'), $req->orgId());
+        $productId = $item['product_id'] !== null ? (int) $item['product_id'] : null;
+
+        $points = $productId !== null
+            ? Db::query(
+                'SELECT ph.supplier_id, s.name AS supplier_name, ph.price, ph.recorded_at, ph.quotation_id,
+                        i2.id AS item_id, i2.name AS item_name
+                   FROM price_history ph
+                   JOIN items i2 ON i2.id = ph.item_id
+                   JOIN suppliers s ON s.id = ph.supplier_id
+                  WHERE i2.org_id = ? AND i2.product_id = ?
+                  ORDER BY ph.recorded_at ASC',
+                [$req->orgId(), $productId]
+            )
+            : Db::query(
+                'SELECT ph.supplier_id, s.name AS supplier_name, ph.price, ph.recorded_at, ph.quotation_id,
+                        i2.id AS item_id, i2.name AS item_name
+                   FROM price_history ph
+                   JOIN items i2 ON i2.id = ph.item_id
+                   JOIN suppliers s ON s.id = ph.supplier_id
+                  WHERE i2.org_id = ? AND i2.id = ?
+                  ORDER BY ph.recorded_at ASC',
+                [$req->orgId(), $item['id']]
+            );
+
+        Http::json([
+            'item_id' => (int) $item['id'],
+            'product_id' => $productId,
+            'product_name' => $item['product_name'] ?? null,
+            'item_name' => $item['name'],
+            'points' => $points,
+        ]);
+    }
+
     public static function create(Request $req): void
     {
         $in = $req->input();

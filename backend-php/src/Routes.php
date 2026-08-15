@@ -24,6 +24,7 @@ use App\Modules\Stock\CountsController;
 use App\Modules\Stock\ParamsController;
 use App\Modules\Stock\ReceiptsController;
 use App\Modules\Search\SearchController;
+use App\Modules\Purchases\PurchasesReportController;
 use App\Modules\Nfe\NfeController;
 use App\Modules\Inbox\InboxController;
 use App\Modules\Import\ImportController;
@@ -118,6 +119,8 @@ final class Routes
         // Items
         $r->get('/items', [ItemsController::class, 'list'], self::READ);
         $r->get('/items/:id', [ItemsController::class, 'getById'], self::READ);
+        $r->get('/items/:id/price-history', [ItemsController::class, 'priceHistory'], self::READ);
+        $r->get('/purchases/abc', [PurchasesReportController::class, 'abc'], self::READ);
         $r->post('/items', [ItemsController::class, 'create'], self::WRITE);
         $r->put('/items/:id', [ItemsController::class, 'update'], self::WRITE);
         $r->delete('/items/:id', [ItemsController::class, 'remove'], self::COMPRAS_ADMIN);

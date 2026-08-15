@@ -1,12 +1,13 @@
 import { FormEvent, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Plus, Trash2, Lock, Sparkles, Trophy } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, Lock, Sparkles, Trophy, TrendingUp } from 'lucide-react';
 import { quotationsApi, suppliersApi, itemsApi } from '../../services/resources';
 import { apiError } from '../../services/api';
 import { useAuth } from '../../store/auth.store';
 import { brl, parseNum } from '../../utils/format';
 import { Button, Card, Field, Input, Select, Modal, Spinner, ErrorBox, EmptyState, Badge } from '../../components/ui';
+import { PriceHistoryModal } from '../Items/PriceHistoryModal';
 
 export function QuotationDetailPage() {
   const { id } = useParams();
@@ -15,6 +16,7 @@ export function QuotationDetailPage() {
   const canWrite = useAuth((s) => s.can('compras:write'));
   const [addOpen, setAddOpen] = useState(false);
   const [extractOpen, setExtractOpen] = useState(false);
+  const [historyRow, setHistoryRow] = useState<{ itemId: number; itemName: string } | null>(null);
 
   const { data, isLoading, error } = useQuery({ queryKey: ['quotation', qid], queryFn: () => quotationsApi.get(qid) });
   const { data: comparison } = useQuery({ queryKey: ['comparison', qid], queryFn: () => quotationsApi.comparison(qid) });
@@ -55,8 +57,18 @@ export function QuotationDetailPage() {
           <h3 className="mb-3 flex items-center gap-2 text-lg font-semibold text-slate-800"><Trophy size={18} className="text-amber-500" /> Comparativo de preços</h3>
           <div className="space-y-3">
             {comparison.map((row) => (
-              <div key={row.item} className="rounded-lg border border-slate-200 p-3">
-                <p className="mb-2 font-medium text-slate-800">{row.item} <span className="text-xs text-slate-400">({row.unit})</span></p>
+              <div key={row.item_id} className="rounded-lg border border-slate-200 p-3">
+                <p className="mb-2 flex items-center gap-2 font-medium text-slate-800">
+                  {row.item} <span className="text-xs text-slate-400">({row.unit})</span>
+                  <button
+                    type="button"
+                    onClick={() => setHistoryRow({ itemId: row.item_id, itemName: row.item })}
+                    className="ml-auto flex items-center gap-1 text-xs font-normal text-slate-400 hover:text-emerald-700"
+                    title="Ver evolução de preço deste item"
+                  >
+                    <TrendingUp size={13} /> Histórico
+                  </button>
+                </p>
                 <div className="flex flex-wrap gap-2">
                   {row.offers.map((o) => (
                     <span key={o.qiId} className={`flex flex-col rounded-md px-2.5 py-1 text-sm ${o.isBest ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'}`}>
@@ -112,6 +124,9 @@ export function QuotationDetailPage() {
 
       {addOpen && <AddPriceForm qid={qid} onClose={() => { setAddOpen(false); invalidate(); }} />}
       {extractOpen && <ExtractForm qid={qid} onClose={() => { setExtractOpen(false); invalidate(); }} />}
+      {historyRow && (
+        <PriceHistoryModal itemId={historyRow.itemId} itemName={historyRow.itemName} onClose={() => setHistoryRow(null)} />
+      )}
     </div>
   );
 }

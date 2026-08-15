@@ -148,6 +148,10 @@ final class QuotationsController
                 $groups[$key] = [
                     'item' => $r['product_name'] ?? $r['item_name'],
                     'unit' => $r['unit'],
+                    // Um item qualquer do grupo já basta: /items/:id/price-history resolve
+                    // pelo product_id (quando existe) e traz o histórico de todo o grupo.
+                    'item_id' => (int) $r['item_id'],
+                    'product_id' => $r['product_id'] !== null ? (int) $r['product_id'] : null,
                     'offers' => [],
                 ];
             }
@@ -171,6 +175,8 @@ final class QuotationsController
             $out[] = [
                 'item' => $g['item'],
                 'unit' => $g['unit'],
+                'item_id' => $g['item_id'],
+                'product_id' => $g['product_id'],
                 'bestPrice' => $best,
                 'offers' => $offers,
             ];

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ShoppingCart } from 'lucide-react';
+import { ArrowLeft, ShoppingCart, MessageCircle, Copy, X } from 'lucide-react';
 import { requestsApi, suppliersApi, AllocationInput } from '../../services/resources';
 import { apiError } from '../../services/api';
 import { useAuth } from '../../store/auth.store';
@@ -9,6 +9,14 @@ import type { RequestItem, RequestItemOffer } from '../../types';
 import { parseNum, numToInput } from '../../utils/format';
 import { PageHeader } from '../../components/PageHeader';
 import { Button, Card, Select, Input, Badge, Spinner, ErrorBox } from '../../components/ui';
+
+/** Mensagem simples pro fornecedor — mesmo espírito do WhatsApp de pedido, mas montada
+ * aqui direto do estado de alocação (ainda não existe pedido pra buscar a mensagem pronta). */
+function buildWhatsappMessage(supplierName: string, its: RequestItem[]): string {
+  const today = new Date().toLocaleDateString('pt-BR');
+  const lines = its.map((it) => `• ${it.quantity} ${it.unit} — ${it.product_name ?? it.free_text}`);
+  return `🛒 Lista de compra — ${supplierName}\n📅 ${today}\n\n${lines.join('\n')}`;
+}
 
 // Estado de alocação de uma linha.
 interface Alloc { source: string; supplierId: string; itemId: number | null; name: string; unit: string; price: string }
@@ -65,12 +73,18 @@ export function RequestDetailPage() {
   const requestId = Number(id);
   const qc = useQueryClient();
   const isAdmin = useAuth((s) => s.can('compras:admin'));
+  // A visão por fornecedor + WhatsApp é útil pra quem só CRIA a lista também, não só
+  // pra quem aloca — solta a busca de fornecedores (antes só rodava pra admin).
+  const canRequest = useAuth((s) => s.can('compras:requests'));
   const { data, isLoading, error } = useQuery({ queryKey: ['request', requestId], queryFn: () => requestsApi.get(requestId) });
-  const { data: suppliers } = useQuery({ queryKey: ['suppliers'], queryFn: suppliersApi.list, enabled: isAdmin });
+  const { data: suppliers } = useQuery({ queryKey: ['suppliers'], queryFn: suppliersApi.list, enabled: isAdmin || canRequest });
 
   const [alloc, setAlloc] = useState<Record<number, Alloc>>({});
   const [msg, setMsg] = useState('');
   const [createdOrders, setCreatedOrders] = useState<number[]>([]);
+  const [groupBy, setGroupBy] = useState<'category' | 'supplier'>('category');
+  const [waBox, setWaBox] = useState<{ supplierName: string; message: string; whatsappNumber: string | null } | null>(null);
+  const [copied, setCopied] = useState(false);
   // Seleção para alocar vários itens ao mesmo fornecedor num clique — antes cada
   // linha era uma decisão isolada, e uma lista de 20-30 itens do fornecedor de
   // sempre virava 20-30 trocas manuais de <select>.
@@ -212,12 +226,27 @@ export function RequestDetailPage() {
   if (isLoading) return <Spinner />;
   if (error || !data) return <ErrorBox message={apiError(error) || 'Lista não encontrada'} />;
 
-  // Agrupa por categoria (itens já vêm ordenados por categoria do backend).
-  const groups = new Map<string, RequestItem[]>();
-  for (const it of items) {
-    const k = it.category_name ?? 'Sem categoria';
-    if (!groups.has(k)) groups.set(k, []);
-    groups.get(k)!.push(it);
+  // Agrupa por categoria (itens já vêm ordenados por categoria do backend) OU por
+  // fornecedor alocado — a visão que dá pra montar a lista de WhatsApp por fornecedor.
+  type Group = { label: string; whatsapp: string | null; its: RequestItem[] };
+  const groups = new Map<string, Group>();
+  if (groupBy === 'supplier') {
+    for (const it of items) {
+      const sid = alloc[it.id]?.supplierId || '';
+      const supplier = sid ? suppliers?.find((s) => String(s.id) === sid) : undefined;
+      const key = sid || 'sem-fornecedor';
+      if (!groups.has(key)) {
+        const label = supplier?.name ?? (sid ? (alloc[it.id]?.name || `Fornecedor ${sid}`) : 'Sem fornecedor alocado');
+        groups.set(key, { label, whatsapp: supplier?.whatsapp_number ?? null, its: [] });
+      }
+      groups.get(key)!.its.push(it);
+    }
+  } else {
+    for (const it of items) {
+      const k = it.category_name ?? 'Sem categoria';
+      if (!groups.has(k)) groups.set(k, { label: k, whatsapp: null, its: [] });
+      groups.get(k)!.its.push(it);
+    }
   }
 
   return (
@@ -230,6 +259,42 @@ export function RequestDetailPage() {
       />
 
       {msg && <div className="mb-3"><ErrorBox message={msg} /></div>}
+
+      {waBox && (
+        <Card className="mb-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-slate-800">Mensagem para {waBox.supplierName}</h3>
+            <button onClick={() => { setWaBox(null); setCopied(false); }} className="text-slate-300 hover:text-slate-600"><X size={16} /></button>
+          </div>
+          {!waBox.whatsappNumber && (
+            <p className="text-sm text-amber-700">Este fornecedor não tem WhatsApp cadastrado — copie a mensagem e envie por onde preferir.</p>
+          )}
+          <textarea
+            readOnly
+            value={waBox.message}
+            rows={Math.min(16, waBox.message.split('\n').length + 1)}
+            className="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 font-mono text-sm text-slate-700 outline-none"
+            onFocus={(e) => e.currentTarget.select()}
+          />
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="secondary"
+              onClick={() => { navigator.clipboard.writeText(waBox.message); setCopied(true); }}
+            >
+              <Copy size={16} /> {copied ? 'Copiado!' : 'Copiar mensagem'}
+            </Button>
+            {waBox.whatsappNumber && (
+              <a
+                href={`https://wa.me/${waBox.whatsappNumber.replace(/\D/g, '')}?text=${encodeURIComponent(waBox.message)}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <Button><MessageCircle size={16} /> Abrir WhatsApp</Button>
+              </a>
+            )}
+          </div>
+        </Card>
+      )}
 
       {orderIds.length > 0 && (
         <Card className="mb-4 border-emerald-300 bg-emerald-50">
@@ -287,11 +352,31 @@ export function RequestDetailPage() {
         </Card>
       )}
 
+      {(isAdmin || canRequest) && (
+        <div className="mb-4 inline-flex rounded-lg border border-slate-200 bg-white p-1">
+          <button
+            type="button"
+            onClick={() => setGroupBy('category')}
+            className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${groupBy === 'category' ? 'bg-emerald-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+          >
+            Por categoria
+          </button>
+          <button
+            type="button"
+            onClick={() => setGroupBy('supplier')}
+            className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${groupBy === 'supplier' ? 'bg-emerald-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+          >
+            Por fornecedor
+          </button>
+        </div>
+      )}
+
       <div className="space-y-6">
-        {[...groups.entries()].map(([cat, its]) => {
+        {[...groups.entries()].map(([key, g]) => {
+          const its = g.its;
           const allSelected = its.every((it) => selected.has(it.id));
           return (
-          <div key={cat}>
+          <div key={key}>
             <div className="mb-2 flex items-center gap-2">
               {allocatable && (
                 <input
@@ -299,10 +384,19 @@ export function RequestDetailPage() {
                   checked={allSelected}
                   onChange={() => toggleSelectGroup(its)}
                   className="h-4 w-4 accent-emerald-600"
-                  aria-label={`Selecionar todos os itens de ${cat}`}
+                  aria-label={`Selecionar todos os itens de ${g.label}`}
                 />
               )}
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">{cat}</h2>
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">{g.label}</h2>
+              {groupBy === 'supplier' && key !== 'sem-fornecedor' && (
+                <button
+                  type="button"
+                  onClick={() => setWaBox({ supplierName: g.label, message: buildWhatsappMessage(g.label, its), whatsappNumber: g.whatsapp })}
+                  className="ml-auto flex items-center gap-1 text-xs font-medium text-emerald-700 hover:underline"
+                >
+                  <MessageCircle size={13} /> Enviar por WhatsApp
+                </button>
+              )}
             </div>
             <Card className="p-0">
               <table className="w-full text-sm">
