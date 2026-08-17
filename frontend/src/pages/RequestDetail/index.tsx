@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ShoppingCart, MessageCircle, Copy, X } from 'lucide-react';
+import { ArrowLeft, ShoppingCart, MessageCircle, Copy, X, AlertTriangle } from 'lucide-react';
 import { requestsApi, suppliersApi, AllocationInput } from '../../services/resources';
 import { apiError } from '../../services/api';
 import { useAuth } from '../../store/auth.store';
 import type { RequestItem, RequestItemOffer } from '../../types';
-import { parseNum, numToInput } from '../../utils/format';
+import { parseNum, numToInput, brl } from '../../utils/format';
 import { PageHeader } from '../../components/PageHeader';
 import { Button, Card, Select, Input, Badge, Spinner, ErrorBox } from '../../components/ui';
 
@@ -37,6 +37,44 @@ function principalOffer(it: RequestItem): RequestItemOffer | null {
   const priced = it.offers.filter((o) => o.base_price != null);
   if (priced.length === 0) return it.offers[0] ?? null;
   return priced.reduce((a, b) => (Number(b.base_price) < Number(a.base_price) ? b : a));
+}
+
+/**
+ * Diferença percentual entre o preço em jogo na alocação e o custo de referência do
+ * produto (mesma fonte da contagem de estoque: avg_cost com fallback pra cost_price).
+ * null quando falta um dos dois lados — sem custo de referência não há o que comparar.
+ */
+function priceDivergencePct(refCost: string | null, price: string | number | null): number | null {
+  const ref = refCost !== null ? Number(refCost) : NaN;
+  // `price` pode vir cru do backend (ponto decimal, ex.: item.alloc_price) OU já
+  // formatado pra input (vírgula, via numToInput — é o caso do estado de alocação em
+  // edição) — parseNum() lê os dois; Number() direto quebrava em silêncio com vírgula.
+  const p = typeof price === 'number' ? price : parseNum(price ?? '');
+  if (!Number.isFinite(ref) || p === null || !Number.isFinite(p) || ref <= 0 || p <= 0) return null;
+  return ((p - ref) / ref) * 100;
+}
+
+/**
+ * Aviso de preço divergente entre a alocação e o custo de referência do produto.
+ *
+ * Existe porque os dois lados vêm de fontes diferentes e nada os compara hoje:
+ * a contagem de estoque usa products.avg_cost/cost_price pro "custo estimado", e a
+ * alocação usa items.base_price/item_suppliers.base_price — sem aviso, um preço
+ * digitado errado (ou um custo de referência desatualizado) só aparece depois do
+ * pedido enviado ao fornecedor.
+ */
+function PriceDivergenceBadge({ refCost, price }: { refCost: string | null; price: string | number | null }) {
+  const pct = priceDivergencePct(refCost, price);
+  if (pct === null || Math.abs(pct) < 20) return null;
+  const up = pct > 0;
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${up ? 'bg-rose-100 text-rose-700' : 'bg-sky-100 text-sky-700'}`}
+      title={`Custo de referência do produto (contagem de estoque): ${brl(refCost)}. Este preço está ${Math.abs(pct).toFixed(0)}% ${up ? 'acima' : 'abaixo'} — confira antes de gerar o pedido.`}
+    >
+      <AlertTriangle size={10} /> {up ? '+' : '−'}{Math.abs(pct).toFixed(0)}%
+    </span>
+  );
 }
 
 function initAlloc(it: RequestItem): Alloc {
@@ -416,7 +454,10 @@ export function RequestDetailPage() {
                       )}
                       <td className="px-4 py-3">
                         <p className="font-medium text-slate-800">{it.product_name ?? it.free_text}</p>
-                        <p className="text-xs text-slate-400">{it.quantity} {it.unit}{!it.product_id && ' · fora do catálogo'}</p>
+                        <p className="text-xs text-slate-400">
+                          {it.quantity} {it.unit}{!it.product_id && ' · fora do catálogo'}
+                          {it.ref_cost && ` · custo ref. ${brl(it.ref_cost)}`}
+                        </p>
                       </td>
                       {allocatable ? (
                         <td className="px-4 py-3">
@@ -424,30 +465,33 @@ export function RequestDetailPage() {
                         </td>
                       ) : (
                         <td className="px-4 py-3 text-right text-slate-500">
-                          {it.alloc_supplier_id ? (
-                            <span>{suppliers?.find((s) => s.id === it.alloc_supplier_id)?.name ?? it.alloc_name ?? `Fornecedor ${it.alloc_supplier_id}`}</span>
-                          ) : (() => {
-                            const p = principalOffer(it);
-                            if (p) {
-                              const isDefault = it.default_supplier_id != null && p.supplier_id === it.default_supplier_id;
-                              return (
-                                <span>
-                                  <span className="font-medium text-slate-700">{p.supplier_name}</span>
-                                  <span className="ml-1 text-xs text-slate-400">{isDefault ? '(padrão)' : '(mais barato)'}</span>
-                                </span>
-                              );
-                            }
-                            // Sem NENHUMA oferta cadastrada, mas o produto tem fornecedor padrão.
-                            if (it.default_supplier_name) {
-                              return (
-                                <span>
-                                  <span className="font-medium text-slate-700">{it.default_supplier_name}</span>
-                                  <span className="ml-1 text-xs text-slate-400">(padrão)</span>
-                                </span>
-                              );
-                            }
-                            return <span className="text-xs text-slate-400">sem fornecedor cadastrado</span>;
-                          })()}
+                          <div className="flex items-center justify-end gap-1.5">
+                            <PriceDivergenceBadge refCost={it.ref_cost} price={it.alloc_price ?? principalOffer(it)?.base_price ?? null} />
+                            {it.alloc_supplier_id ? (
+                              <span>{suppliers?.find((s) => s.id === it.alloc_supplier_id)?.name ?? it.alloc_name ?? `Fornecedor ${it.alloc_supplier_id}`}</span>
+                            ) : (() => {
+                              const p = principalOffer(it);
+                              if (p) {
+                                const isDefault = it.default_supplier_id != null && p.supplier_id === it.default_supplier_id;
+                                return (
+                                  <span>
+                                    <span className="font-medium text-slate-700">{p.supplier_name}</span>
+                                    <span className="ml-1 text-xs text-slate-400">{isDefault ? '(padrão)' : '(mais barato)'}</span>
+                                  </span>
+                                );
+                              }
+                              // Sem NENHUMA oferta cadastrada, mas o produto tem fornecedor padrão.
+                              if (it.default_supplier_name) {
+                                return (
+                                  <span>
+                                    <span className="font-medium text-slate-700">{it.default_supplier_name}</span>
+                                    <span className="ml-1 text-xs text-slate-400">(padrão)</span>
+                                  </span>
+                                );
+                              }
+                              return <span className="text-xs text-slate-400">sem fornecedor cadastrado</span>;
+                            })()}
+                          </div>
                         </td>
                       )}
                     </tr>
@@ -482,16 +526,19 @@ function AllocCell({
   if (!a) return null;
   return (
     <div className="space-y-2">
-      <Select value={a.source} onChange={(e) => onSource(it, e.target.value)}>
-        <option value="">— de onde comprar —</option>
-        {it.offers.map((o) => (
-          <option key={offerKey(o)} value={offerKey(o)}>
-            {o.supplier_name}{o.base_price != null ? ` — R$ ${Number(o.base_price).toFixed(2).replace('.', ',')}` : ''}
-            {it.default_supplier_id === o.supplier_id ? ' (padrão)' : ''}
-          </option>
-        ))}
-        <option value="manual">Outro fornecedor…</option>
-      </Select>
+      <div className="flex items-center gap-1.5">
+        <Select value={a.source} onChange={(e) => onSource(it, e.target.value)} className="flex-1">
+          <option value="">— de onde comprar —</option>
+          {it.offers.map((o) => (
+            <option key={offerKey(o)} value={offerKey(o)}>
+              {o.supplier_name}{o.base_price != null ? ` — R$ ${Number(o.base_price).toFixed(2).replace('.', ',')}` : ''}
+              {it.default_supplier_id === o.supplier_id ? ' (padrão)' : ''}
+            </option>
+          ))}
+          <option value="manual">Outro fornecedor…</option>
+        </Select>
+        <PriceDivergenceBadge refCost={it.ref_cost} price={a.price} />
+      </div>
 
       {a.source === 'manual' && (
         <div className="flex flex-wrap gap-2">

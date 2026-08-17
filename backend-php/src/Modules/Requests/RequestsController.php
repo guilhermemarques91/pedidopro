@@ -47,7 +47,8 @@ final class RequestsController
         }
 
         $items = Db::query(
-            "SELECT pri.*, p.name AS product_name, c.id AS category_id, c.name AS category_name
+            "SELECT pri.*, p.name AS product_name, c.id AS category_id, c.name AS category_name,
+                    p.avg_cost, p.cost_price
                FROM purchase_request_items pri
                LEFT JOIN products p ON p.id = pri.product_id
                LEFT JOIN categories c ON c.id = p.category_id
@@ -55,6 +56,14 @@ final class RequestsController
               ORDER BY COALESCE(c.name, 'zzz'), COALESCE(p.name, pri.free_text)",
             [$id]
         );
+        foreach ($items as &$it) {
+            // Custo de referência do produto (mesma fonte do "Custo estimado" da
+            // contagem de estoque) — é contra ele que a alocação compara o preço
+            // escolhido, pra pegar preço digitado errado ou custo de referência
+            // desatualizado antes de virar pedido de verdade.
+            $it['ref_cost'] = $it['avg_cost'] ?? $it['cost_price'];
+        }
+        unset($it);
 
         // Ofertas-guia por produto canônico.
         $productIds = [];

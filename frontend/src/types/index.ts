@@ -555,6 +555,9 @@ export interface RequestItem {
   alloc_name: string | null;
   alloc_unit: string | null;
   alloc_price: string | null;
+  /** Custo de referência do produto (mesma fonte do "Custo estimado" da contagem de
+   *  estoque: avg_cost com fallback pra cost_price) — pode estar desatualizado. */
+  ref_cost: string | null;
   offers: RequestItemOffer[];
   /** "Fornecedor principal" já cadastrado no produto (products.supplier_id) — quando
    *  presente, é ele que a alocação sempre pré-seleciona, mesmo sem oferta com preço. */
