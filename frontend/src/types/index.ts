@@ -353,6 +353,18 @@ export interface Item {
   suppliers?: ItemSupplierLink[];
 }
 
+export interface MergeItemDuplicatesResult {
+  dry_run: boolean;
+  itens_unificados: number;
+  itens_removidos: number;
+  detalhe: {
+    keep: number; name: string; supplier_id: number | null; removed: number[];
+    unit_mismatch: string[] | null;
+  }[];
+  /** Mesmo nome+fornecedor, mas produtos do ERP diferentes — não fundido, exige decisão manual. */
+  conflitos: { name: string; ids: number[]; product_ids: number[] }[];
+}
+
 export type QuotationStatus = 'draft' | 'active' | 'closed';
 
 export interface Quotation {

@@ -242,6 +242,127 @@ final class ItemsController
         Http::json($item);
     }
 
+    /**
+     * POST /items/merge-duplicates?dry_run=1 — unifica itens IDÊNTICOS (mesmo fornecedor +
+     * mesmo nome), mantendo o mais "completo" (com produto do ERP vinculado, mais histórico
+     * de uso, ou mais antigo, nessa ordem) e repontando as referências das cópias antes de
+     * desativá-las. Não apaga a linha — só `active = 0`, para nunca quebrar uma FK de um
+     * pedido/cotação antigo que ainda não foi movido, e pra sobrar rastro se algo parecer
+     * errado depois.
+     *
+     * Grupo com produtos do ERP DIFERENTES entre os candidatos não é fundido — mesmo nome e
+     * fornecedor não bastam pra garantir que é o mesmo insumo, e juntar errado reatribuiria
+     * histórico de compra pro produto trocado. Esses grupos voltam em `conflitos` pra decisão
+     * manual (ver `getById`/edição, não há tela dedicada pra isso ainda).
+     */
+    public static function mergeDuplicates(Request $req): void
+    {
+        $orgId = $req->orgId();
+        $dryRun = $req->query('dry_run') !== null || ($req->input()->boolean('dry_run', false) ?? false);
+
+        $items = Db::query(
+            'SELECT id, name, supplier_id, unit, product_id FROM items WHERE org_id = ? AND active = 1',
+            [$orgId]
+        );
+        $groups = [];
+        foreach ($items as $it) {
+            $key = ($it['supplier_id'] ?? 'null') . '|' . mb_strtolower(trim((string) $it['name']));
+            $groups[$key][] = $it;
+        }
+
+        $merged = [];
+        $conflicts = [];
+        foreach ($groups as $group) {
+            if (count($group) < 2) {
+                continue;
+            }
+            $productIds = array_values(array_unique(array_filter(
+                array_map(static fn ($i) => $i['product_id'], $group),
+                static fn ($v) => $v !== null
+            )));
+            if (count($productIds) > 1) {
+                $conflicts[] = [
+                    'name' => $group[0]['name'],
+                    'ids' => array_map(static fn ($i) => (int) $i['id'], $group),
+                    'product_ids' => array_map('intval', $productIds),
+                ];
+                continue;
+            }
+
+            usort($group, static function ($a, $b) {
+                $pa = $a['product_id'] !== null ? 1 : 0;
+                $pb = $b['product_id'] !== null ? 1 : 0;
+                if ($pa !== $pb) {
+                    return $pb <=> $pa;
+                }
+                $ra = self::referenceCount((int) $a['id']);
+                $rb = self::referenceCount((int) $b['id']);
+                if ($ra !== $rb) {
+                    return $rb <=> $ra;
+                }
+                return (int) $a['id'] <=> (int) $b['id'];
+            });
+            $survivor = array_shift($group);
+            $loserIds = array_map(static fn ($i) => (int) $i['id'], $group);
+            $units = array_unique(array_map(static fn ($i) => $i['unit'], $group));
+
+            $merged[] = [
+                'keep' => (int) $survivor['id'],
+                'name' => $survivor['name'],
+                'supplier_id' => $survivor['supplier_id'] !== null ? (int) $survivor['supplier_id'] : null,
+                'removed' => $loserIds,
+                'unit_mismatch' => $units !== [$survivor['unit']] ? array_values($units) : null,
+            ];
+            if ($dryRun) {
+                continue;
+            }
+            Db::transaction(function (PDO $pdo) use ($survivor, $loserIds) {
+                self::mergeInto($pdo, (int) $survivor['id'], $loserIds);
+            });
+        }
+
+        Http::json([
+            'dry_run' => $dryRun,
+            'itens_unificados' => count($merged),
+            'itens_removidos' => array_sum(array_map(static fn ($m) => count($m['removed']), $merged)),
+            'detalhe' => $merged,
+            'conflitos' => $conflicts,
+        ]);
+    }
+
+    /** Quantas linhas de histórico (cotação/pedido/entrada/preço) já usam este item. */
+    private static function referenceCount(int $itemId): int
+    {
+        $n = 0;
+        foreach (['quotation_items', 'order_items', 'price_history', 'stock_receipt_items'] as $t) {
+            $n += (int) (Db::queryOne("SELECT COUNT(*) AS n FROM {$t} WHERE item_id = ?", [$itemId])['n'] ?? 0);
+        }
+        return $n;
+    }
+
+    /** Reaponta toda referência do(s) item(ns) perdedor(es) pro sobrevivente, depois desativa. */
+    private static function mergeInto(PDO $pdo, int $survivorId, array $loserIds): void
+    {
+        foreach ($loserIds as $loserId) {
+            foreach (['quotation_items', 'order_items', 'price_history', 'stock_receipt_items'] as $t) {
+                $pdo->prepare("UPDATE {$t} SET item_id = ? WHERE item_id = ?")->execute([$survivorId, $loserId]);
+            }
+            $pdo->prepare('UPDATE purchase_request_items SET source_item_id = ? WHERE source_item_id = ?')
+                ->execute([$survivorId, $loserId]);
+            $pdo->prepare('UPDATE purchase_request_items SET alloc_item_id = ? WHERE alloc_item_id = ?')
+                ->execute([$survivorId, $loserId]);
+            // item_suppliers tem UNIQUE(item_id, supplier_id): move o vínculo de fornecedor que
+            // o sobrevivente ainda não tem; o resto (o sobrevivente já cobre aquele fornecedor)
+            // só é descartado, nunca sobrescreve o vínculo que já ficou.
+            $pdo->prepare(
+                'UPDATE item_suppliers SET item_id = ? WHERE item_id = ?
+                   AND supplier_id NOT IN (SELECT supplier_id FROM (SELECT supplier_id FROM item_suppliers WHERE item_id = ?) x)'
+            )->execute([$survivorId, $loserId, $survivorId]);
+            $pdo->prepare('DELETE FROM item_suppliers WHERE item_id = ?')->execute([$loserId]);
+            $pdo->prepare('UPDATE items SET active = 0 WHERE id = ?')->execute([$loserId]);
+        }
+    }
+
     private static function col(Input $in, string $col): mixed
     {
         return match ($col) {

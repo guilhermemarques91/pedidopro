@@ -16,7 +16,7 @@ import type {
   FinSettings, FinDreResponse, FinChannelsResponse, FinProductsResponse, FinCmvResponse,
   FinBreakevenResponse, FinOverviewResponse,
   WaChat, WaMessage, WaUpdates,
-  PriceHistoryResponse, AbcResponse,
+  PriceHistoryResponse, AbcResponse, MergeItemDuplicatesResult,
 } from '../types';
 
 // ---- Categories ----
@@ -50,6 +50,8 @@ export const itemsApi = {
   unlinkSupplier: (id: number, supplierId: number) =>
     api.delete<Item>(`/items/${id}/suppliers/${supplierId}`).then((r) => r.data),
   priceHistory: (id: number) => api.get<PriceHistoryResponse>(`/items/${id}/price-history`).then((r) => r.data),
+  mergeDuplicates: (dryRun: boolean) =>
+    api.post<MergeItemDuplicatesResult>('/items/merge-duplicates', {}, { params: { dry_run: dryRun ? 1 : undefined } }).then((r) => r.data),
 };
 
 export interface ItemFilters { supplier_id?: number; type_id?: number; category_id?: number }

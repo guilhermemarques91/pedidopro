@@ -1,6 +1,6 @@
 import { FormEvent, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Pencil, Trash2, Eye, TrendingUp } from 'lucide-react';
+import { Plus, Pencil, Trash2, Eye, TrendingUp, Merge } from 'lucide-react';
 import { itemsApi, suppliersApi, productsApi, productTypesApi, categoriesApi, ItemFilters } from '../../services/resources';
 import { apiError } from '../../services/api';
 import { useAuth } from '../../store/auth.store';
@@ -39,6 +39,36 @@ export function Items({ embedded = false }: { embedded?: boolean } = {}) {
   const remove = useMutation({
     mutationFn: itemsApi.remove,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['items'] }),
+  });
+
+  const [mergeMsg, setMergeMsg] = useState('');
+  const [mergeErr, setMergeErr] = useState('');
+  const merge = useMutation({
+    mutationFn: (dryRun: boolean) => itemsApi.mergeDuplicates(dryRun),
+    onSuccess: (r) => {
+      setMergeErr('');
+      if (r.itens_unificados === 0) {
+        setMergeMsg(
+          r.conflitos.length > 0
+            ? `Nenhuma duplicata segura pra unificar automaticamente — ${r.conflitos.length} grupo(s) com mesmo nome/fornecedor mas produto do ERP diferente, exigem revisão manual: ${r.conflitos.map((c) => c.name).join(', ')}.`
+            : 'Nenhum item duplicado encontrado — o catálogo já está sem repetição.',
+        );
+        return;
+      }
+      if (r.dry_run) {
+        const nomes = r.detalhe.map((d) => `${d.name} (${d.removed.length + 1}→1)`).join(', ');
+        const aviso = r.conflitos.length > 0
+          ? `\n\n${r.conflitos.length} grupo(s) ficaram de fora por ter produto do ERP diferente (não unificados): ${r.conflitos.map((c) => c.name).join(', ')}.`
+          : '';
+        if (window.confirm(`Unificar ${r.itens_unificados} item(ns) duplicado(s)?\n\n${nomes}\n\nCotações, pedidos, entradas e histórico de preço das cópias passam a apontar pro item que fica.${aviso}`)) {
+          merge.mutate(false);
+        }
+        return;
+      }
+      setMergeMsg(`${r.itens_unificados} item(ns) unificado(s); ${r.itens_removidos} cópia(s) desativada(s).`);
+      qc.invalidateQueries({ queryKey: ['items'] });
+    },
+    onError: (e) => { setMergeMsg(''); setMergeErr(apiError(e)); },
   });
 
   const q = search.trim().toLowerCase();
@@ -83,10 +113,24 @@ export function Items({ embedded = false }: { embedded?: boolean } = {}) {
           <option value="">Todas as categorias</option>
           {categories?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </Select>
+        {isAdmin && (
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={merge.isPending}
+            onClick={() => { setMergeMsg(''); merge.mutate(true); }}
+            className={embedded ? undefined : 'sm:ml-auto'}
+          >
+            <Merge size={16} /> Unificar duplicadas
+          </Button>
+        )}
         {embedded && canWrite && (
           <Button onClick={() => { setEditing(null); setOpen(true); }} className="sm:ml-auto"><Plus size={16} /> Novo item</Button>
         )}
       </div>
+
+      {mergeMsg && <p className="mb-3 text-xs text-emerald-700">{mergeMsg}</p>}
+      {mergeErr && <div className="mb-3"><ErrorBox message={mergeErr} /></div>}
 
       {isLoading && <Spinner />}
       {error && <ErrorBox message={apiError(error)} />}

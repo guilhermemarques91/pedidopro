@@ -120,6 +120,7 @@ final class Routes
         $r->get('/items', [ItemsController::class, 'list'], self::READ);
         $r->get('/items/:id', [ItemsController::class, 'getById'], self::READ);
         $r->get('/items/:id/price-history', [ItemsController::class, 'priceHistory'], self::READ);
+        $r->post('/items/merge-duplicates', [ItemsController::class, 'mergeDuplicates'], self::COMPRAS_ADMIN);
         $r->get('/purchases/abc', [PurchasesReportController::class, 'abc'], self::READ);
         $r->post('/items', [ItemsController::class, 'create'], self::WRITE);
         $r->put('/items/:id', [ItemsController::class, 'update'], self::WRITE);
