@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Send, Check, X, PackageCheck, Ban, MessageCircle, Plus, Trash2, Copy } from 'lucide-react';
+import { ArrowLeft, Send, Check, X, PackageCheck, Ban, MessageCircle, Plus, Trash2, Copy, AlertTriangle } from 'lucide-react';
 import { ordersApi, itemsApi } from '../../services/resources';
 import { buildOrderItemOptions, resolveOrderItemId } from '../../services/resolveOrderItem';
 import { apiError } from '../../services/api';
@@ -26,13 +26,22 @@ export function OrderDetailPage() {
   const submit = useMutation({ mutationFn: () => ordersApi.submit(oid), onSuccess: invalidate });
   const approve = useMutation({ mutationFn: () => ordersApi.approve(oid), onSuccess: invalidate });
   const reject = useMutation({ mutationFn: (c: string) => ordersApi.reject(oid, c), onSuccess: invalidate });
-  const send = useMutation({ mutationFn: () => ordersApi.send(oid), onSuccess: invalidate });
+  // Envio real (Evolution API manda mensagem de verdade pro WhatsApp do fornecedor) só
+  // dispara depois de confirmar — closeSendBox também limpa o estado de "isso é uma
+  // pré-confirmação de envio", senão fechar a prévia e reabrir por "Gerar mensagem"
+  // continuaria mostrando o botão de confirmar envio por engano.
+  const send = useMutation({
+    mutationFn: () => ordersApi.send(oid),
+    onSuccess: () => { invalidate(); setPendingSend(false); setMsgBox(null); },
+  });
   const [msgBox, setMsgBox] = useState<{ message: string; whatsapp_number: string | null } | null>(null);
+  const [pendingSend, setPendingSend] = useState(false);
   const [copied, setCopied] = useState(false);
   const fetchMsg = useMutation({
     mutationFn: () => ordersApi.message(oid),
     onSuccess: (d) => { setMsgBox(d); setCopied(false); },
   });
+  const closeMsgBox = () => { setMsgBox(null); setPendingSend(false); };
   // Se a Evolution falhar (ex.: 502), mostra a mensagem automaticamente para copiar/colar.
   useEffect(() => {
     if (send.isError && !msgBox && !fetchMsg.isPending) fetchMsg.mutate();
@@ -44,11 +53,14 @@ export function OrderDetailPage() {
   if (error) return <ErrorBox message={apiError(error)} />;
   if (!data) return null;
 
-  const busy = [submit, approve, reject, send, cancel].some((m) => m.isPending);
-  const mutError = [submit, approve, reject, send, cancel].find((m) => m.error)?.error;
+  const busy = [submit, approve, reject, send, cancel, fetchMsg].some((m) => m.isPending);
+  const mutError = [submit, approve, reject, send, cancel, fetchMsg].find((m) => m.error)?.error;
 
   // Edição liberada apenas em rascunho (o backend bloqueia após submissão).
   const editable = data.status === 'draft' && isBuyer;
+  // Preço não é obrigatório na alocação da lista de compras — sem este aviso, um pedido
+  // com item a R$0 já passou por aprovação/envio/recebimento inteiro sem ninguém notar.
+  const hasZeroPrice = data.items.some((it) => Number(it.unit_price) <= 0);
 
   return (
     <div>
@@ -62,12 +74,27 @@ export function OrderDetailPage() {
           {isBuyer && data.status === 'draft' && <Button onClick={() => submit.mutate()} disabled={busy}><Send size={16} /> Enviar p/ aprovação</Button>}
           {isApprover && data.status === 'pending_approval' && (
             <>
-              <Button onClick={() => approve.mutate()} disabled={busy}><Check size={16} /> Aprovar</Button>
+              <Button
+                onClick={() => {
+                  if (!hasZeroPrice || confirm('Este pedido tem item(ns) sem preço (R$ 0,00). Aprovar mesmo assim?')) approve.mutate();
+                }}
+                disabled={busy}
+              >
+                <Check size={16} /> Aprovar
+              </Button>
               <Button variant="danger" onClick={() => { const c = prompt('Motivo da rejeição (opcional):') ?? ''; reject.mutate(c); }} disabled={busy}><X size={16} /> Rejeitar</Button>
             </>
           )}
           {isBuyer && data.status === 'approved' && (
-            <Button onClick={() => send.mutate()} disabled={busy}>
+            <Button
+              onClick={() => {
+                // Mensagem de WhatsApp é real (Evolution API) — mostra a prévia e exige
+                // confirmação explícita antes de mandar, em vez de disparar no primeiro clique.
+                if (data.order_type === 'whatsapp') { setPendingSend(true); fetchMsg.mutate(); }
+                else if (confirm(`Enviar o pedido #${data.id} para ${data.supplier_name}? O fornecedor será avisado.`)) send.mutate();
+              }}
+              disabled={busy}
+            >
               {data.order_type === 'whatsapp' ? <MessageCircle size={16} /> : <Send size={16} />} Enviar ao fornecedor
             </Button>
           )}
@@ -91,11 +118,20 @@ export function OrderDetailPage() {
       {mutError && <div className="mb-4"><ErrorBox message={apiError(mutError)} /></div>}
       {send.data?.whatsappSent && <div className="mb-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700">✅ Pedido enviado pelo WhatsApp!</div>}
 
+      {hasZeroPrice && (
+        <div className="mb-4 flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+          <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+          <p>Este pedido tem item(ns) sem preço (R$ 0,00) — confira as linhas destacadas antes de seguir.</p>
+        </div>
+      )}
+
       {msgBox && (
         <Card className="mb-4 space-y-3">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-slate-800">Mensagem do pedido</h3>
-            <button onClick={() => setMsgBox(null)} className="text-slate-300 hover:text-slate-600"><X size={16} /></button>
+            <h3 className="text-sm font-semibold text-slate-800">
+              {pendingSend ? 'Confirmar mensagem antes de enviar' : 'Mensagem do pedido'}
+            </h3>
+            <button onClick={closeMsgBox} className="text-slate-300 hover:text-slate-600"><X size={16} /></button>
           </div>
           {send.isError && (
             <p className="text-sm text-amber-700">
@@ -122,8 +158,13 @@ export function OrderDetailPage() {
                 target="_blank"
                 rel="noreferrer"
               >
-                <Button><MessageCircle size={16} /> Abrir WhatsApp</Button>
+                <Button variant={pendingSend ? 'secondary' : 'primary'}><MessageCircle size={16} /> Abrir WhatsApp</Button>
               </a>
+            )}
+            {pendingSend && (
+              <Button onClick={() => send.mutate()} disabled={send.isPending}>
+                <Send size={16} /> {send.isPending ? 'Enviando…' : 'Confirmar e enviar'}
+              </Button>
             )}
           </div>
         </Card>
@@ -147,10 +188,14 @@ export function OrderDetailPage() {
                 editable
                   ? <EditableItemRow key={it.id} oid={oid} item={it} onChanged={invalidate} />
                   : (
-                    <tr key={it.id} className="border-b border-slate-100 last:border-0">
+                    <tr key={it.id} className={`border-b border-slate-100 last:border-0 ${Number(it.unit_price) <= 0 ? 'bg-rose-50/60' : ''}`}>
                       <td className="px-5 py-3 font-medium text-slate-800">{it.item_name} <span className="text-xs text-slate-400">({it.unit})</span></td>
                       <td className="px-5 py-3 text-right text-slate-600">{Number(it.quantity)}</td>
-                      <td className="px-5 py-3 text-right text-slate-600">{brl(it.unit_price)}</td>
+                      <td className="px-5 py-3 text-right text-slate-600">
+                        {Number(it.unit_price) <= 0
+                          ? <span className="font-medium text-rose-700" title="Sem preço lançado">{brl(it.unit_price)}</span>
+                          : brl(it.unit_price)}
+                      </td>
                       <td className="px-5 py-3 text-right font-medium text-slate-800">{brl(it.subtotal)}</td>
                     </tr>
                   )
@@ -247,14 +292,22 @@ function EditableItemRow({ oid, item, onChanged }: { oid: number; item: OrderIte
     if (n !== null && n !== Number(item.unit_price)) update.mutate({ unit_price: n });
   }
 
+  const zeroPrice = (parseNum(price) ?? 0) <= 0;
+
   return (
-    <tr className="border-b border-slate-100 last:border-0">
+    <tr className={`border-b border-slate-100 last:border-0 ${zeroPrice ? 'bg-rose-50/60' : ''}`}>
       <td className="px-5 py-2 font-medium text-slate-800">{item.item_name} <span className="text-xs text-slate-400">({item.unit})</span></td>
       <td className="px-3 py-2 text-right">
         <Input value={qty} onChange={(e) => setQty(e.target.value)} onBlur={saveQty} className="w-20 text-right" />
       </td>
       <td className="px-3 py-2 text-right">
-        <Input value={price} onChange={(e) => setPrice(e.target.value)} onBlur={savePrice} className="w-24 text-right" />
+        <Input
+          value={price}
+          onChange={(e) => setPrice(e.target.value)}
+          onBlur={savePrice}
+          title={zeroPrice ? 'Sem preço lançado' : undefined}
+          className={`w-24 text-right ${zeroPrice ? 'border-rose-300' : ''}`}
+        />
       </td>
       <td className="px-5 py-2 text-right font-medium text-slate-800">{brl(item.subtotal)}</td>
       <td className="px-3 py-2 text-right">

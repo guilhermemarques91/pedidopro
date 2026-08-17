@@ -27,7 +27,13 @@ final class OrdersController
         }
         $where = 'WHERE ' . implode(' AND ', $conditions);
         Http::json(Db::query(
-            "SELECT o.*, s.name AS supplier_name, u.name AS created_by_name
+            "SELECT o.*, s.name AS supplier_name, u.name AS created_by_name,
+                    -- Pedido com item a R$0 passava por aprovação/envio/recebimento sem
+                    -- ninguém notar (preço não é obrigatório na alocação da lista de
+                    -- compras) — esse flag alimenta o aviso na listagem e no detalhe.
+                    EXISTS(
+                      SELECT 1 FROM order_items oi WHERE oi.order_id = o.id AND oi.unit_price <= 0
+                    ) AS has_zero_price
                FROM orders o
                JOIN suppliers s ON s.id = o.supplier_id
                JOIN users u ON u.id = o.created_by

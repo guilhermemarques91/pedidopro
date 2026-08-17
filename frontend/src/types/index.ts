@@ -462,6 +462,8 @@ export interface Order {
   sent_at: string | null;
   received_at: string | null;
   created_at: string;
+  /** Algum item do pedido está com unit_price <= 0 — só vem em list(), não em getById(). */
+  has_zero_price?: boolean;
 }
 
 export interface OrderItem {

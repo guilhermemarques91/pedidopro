@@ -1,7 +1,7 @@
 import { FormEvent, KeyboardEvent, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, AlertTriangle } from 'lucide-react';
 import { ordersApi, suppliersApi, itemsApi } from '../../services/resources';
 import { buildOrderItemOptions, resolveOrderItemId } from '../../services/resolveOrderItem';
 import { apiError } from '../../services/api';
@@ -57,6 +57,14 @@ export function Orders() {
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-emerald-700">#{o.id}</span>
                     <Badge status={o.status} />
+                    {!!o.has_zero_price && (
+                      <span
+                        className="flex items-center gap-1 rounded-full bg-rose-50 px-2 py-0.5 text-xs font-semibold text-rose-700"
+                        title="Algum item deste pedido está sem preço — confira antes de aprovar/enviar"
+                      >
+                        <AlertTriangle size={11} /> preço zerado
+                      </span>
+                    )}
                   </div>
                   <p className="mt-0.5 truncate text-sm text-slate-600">{o.supplier_name}</p>
                   <p className="mt-0.5 text-xs text-slate-500">{brl(o.total_amount)} · {date(o.created_at)}</p>
@@ -86,7 +94,19 @@ export function Orders() {
                   <tr key={o.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
                     <td className="px-5 py-3"><Link to={`/orders/${o.id}`} className="font-medium text-emerald-700 hover:underline">#{o.id}</Link></td>
                     <td className="px-5 py-3 text-slate-600">{o.supplier_name}</td>
-                    <td className="px-5 py-3"><Badge status={o.status} /></td>
+                    <td className="px-5 py-3">
+                      <div className="flex items-center gap-2">
+                        <Badge status={o.status} />
+                        {!!o.has_zero_price && (
+                          <span
+                            className="flex items-center gap-1 rounded-full bg-rose-50 px-2 py-0.5 text-xs font-semibold text-rose-700"
+                            title="Algum item deste pedido está sem preço — confira antes de aprovar/enviar"
+                          >
+                            <AlertTriangle size={11} /> preço zerado
+                          </span>
+                        )}
+                      </div>
+                    </td>
                     <td className="px-5 py-3 text-right text-slate-600">{brl(o.total_amount)}</td>
                     <td className="px-5 py-3 text-slate-600">{date(o.created_at)}</td>
                     {isAdmin && (
