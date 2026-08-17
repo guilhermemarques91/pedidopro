@@ -123,7 +123,7 @@ final class CountsController
         }
 
         $products = Db::query(
-            'SELECT p.id, p.stock_qty, p.unit, p.purchase_unit
+            'SELECT p.id, p.stock_qty, p.unit
                FROM products p
               WHERE ' . implode(' AND ', $where) . '
               ORDER BY p.name',
@@ -148,9 +148,14 @@ final class CountsController
                 $scope['sub'], $scope['type'], $scope['cat'], $scope['tipo'],
             ]);
             $cid = (int) $pdo->lastInsertId();
+            // A unidade gravada é sempre a de ESTOQUE (a que o saldo/system_qty realmente
+            // significa) — nunca a de compra (`purchase_unit`, texto livre tipo "CX", sem
+            // fator numérico cadastrado em lugar nenhum). Rotular o saldo em UN como se
+            // fosse caixa fazia a folha mostrar "Sistema: 240 CX" quando eram 240 unidades:
+            // um erro de ~1 caixa (24un) virava a leitura de 240 caixas.
             $stmt = $pdo->prepare('INSERT INTO stock_count_items (count_id, product_id, system_qty, unit) VALUES (?, ?, ?, ?)');
             foreach ($products as $p) {
-                $stmt->execute([$cid, (int) $p['id'], (float) $p['stock_qty'], $p['purchase_unit'] ?: $p['unit']]);
+                $stmt->execute([$cid, (int) $p['id'], (float) $p['stock_qty'], $p['unit']]);
             }
             return $cid;
         });
@@ -194,16 +199,22 @@ final class CountsController
             }
             $stmt = $onlyOrder
                 ? $pdo->prepare('UPDATE stock_count_items SET order_qty = ? WHERE count_id = ? AND product_id = ?')
-                : $pdo->prepare('UPDATE stock_count_items SET counted_qty = ?, order_qty = ? WHERE count_id = ? AND product_id = ?');
+                : $pdo->prepare('UPDATE stock_count_items SET counted_qty = ?, counted_via = ?, order_qty = ? WHERE count_id = ? AND product_id = ?');
             foreach ($items as $row) {
                 $pid = isset($row['product_id']) ? (int) $row['product_id'] : 0;
                 if ($pid <= 0) {
                     throw HttpError::badRequest('Linha da contagem sem produto');
                 }
                 $order = self::qty($row['order_qty'] ?? null, 'Quantidade de compra inválida');
-                $stmt->execute($onlyOrder
-                    ? [$order, $id, $pid]
-                    : [self::qty($row['counted_qty'] ?? null, 'Quantidade contada inválida'), $order, $id, $pid]);
+                if ($onlyOrder) {
+                    $stmt->execute([$order, $id, $pid]);
+                    continue;
+                }
+                $counted = self::qty($row['counted_qty'] ?? null, 'Quantidade contada inválida');
+                // 'sistema' marca o que veio do botão "Conferir resto" (aceitou o saldo do
+                // sistema sem contar de verdade) — sem contagem não há via para gravar.
+                $via = $counted !== null && ($row['counted_via'] ?? null) === 'sistema' ? 'sistema' : 'manual';
+                $stmt->execute([$counted, $via, $order, $id, $pid]);
             }
         });
         Http::json(self::detail($id, $req->orgId()));
@@ -371,7 +382,7 @@ final class CountsController
     {
         $rows = Db::query(
             'SELECT sci.*, p.name AS product_name, p.min_stock, p.max_stock, p.pack_size,
-                    p.avg_cost, p.cost_price, p.stock_qty AS current_qty,
+                    p.purchase_unit, p.avg_cost, p.cost_price, p.stock_qty AS current_qty,
                     c.name AS category_name, s.name AS supplier_name,
                     sub.id AS sub_classe_id, sub.name AS sub_classe_name
                FROM stock_count_items sci

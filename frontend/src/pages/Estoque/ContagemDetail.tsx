@@ -11,7 +11,7 @@ import { PageHeader } from '../../components/PageHeader';
 import { Button, Card, Input, Select, Badge, Spinner, ErrorBox, EmptyState } from '../../components/ui';
 
 /** Valores digitados na folha (string, como o usuário digita). */
-interface Draft { counted: string; order: string }
+interface Draft { counted: string; order: string; viaSistema?: boolean }
 
 /**
  * Espelho local da digitação, por folha.
@@ -141,6 +141,7 @@ export function ContagemDetail() {
       init[it.product_id] = {
         counted: it.counted_qty !== null ? String(Number(it.counted_qty)).replace('.', ',') : '',
         order: it.order_qty !== null ? String(Number(it.order_qty)).replace('.', ',') : '',
+        viaSistema: it.counted_via === 'sistema',
       };
     });
     setDrafts(init);
@@ -230,6 +231,7 @@ export function ContagemDetail() {
     return computed.map((r) => ({
       product_id: r.it.product_id,
       counted_qty: r.counted,
+      counted_via: r.draft.viaSistema ? 'sistema' : 'manual',
       // Só grava order_qty quando o usuário mexeu; senão a sugestão segue viva.
       order_qty: parseNum(r.draft.order),
     }));
@@ -247,6 +249,7 @@ export function ContagemDetail() {
     return [...sujos.current].map((pid) => ({
       product_id: pid,
       counted_qty: parseNum(d[pid]?.counted ?? ''),
+      counted_via: d[pid]?.viaSistema ? 'sistema' : 'manual',
       order_qty: parseNum(d[pid]?.order ?? ''),
     }));
   }, []);
@@ -345,6 +348,20 @@ export function ContagemDetail() {
     });
   }
 
+  /**
+   * Grava o "contei" junto da origem (digitado à mão x aceito via "Conferir resto").
+   * Separado de set() porque a contagem é o único campo cuja origem importa depois de
+   * salva — digitar por cima de um valor aceito em massa volta a ser "manual".
+   */
+  function setCounted(productId: number, value: string, viaSistema: boolean) {
+    sujos.current.add(productId);
+    setDrafts((d) => {
+      const next = { ...d, [productId]: { ...(d[productId] ?? { counted: '', order: '' }), counted: value, viaSistema } };
+      gravarEspelho(countId, next);
+      return next;
+    });
+  }
+
   /** Aceita o rascunho local recuperado — passa a valer e o autosave o sincroniza. */
   function recuperar() {
     if (!recuperavel) return;
@@ -386,7 +403,7 @@ export function ContagemDetail() {
       if (r.counted !== null) return;
       const saldo = Number(r.it.system_qty);
       if (saldo < 0) { pulados++; return; }
-      set(r.it.product_id, 'counted', String(saldo).replace('.', ','));
+      setCounted(r.it.product_id, String(saldo).replace('.', ','), true);
       n++;
     });
     const partes = [];
@@ -578,6 +595,7 @@ export function ContagemDetail() {
                       Sistema: {fmtQty(r.it.system_qty)} {r.it.unit ?? ''}
                       {r.it.target !== null && ` · alvo ${fmtQty(r.it.target)}`}
                       {!!r.it.incoming && <span className="text-sky-600"> · a caminho {fmtQty(r.it.incoming)}</span>}
+                      <UnidadeCompraHint it={r.it} />
                     </p>
                   </div>
                   {r.counted === null ? (
@@ -589,10 +607,13 @@ export function ContagemDetail() {
 
                 <div className="mt-3 grid grid-cols-2 gap-2">
                   <label className="block">
-                    <span className="mb-1 block text-xs font-medium text-slate-500">Contei</span>
+                    <span className="mb-1 flex items-center gap-1 text-xs font-medium text-slate-500">
+                      Contei
+                      {r.draft.viaSistema && <ViaSistemaBadge />}
+                    </span>
                     <Input
                       value={r.draft.counted}
-                      onChange={(e) => set(r.it.product_id, 'counted', e.target.value)}
+                      onChange={(e) => setCounted(r.it.product_id, e.target.value, false)}
                       onKeyDown={(e) => onEnterNext(e, 'counted-m', i)}
                       data-cell={`counted-m-${i}`}
                       disabled={!isDraft || !canCount}
@@ -695,6 +716,7 @@ export function ContagemDetail() {
                         {r.it.basis === 'consumo' && r.it.daily_usage
                           ? ` · consumo ${fmtQty(r.it.daily_usage)}/dia`
                           : r.it.basis === 'minmax' ? ' · mín/máx cadastrado' : ' · sem parâmetro'}
+                        <UnidadeCompraHint it={r.it} />
                       </p>
                     </td>
                     <td className={`px-3 py-2 text-right tabular-nums ${divergiu ? 'text-slate-400 line-through' : 'text-slate-600'}`}>
@@ -707,17 +729,20 @@ export function ContagemDetail() {
                       {r.it.incoming ? fmtQty(r.it.incoming) : <span className="text-slate-300">—</span>}
                     </td>
                     <td className="w-28 px-2 py-2">
-                      <Input
-                        value={r.draft.counted}
-                        onChange={(e) => set(r.it.product_id, 'counted', e.target.value)}
-                        onKeyDown={(e) => onEnterNext(e, 'counted', i)}
-                        data-cell={`counted-${i}`}
-                        disabled={!isDraft || !canCount}
-                        className="text-right"
-                        inputMode="decimal"
-                        placeholder="—"
-                        aria-label={`Quantidade contada de ${r.it.product_name}`}
-                      />
+                      <div className="flex items-center justify-end gap-1">
+                        {r.draft.viaSistema && <ViaSistemaBadge />}
+                        <Input
+                          value={r.draft.counted}
+                          onChange={(e) => setCounted(r.it.product_id, e.target.value, false)}
+                          onKeyDown={(e) => onEnterNext(e, 'counted', i)}
+                          data-cell={`counted-${i}`}
+                          disabled={!isDraft || !canCount}
+                          className="text-right"
+                          inputMode="decimal"
+                          placeholder="—"
+                          aria-label={`Quantidade contada de ${r.it.product_name}`}
+                        />
+                      </div>
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums text-slate-500">{fmtQty(r.it.target)}</td>
                     {/* Sem contagem, "situação" e "sugerido" saem do saldo do sistema —
@@ -769,6 +794,45 @@ export function ContagemDetail() {
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * Aviso de que o produto é comprado numa unidade diferente da de estoque (ex.:
+ * "CX" vs "un") sem fator de conversão cadastrado — o saldo mostrado ao lado
+ * está sempre em unidade de estoque, nunca convertido pra caixa/fardo.
+ *
+ * Existe porque a folha chegou a rotular "Sistema: 240" como se fosse em CX
+ * quando eram 240 unidades — um erro de dezenas de caixas se alguém comprasse
+ * por esse número. Sem o fator (Estoque › Parâmetros, campo "múltiplo de
+ * compra") não dá pra converter direito, então o aviso é o que existe hoje.
+ */
+function UnidadeCompraHint({ it }: { it: StockCountItem }) {
+  if (!it.purchase_unit || it.purchase_unit === it.unit) return null;
+  const semFator = !it.pack_size || Number(it.pack_size) <= 0;
+  return (
+    <span
+      className="text-amber-600"
+      title={
+        semFator
+          ? `Comprado em "${it.purchase_unit}", sem fator de conversão cadastrado — o saldo já está em ${it.unit ?? 'unidade de estoque'}, não em ${it.purchase_unit}. Cadastre o múltiplo de compra em Estoque › Parâmetros para converter certo.`
+          : `Comprado em "${it.purchase_unit}" (${it.pack_size} ${it.unit} por ${it.purchase_unit}).`
+      }
+    >
+      {' '}· compra em {it.purchase_unit}{semFator ? ' ⚠' : ''}
+    </span>
+  );
+}
+
+/** Selo do que foi aceito via "Conferir resto" — não é uma contagem física real. */
+function ViaSistemaBadge() {
+  return (
+    <span
+      className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-500"
+      title="Aceito pelo saldo do sistema via &quot;Conferir resto&quot; — não foi contado fisicamente."
+    >
+      sistema
+    </span>
   );
 }
 

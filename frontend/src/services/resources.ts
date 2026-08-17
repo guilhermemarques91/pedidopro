@@ -196,7 +196,7 @@ export const searchApi = {
 };
 
 // ---- Estoque: contagem (inventário) → compra sugerida ----
-export interface CountLineInput { product_id: number; counted_qty?: number | null; order_qty?: number | null }
+export interface CountLineInput { product_id: number; counted_qty?: number | null; counted_via?: 'manual' | 'sistema'; order_qty?: number | null }
 
 /** Recorte possível para abrir uma folha (sub-classe + quantos itens traz). */
 export interface CountScope {
@@ -359,6 +359,7 @@ export const ordersApi = {
     api.put<OrderDetail>(`/orders/${id}/items/${itemRowId}`, body).then((r) => r.data),
   removeItem: (id: number, itemRowId: number) =>
     api.delete<OrderDetail>(`/orders/${id}/items/${itemRowId}`).then((r) => r.data),
+  pendingApprovalCount: () => api.get<{ count: number }>('/orders/pending-approval-count').then((r) => r.data.count),
   submit: (id: number) => api.post(`/orders/${id}/submit`).then((r) => r.data),
   approve: (id: number, comment?: string) => api.post(`/orders/${id}/approve`, { comment }).then((r) => r.data),
   reject: (id: number, comment?: string) => api.post(`/orders/${id}/reject`, { comment }).then((r) => r.data),

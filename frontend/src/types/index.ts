@@ -241,9 +241,13 @@ export interface StockCountItem {
   sub_classe_name: string | null;   // grupo de prateleira: é por aqui que a folha agrupa
   supplier_name: string | null;
   unit: string | null;
+  // Unidade em que o item é comprado (ex.: "CX"), sem fator de conversão cadastrado
+  // para a unidade de estoque — nunca usar para reinterpretar system_qty/counted_qty.
+  purchase_unit: string | null;
   system_qty: string;        // saldo do sistema quando a folha foi aberta
   current_qty: string;       // saldo vivo do produto agora
   counted_qty: string | null;
+  counted_via: 'manual' | 'sistema'; // 'sistema' = aceito via "Conferir resto", não contado de verdade
   order_qty: string | null;  // quantidade de compra digitada (null = usa a sugerida)
   on_hand: number;           // base do cálculo: o contado, ou o do sistema enquanto não contar
   // Cálculo da sugestão

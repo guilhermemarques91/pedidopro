@@ -48,6 +48,16 @@ final class OrdersController
         Http::json(self::detailed($req->intParam('id'), $req->orgId()));
     }
 
+    /** GET /orders/pending-approval-count — badge do menu, mesmo padrão de InboxController::count. */
+    public static function pendingApprovalCount(Request $req): void
+    {
+        $r = Db::queryOne(
+            "SELECT COUNT(*) AS n FROM orders WHERE org_id = ? AND status = 'pending_approval'",
+            [$req->orgId()]
+        );
+        Http::json(['count' => (int) ($r['n'] ?? 0)]);
+    }
+
     public static function create(Request $req): void
     {
         $in = $req->input();
@@ -126,10 +136,15 @@ final class OrdersController
     {
         $orderId = $req->intParam('id');
         $itemRowId = $req->intParam('itemId');
-        self::assertDraft(self::row($orderId, $req->orgId()));
+        $o = self::row($orderId, $req->orgId());
         self::assertItemBelongs($orderId, $itemRowId);
 
         $in = $req->input();
+        // Quantidade e observação só mudam em rascunho — mudar quanto se pede depois de
+        // mandar pra aprovação exigiria o aprovador ver de novo o que está aprovando.
+        if ($in->has('quantity') || $in->has('notes')) {
+            self::assertDraft($o);
+        }
         $fields = [];
         $values = [];
         if ($in->has('quantity')) {
@@ -137,6 +152,13 @@ final class OrdersController
             $values[] = $in->number('quantity', true);
         }
         if ($in->has('unit_price')) {
+            // Preço negociado muda às vezes depois do pedido ir pra aprovação (fornecedor
+            // ligou, cotação nova chegou) — travar isso até aprovar forçava rejeitar,
+            // reabrir, editar e reenviar só pra corrigir um número. Depois de aprovado o
+            // preço trava: a aprovação já valeu para um total específico.
+            if (!in_array($o['status'], ['draft', 'pending_approval'], true)) {
+                throw HttpError::badRequest("Pedido em status \"{$o['status']}\" não permite editar preço");
+            }
             $fields[] = 'unit_price = ?';
             $values[] = $in->number('unit_price', true);
         }

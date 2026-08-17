@@ -6,7 +6,7 @@ import {
   ChevronDown, ChevronRight, PanelLeftClose, PanelLeft,
 } from 'lucide-react';
 import { useAuth } from '../store/auth.store';
-import { inboxApi, marmitexApi } from '../services/resources';
+import { inboxApi, marmitexApi, ordersApi } from '../services/resources';
 import { AppName, Logo } from '../config/brand';
 import { AutoPrint } from './AutoPrint';
 import { VersionWatcher } from './VersionWatcher';
@@ -79,9 +79,17 @@ export function Layout() {
     enabled: can('marmitex:order'),
     refetchInterval: 60_000,
   });
+  // Pedidos de compra parados esperando aprovação (só quem aprova precisa ver).
+  const { data: approvalCount } = useQuery({
+    queryKey: ['orders-pending-approval-count'],
+    queryFn: ordersApi.pendingApprovalCount,
+    enabled: can('compras:approve'),
+    refetchInterval: 60_000,
+  });
   const badges: Record<string, number | undefined> = {
     '/inbox': inboxCount,
     '/marmitex/whatsapp': waCount,
+    '/orders': approvalCount,
   };
 
   function handleLogout() {

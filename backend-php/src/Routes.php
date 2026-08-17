@@ -210,6 +210,8 @@ final class Routes
 
         // Orders
         $r->get('/orders', [OrdersController::class, 'list'], self::READ);
+        // Precisa vir antes de /orders/:id — o router casa por ordem e :id engoliria "pending-approval-count".
+        $r->get('/orders/pending-approval-count', [OrdersController::class, 'pendingApprovalCount'], self::APPROVE);
         $r->get('/orders/:id', [OrdersController::class, 'getById'], self::READ);
         $r->get('/orders/:id/message', [OrdersController::class, 'message'], self::WRITE);
         $r->post('/orders', [OrdersController::class, 'create'], self::WRITE);

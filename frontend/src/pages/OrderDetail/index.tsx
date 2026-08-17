@@ -24,8 +24,18 @@ export function OrderDetailPage() {
   };
 
   const submit = useMutation({ mutationFn: () => ordersApi.submit(oid), onSuccess: invalidate });
-  const approve = useMutation({ mutationFn: () => ordersApi.approve(oid), onSuccess: invalidate });
-  const reject = useMutation({ mutationFn: (c: string) => ordersApi.reject(oid, c), onSuccess: invalidate });
+  const approve = useMutation({
+    mutationFn: (c: string) => ordersApi.approve(oid, c),
+    onSuccess: () => { invalidate(); setDecision(null); },
+  });
+  const reject = useMutation({
+    mutationFn: (c: string) => ordersApi.reject(oid, c),
+    onSuccess: () => { invalidate(); setDecision(null); },
+  });
+  // Comentário de aprovação/rejeição num painel só, em vez de prompt() nativo do
+  // navegador — dá pra ler o motivo depois (fica salvo em order_approvals) sem
+  // depender de uma caixinha que trava a aba inteira.
+  const [decision, setDecision] = useState<{ action: 'approve' | 'reject'; comment: string } | null>(null);
   // Envio real (Evolution API manda mensagem de verdade pro WhatsApp do fornecedor) só
   // dispara depois de confirmar — closeSendBox também limpa o estado de "isso é uma
   // pré-confirmação de envio", senão fechar a prévia e reabrir por "Gerar mensagem"
@@ -58,6 +68,11 @@ export function OrderDetailPage() {
 
   // Edição liberada apenas em rascunho (o backend bloqueia após submissão).
   const editable = data.status === 'draft' && isBuyer;
+  // Pendente de aprovação ainda permite corrigir o preço negociado — sem isso, um preço
+  // errado só se corrige rejeitando o pedido inteiro (volta a rascunho, edita, reenvia,
+  // aprova de novo). Quantidade/remoção continuam só em rascunho: mudar quanto se pede
+  // depois de mandar pra aprovação faria o aprovador decidir sobre algo que já mudou.
+  const priceOnlyEditable = data.status === 'pending_approval' && isBuyer;
   // Preço não é obrigatório na alocação da lista de compras — sem este aviso, um pedido
   // com item a R$0 já passou por aprovação/envio/recebimento inteiro sem ninguém notar.
   const hasZeroPrice = data.items.some((it) => Number(it.unit_price) <= 0);
@@ -76,13 +91,15 @@ export function OrderDetailPage() {
             <>
               <Button
                 onClick={() => {
-                  if (!hasZeroPrice || confirm('Este pedido tem item(ns) sem preço (R$ 0,00). Aprovar mesmo assim?')) approve.mutate();
+                  if (!hasZeroPrice || confirm('Este pedido tem item(ns) sem preço (R$ 0,00). Aprovar mesmo assim?')) {
+                    setDecision({ action: 'approve', comment: '' });
+                  }
                 }}
                 disabled={busy}
               >
                 <Check size={16} /> Aprovar
               </Button>
-              <Button variant="danger" onClick={() => { const c = prompt('Motivo da rejeição (opcional):') ?? ''; reject.mutate(c); }} disabled={busy}><X size={16} /> Rejeitar</Button>
+              <Button variant="danger" onClick={() => setDecision({ action: 'reject', comment: '' })} disabled={busy}><X size={16} /> Rejeitar</Button>
             </>
           )}
           {isBuyer && data.status === 'approved' && (
@@ -123,6 +140,40 @@ export function OrderDetailPage() {
           <AlertTriangle size={16} className="mt-0.5 shrink-0" />
           <p>Este pedido tem item(ns) sem preço (R$ 0,00) — confira as linhas destacadas antes de seguir.</p>
         </div>
+      )}
+
+      {decision && (
+        <Card className="mb-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-slate-800">
+              {decision.action === 'approve' ? 'Aprovar pedido' : 'Rejeitar pedido'}
+            </h3>
+            <button onClick={() => setDecision(null)} className="text-slate-300 hover:text-slate-600"><X size={16} /></button>
+          </div>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-slate-500">
+              Comentário {decision.action === 'reject' ? '(motivo da rejeição, opcional)' : '(opcional)'}
+            </span>
+            <textarea
+              value={decision.comment}
+              onChange={(e) => setDecision({ ...decision, comment: e.target.value })}
+              rows={2}
+              autoFocus
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+            />
+          </label>
+          <div className="flex gap-2">
+            <Button
+              variant={decision.action === 'reject' ? 'danger' : 'primary'}
+              disabled={busy}
+              onClick={() => (decision.action === 'approve' ? approve : reject).mutate(decision.comment)}
+            >
+              {decision.action === 'approve' ? <Check size={16} /> : <X size={16} />}
+              {decision.action === 'approve' ? 'Confirmar aprovação' : 'Confirmar rejeição'}
+            </Button>
+            <Button variant="secondary" onClick={() => setDecision(null)} disabled={busy}>Cancelar</Button>
+          </div>
+        </Card>
       )}
 
       {msgBox && (
@@ -180,13 +231,15 @@ export function OrderDetailPage() {
                 <th className="px-5 py-3 font-medium text-right">Qtd</th>
                 <th className="px-5 py-3 font-medium text-right">Unit.</th>
                 <th className="px-5 py-3 font-medium text-right">Subtotal</th>
-                {editable && <th className="px-5 py-3" />}
+                {(editable || priceOnlyEditable) && <th className="px-5 py-3" />}
               </tr>
             </thead>
             <tbody>
               {data.items.map((it) =>
                 editable
                   ? <EditableItemRow key={it.id} oid={oid} item={it} onChanged={invalidate} />
+                  : priceOnlyEditable
+                  ? <EditableItemRow key={it.id} oid={oid} item={it} onChanged={invalidate} priceOnly />
                   : (
                     <tr key={it.id} className={`border-b border-slate-100 last:border-0 ${Number(it.unit_price) <= 0 ? 'bg-rose-50/60' : ''}`}>
                       <td className="px-5 py-3 font-medium text-slate-800">{it.item_name} <span className="text-xs text-slate-400">({it.unit})</span></td>
@@ -269,8 +322,12 @@ function Row({ label, value }: { label: string; value?: string | null }) {
   );
 }
 
-/** Linha de item editável (qtd/preço salvam ao sair do campo) — só em rascunho. */
-function EditableItemRow({ oid, item, onChanged }: { oid: number; item: OrderItem; onChanged: () => void }) {
+/**
+ * Linha de item editável (qtd/preço salvam ao sair do campo) — só em rascunho.
+ * `priceOnly` cobre o pedido pendente de aprovação: só o preço pode mudar, quantidade
+ * e remoção continuam travadas (o backend rejeita as duas fora de rascunho).
+ */
+function EditableItemRow({ oid, item, onChanged, priceOnly }: { oid: number; item: OrderItem; onChanged: () => void; priceOnly?: boolean }) {
   const [qty, setQty] = useState(numToInput(item.quantity));
   const [price, setPrice] = useState(numToInput(item.unit_price));
 
@@ -298,7 +355,9 @@ function EditableItemRow({ oid, item, onChanged }: { oid: number; item: OrderIte
     <tr className={`border-b border-slate-100 last:border-0 ${zeroPrice ? 'bg-rose-50/60' : ''}`}>
       <td className="px-5 py-2 font-medium text-slate-800">{item.item_name} <span className="text-xs text-slate-400">({item.unit})</span></td>
       <td className="px-3 py-2 text-right">
-        <Input value={qty} onChange={(e) => setQty(e.target.value)} onBlur={saveQty} className="w-20 text-right" />
+        {priceOnly
+          ? <span className="text-slate-600">{Number(item.quantity)}</span>
+          : <Input value={qty} onChange={(e) => setQty(e.target.value)} onBlur={saveQty} className="w-20 text-right" />}
       </td>
       <td className="px-3 py-2 text-right">
         <Input
@@ -311,7 +370,9 @@ function EditableItemRow({ oid, item, onChanged }: { oid: number; item: OrderIte
       </td>
       <td className="px-5 py-2 text-right font-medium text-slate-800">{brl(item.subtotal)}</td>
       <td className="px-3 py-2 text-right">
-        <button onClick={() => remove.mutate()} className="text-slate-400 hover:text-red-600" disabled={remove.isPending}><Trash2 size={16} /></button>
+        {!priceOnly && (
+          <button onClick={() => remove.mutate()} className="text-slate-400 hover:text-red-600" disabled={remove.isPending}><Trash2 size={16} /></button>
+        )}
       </td>
     </tr>
   );
