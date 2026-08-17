@@ -185,6 +185,7 @@ final class Routes
         $r->put('/stock/counts/:id', [CountsController::class, 'update'], self::ESTOQUE_COUNT);
         $r->delete('/stock/counts/:id', [CountsController::class, 'remove'], self::ESTOQUE_COUNT);
         $r->post('/stock/counts/:id/apply', [CountsController::class, 'apply'], self::ESTOQUE_COUNT);
+        $r->post('/stock/counts/:id/reopen', [CountsController::class, 'reopen'], self::ESTOQUE_COUNT);
         $r->post('/stock/counts/:id/generate-request', [CountsController::class, 'generateRequest'], self::REQUESTS);
         // Parâmetros de reposição (mín/máx/embalagem) em lote — é cadastro de produto.
         $r->get('/stock/replenishment', [ParamsController::class, 'list'], self::ESTOQUE_READ);

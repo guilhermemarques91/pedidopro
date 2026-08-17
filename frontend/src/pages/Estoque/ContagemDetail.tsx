@@ -329,6 +329,21 @@ export function ContagemDetail() {
     onError: (e) => setError(apiError(e)),
   });
 
+  // Reabrir desfaz o ajuste de estoque da conclusão (estorno, não sobrescrita — ver
+  // CountsController::reopen) e volta a folha pra rascunho, com o que já foi contado
+  // intacto: é pra corrigir a linha que saiu errada, não pra recontar tudo de novo.
+  const reopen = useMutation({
+    mutationFn: () => stockCountsApi.reopen(countId),
+    onSuccess: (r) => {
+      setError('');
+      qc.invalidateQueries({ queryKey: ['stock-count', countId] });
+      qc.invalidateQueries({ queryKey: ['stock-counts'] });
+      qc.invalidateQueries({ queryKey: ['products'] });
+      alert(`Contagem reaberta. ${r.reverted} produto(s) tiveram o ajuste de estoque desfeito.`);
+    },
+    onError: (e) => setError(apiError(e)),
+  });
+
   const generate = useMutation({
     mutationFn: () => stockCountsApi.generateRequest(countId),
     onSuccess: (r) => {
@@ -463,6 +478,20 @@ export function ContagemDetail() {
             {!isDraft && !data.request_id && canEditOrder && (
               <Button variant="secondary" disabled={save.isPending} onClick={() => save.mutate()}>
                 <Save size={16} /> Salvar quantidades
+              </Button>
+            )}
+            {/* Reabrir só cabe antes da lista de compras existir — depois disso a
+                contagem já virou decisão de compra, desfazer o saldo bagunçaria o que
+                foi pedido. */}
+            {data.status === 'applied' && !data.request_id && canCount && (
+              <Button
+                variant="secondary"
+                disabled={reopen.isPending}
+                onClick={() => {
+                  if (confirm('Reabrir esta contagem? O ajuste de estoque feito na conclusão será desfeito (estornado, sem apagar movimentos que aconteceram depois) e a folha volta a ser rascunho — o que já foi contado continua lançado, só editável de novo.')) reopen.mutate();
+                }}
+              >
+                <RotateCcw size={16} /> Reabrir contagem
               </Button>
             )}
             {!isDraft && !data.request_id && canRequest && (

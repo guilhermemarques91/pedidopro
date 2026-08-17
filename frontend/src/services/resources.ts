@@ -218,6 +218,8 @@ export const stockCountsApi = {
     api.put<StockCountDetail>(`/stock/counts/${id}`, body).then((r) => r.data),
   apply: (id: number) =>
     api.post<{ adjusted: number; count: StockCountDetail }>(`/stock/counts/${id}/apply`).then((r) => r.data),
+  reopen: (id: number) =>
+    api.post<{ reverted: number; count: StockCountDetail }>(`/stock/counts/${id}/reopen`).then((r) => r.data),
   generateRequest: (id: number) =>
     api.post<{ request_id: number; items: number }>(`/stock/counts/${id}/generate-request`).then((r) => r.data),
   remove: (id: number) => api.delete(`/stock/counts/${id}`).then((r) => r.data),

@@ -264,6 +264,56 @@ final class CountsController
     }
 
     /**
+     * POST /stock/counts/:id/reopen — desfaz a conclusão.
+     *
+     * apply() grava um stock_moves por produto com ref `count:{id}`; reabrir estorna
+     * exatamente o que aquele ajuste contribuiu, um por um, via um movimento INVERSO
+     * (in/out) — nunca sobrescrevendo o saldo pro valor antigo. O produto pode ter se
+     * mexido depois da conclusão (venda, outra entrada), e um "adjust" por cima disso
+     * apagaria esses movimentos; in/out compõe com o saldo atual e some certo.
+     *
+     * counted_qty/order_qty NÃO são apagados: reabrir é pra corrigir a linha que saiu
+     * errada, não pra recontar a prateleira inteira de novo.
+     */
+    public static function reopen(Request $req): void
+    {
+        $id = $req->intParam('id');
+        $count = self::row($id, $req->orgId());
+        if ($count['status'] !== 'applied') {
+            throw HttpError::badRequest('Esta contagem não está concluída');
+        }
+        if ($count['request_id'] !== null) {
+            throw HttpError::badRequest('Esta contagem já gerou a lista de compras #' . $count['request_id'] . ' e não pode mais ser reaberta');
+        }
+        // SUM agrupado (não uma linha só): se a contagem já foi reaberta e reaplicada
+        // antes, pode haver mais de um lançamento com esse ref para o mesmo produto —
+        // o que importa é o efeito líquido de todos eles.
+        $moves = Db::query(
+            'SELECT product_id, SUM(qty_delta) AS total_delta
+               FROM stock_moves
+              WHERE org_id = ? AND ref = ?
+              GROUP BY product_id
+             HAVING ABS(SUM(qty_delta)) > 0.0001',
+            [$req->orgId(), "count:{$id}"]
+        );
+
+        $reverted = Db::transaction(function (PDO $pdo) use ($moves, $id, $req) {
+            foreach ($moves as $m) {
+                $delta = (float) $m['total_delta'];
+                Stock::apply(
+                    $pdo, $req->orgId(), (int) $m['product_id'],
+                    $delta > 0 ? 'out' : 'in', abs($delta),
+                    null, "count:{$id}", 'Estorno da reabertura da contagem #' . $id, $req->userId()
+                );
+            }
+            $pdo->prepare("UPDATE stock_counts SET status = 'draft', applied_at = NULL, applied_by = NULL WHERE id = ?")
+                ->execute([$id]);
+            return count($moves);
+        });
+        Http::json(['ok' => true, 'reverted' => $reverted, 'count' => self::detail($id, $req->orgId())]);
+    }
+
+    /**
      * POST /stock/counts/:id/generate-request — gera a lista de compras.
      * Entram as linhas com quantidade final > 0 (a digitada, ou a sugerida).
      */
